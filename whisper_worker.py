@@ -168,6 +168,8 @@ def make_handler(engine, token):
             try:
                 self._send(200, dict(engine.transcribe(audio, lang), ok=True))
             except Exception as e:           # noqa: BLE001  (an undecodable clip must not stop the worker)
+                import traceback
+                print('transcribe failed (%d bytes of audio, lang=%s): %s' % (len(audio), lang, traceback.format_exc()), flush=True)      # the reason goes to the log (instance/whisper_worker.log): the page only shows the code
                 self._send(422, {'error': 'cannot_transcribe', 'detail': str(e)[:120]})
     return Handler
 
