@@ -2,38 +2,51 @@
 
 ## ภาษาไทย
 
-CLYLAR Network Scanner เป็นเว็บแอปพลิเคชันที่พัฒนาด้วย Flask ใช้ตราสัญลักษณ์ของ NT (บริษัท โทรคมนาคมแห่งชาติ จำกัด (มหาชน)) ทำหน้าที่สแกนเครือข่ายด้วย nmap ค้นหาช่องโหว่ที่เป็นที่รู้จัก (CVE) ผ่านฐานข้อมูล NVD ตั้งเวลาสแกนซ้ำ สร้างรายงานรูปแบบ PDF และมีผู้ช่วย AI พร้อมคำสั่งเสียง หน้าจอใช้ภาษาไทย
+CLYLAR Network Scanner เป็นเว็บแอปพลิเคชันที่พัฒนาด้วย Flask และใช้ตราสัญลักษณ์ของบริษัท โทรคมนาคมแห่งชาติ จำกัด (มหาชน) หรือ NT ความสามารถหลักได้แก่ สแกนเครือข่ายด้วย nmap ค้นหาช่องโหว่ที่เปิดเผยต่อสาธารณะ (CVE) จากฐานข้อมูล NVD ตั้งเวลาสแกนซ้ำ สร้างรายงาน PDF และผู้ช่วย AI ที่รองรับคำสั่งเสียง หน้าจอใช้ภาษาไทย
 
-> **กรุณาใช้เฉพาะกับเครือข่ายที่คุณเป็นเจ้าของหรือได้รับอนุญาตให้สแกนเท่านั้น** การสแกนเครือข่ายของผู้อื่นโดยไม่ได้รับอนุญาตอาจผิดกฎหมาย
+> **กรุณาใช้เฉพาะกับเครือข่ายที่คุณเป็นเจ้าของหรือได้รับอนุญาตให้สแกนเท่านั้น** การสแกนเครือข่ายของผู้อื่นโดยไม่ได้รับอนุญาตอาจมีความผิดตามกฎหมาย
 
 ### สิ่งที่ต้องมี
 
 | | |
 |---|---|
-| Python 3.11 | สำหรับตัวแอปพลิเคชัน |
-| [nmap](https://nmap.org/download.html) | ต้องอยู่ใน `PATH` บน Windows ให้ติดตั้ง **Npcap** ด้วย (ตัวติดตั้งของ nmap มีให้เลือก) การตรวจจับ OS และการสแกนบางแบบต้องใช้สิทธิ์ผู้ดูแลระบบ (Administrator / root) |
+| Python 3.11 | สำหรับเรียกใช้แอปพลิเคชัน |
+| [nmap](https://nmap.org/download.html) | ต้องเรียกใช้ได้จาก `PATH` ส่วนบน Windows ต้องติดตั้ง **Npcap** ด้วย (เลือกได้ในตัวติดตั้งของ nmap) การตรวจหา OS และการสแกนหลายประเภทต้องใช้สิทธิ์ผู้ดูแลระบบ จึงควรเรียกใช้แอปด้วยสิทธิ์ Administrator หรือ root หากไม่พบ nmap หน้างานสแกนจะแสดงคำเตือนและการสแกนจะไม่สำเร็จ |
 | Microsoft Edge หรือ Google Chrome | ใช้สร้างรายงาน PDF เท่านั้น (ระบบพิมพ์รายงานด้วยเบราว์เซอร์แบบไม่แสดงหน้าต่าง) |
-| อินเทอร์เน็ต | หน้าเว็บโหลด Bootstrap ไอคอน และฟอนต์จาก CDN และการค้นหา CVE เรียกใช้ NVD |
+| อินเทอร์เน็ต | หน้าเว็บโหลด Bootstrap ไอคอน และฟอนต์จาก CDN ส่วนการค้นหา CVE ต้องเชื่อมต่อกับ NVD |
 
 ### วิธีเริ่มใช้งาน
 
+แนะนำให้สร้างสภาพแวดล้อมเสมือน (virtual environment) ก่อนติดตั้งแพ็กเกจ
+
 ```bash
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+source .venv/bin/activate     # Linux / macOS
 pip install -r requirements.txt
 python app.py
 ```
 
-เปิด <http://127.0.0.1:5000>
+จากนั้นเปิด <http://127.0.0.1:5000> ในเบราว์เซอร์
 
-เมื่อเริ่มใช้งานครั้งแรก ระบบจะสร้างไฟล์ `instance/scanner.db` และบัญชีผู้ดูแลระบบ **`admin` / `admin123`** กรุณาเปลี่ยนรหัสผ่านทันที เพราะเป็นค่าเริ่มต้นสำหรับต้นแบบ ไม่เหมาะกับเครือข่ายที่ใช้ร่วมกัน และกรุณากำหนดค่า `SECRET_KEY` ของตนเองก่อนใช้งานนอกเครื่องส่วนตัว
+เมื่อเรียกใช้ครั้งแรก ระบบจะสร้างฐานข้อมูล `instance/scanner.db` และบัญชีผู้ดูแลระบบสูงสุด (superadmin) ชื่อผู้ใช้ **`admin`** รหัสผ่าน **`admin123`** รหัสผ่านนี้เป็นค่าเริ่มต้นสำหรับทดลองใช้ กรุณาเปลี่ยนทันทีที่หน้าจัดการผู้ใช้งาน
+
+ก่อนนำไปใช้งานจริงหรือใช้บนเครื่องที่ใช้ร่วมกับผู้อื่น กรุณากำหนด `SECRET_KEY` (คีย์สำหรับลงนามเซสชัน) เป็นค่าสุ่มของคุณเอง เนื่องจากค่าเริ่มต้นเปิดเผยอยู่ในซอร์สโค้ด วิธีที่ง่ายที่สุดคือเพิ่มบรรทัดต่อไปนี้ในไฟล์ `.env` ซึ่งใช้ได้กับทุกระบบปฏิบัติการ
+
+```
+SECRET_KEY=a-long-random-string
+```
+
+สร้างค่าสุ่มได้ด้วยคำสั่งนี้
 
 ```bash
-set SECRET_KEY=a-long-random-string
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 ### การตั้งค่าเพิ่มเติม (ไม่บังคับ)
 
-- **ผู้ช่วย AI (Gemini)** ใส่คีย์ในไฟล์ `.env` (คัดลอกจาก `.env.example`) หรือวางที่หน้าตั้งค่า โดย Superadmin ตั้งคีย์ที่ใช้ร่วมกันได้ และผู้ดูแลระบบแต่ละคนตั้งคีย์ของตนเองได้ หากไม่มีคีย์ ผู้ช่วยยังตอบคำสั่งที่ระบบเข้าใจเองได้
-- **ตัวถอดเสียง Whisper ในเครื่อง** ถอดเสียงคำสั่งเป็นข้อความบนเครื่องของคุณเอง โดยไม่ส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ ต้องดาวน์โหลดแยกต่างหากขนาดประมาณ 3 GB และตั้งค่าเพิ่มเติม ดูขั้นตอนใน **[docs/whisper-setup.md](docs/whisper-setup.md)** หากไม่ติดตั้ง ไมโครโฟนจะใช้ตัวถอดเสียงของเบราว์เซอร์แทน
+- **ผู้ช่วย AI (Gemini)** ใส่คีย์ในไฟล์ `.env` (คัดลอกจาก `.env.example`) หรือในหน้าตั้งค่า โดย superadmin กำหนดคีย์ที่ใช้ร่วมกันได้ และผู้ดูแลระบบแต่ละคนกำหนดคีย์ของตนเองได้ คีย์ในหน้าตั้งค่ามีลำดับก่อนไฟล์ `.env` หากไม่มีคีย์ คำสั่งเสียงและหน้าผู้ช่วยยังรับคำสั่งที่ระบบประมวลผลได้เอง เช่น สั่งสแกน ถามจำนวนอุปกรณ์ และเปิดหน้าต่าง ๆ
+- **Whisper (ถอดเสียงเป็นข้อความในเครื่อง)** ถอดเสียงคำสั่งเป็นข้อความบนเครื่องของคุณเอง โดยไม่ส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ ต้องดาวน์โหลดโมเดลแยกต่างหาก (ประมาณ 3 GB) และตั้งค่าเพิ่มเติม ดูขั้นตอนใน **[docs/whisper-setup.md](docs/whisper-setup.md)** หากไม่ได้ติดตั้ง ระบบจะใช้ตัวถอดเสียงของเบราว์เซอร์แทน
 
 ---
 
@@ -48,26 +61,39 @@ A Flask web app, branded for NT (National Telecom), that scans a network with `n
 | | |
 |---|---|
 | Python 3.11 | The app itself. |
-| [nmap](https://nmap.org/download.html) | On the `PATH`. On Windows also install **Npcap** (the nmap installer offers it). OS detection and some scans need Administrator / root. |
+| [nmap](https://nmap.org/download.html) | On the `PATH`. On Windows also install **Npcap** (the nmap installer offers it). OS detection and several scan types need Administrator / root, so run the app as Administrator (or root). Without nmap, the Tasks page shows a warning and scans fail. |
 | Microsoft Edge or Google Chrome | Only for the PDF report (it is printed by a headless browser). |
-| Internet | The pages load Bootstrap, icons and fonts from CDNs, and CVE lookups call the NVD. |
+| Internet | The pages load Bootstrap, icons and fonts from CDNs; CVE lookups need the NVD. |
 
 ### Run it
 
+A virtual environment is recommended:
+
 ```bash
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+source .venv/bin/activate     # Linux / macOS
 pip install -r requirements.txt
 python app.py
 ```
 
-Open <http://127.0.0.1:5000>.
+Then open <http://127.0.0.1:5000> in a browser.
 
-On the first run the app creates `instance/scanner.db` and an administrator account: **`admin` / `admin123`**. Change the password straight away (a prototype default, not for a shared network). Set your own session secret before running it anywhere other than your own computer:
+On the first run the app creates `instance/scanner.db` and a superadmin account: **`admin`** / **`admin123`**. This is a default for trying the app out; change it at once on the User Management page.
+
+Before real use, or on a shared machine, set your own random `SECRET_KEY` (it signs sessions; the default is public in the source). The simplest way, on any OS, is a line in `.env`:
+
+```
+SECRET_KEY=a-long-random-string
+```
+
+To generate a random value:
 
 ```bash
-set SECRET_KEY=a-long-random-string
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 ### Optional settings
 
-- **AI assistant (Gemini).** Put a key in a `.env` file (copy `.env.example`), or paste it on the Settings page (a superadmin sets the shared key, any admin can set their own). Without a key the assistant still answers the commands the system understands itself.
-- **Local voice engine (Whisper).** Turns spoken commands into text on your own computer instead of sending audio to the browser vendor. It is a separate download of about 3 GB and needs its own setup: see **[docs/whisper-setup.md](docs/whisper-setup.md)**. Without it the microphone uses the browser's engine.
+- **AI assistant (Gemini).** Put a key in a `.env` file (copy `.env.example`), or paste it on the Settings page (a superadmin sets the shared key, any admin can set their own). Settings-page keys take priority over `.env`. Without a key, voice commands and the Assistant page still handle what the system understands itself (scans, counts, opening pages).
+- **Local voice engine (Whisper).** Turns spoken commands into text on your own computer instead of sending audio to the browser vendor. It is a separate download of about 3 GB and needs its own setup: see **[docs/whisper-setup.md](docs/whisper-setup.md)**. Without it the app uses the browser's engine.
