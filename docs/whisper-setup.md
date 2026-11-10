@@ -2,32 +2,32 @@
 
 ## ภาษาไทย
 
-CLYLAR ถอดเสียงคำสั่งพูดเป็นข้อความได้ด้วย **โมเดล Whisper ที่ทำงานในเครื่อง** ซึ่งเป็นตัวเลือกเสริม หากไม่ติดตั้ง ไมโครโฟนในแชทจะใช้ตัวถอดเสียงของเบราว์เซอร์ ซึ่งส่งเสียงไปยัง Google (Chrome) หรือ Microsoft (Edge) และถอดที่อยู่ IP ได้แม่นยำน้อยกว่า
+CLYLAR สามารถถอดเสียงคำสั่งเป็นข้อความด้วย **โมเดล Whisper ที่ทำงานในเครื่อง** การติดตั้งนี้ไม่บังคับ หากไม่ติดตั้ง ไมโครโฟนในแชทจะใช้ตัวถอดเสียงของเบราว์เซอร์แทน ซึ่งจะส่งเสียงไปยัง Google (Chrome) หรือ Microsoft (Edge) และถอดที่อยู่ IP ได้แม่นยำน้อยกว่า
 
-โมเดล **ไม่ได้อยู่ในที่เก็บโค้ดนี้** เพราะมีขนาดประมาณ 3 GB และ GitHub ไม่รับไฟล์เดี่ยวที่ใหญ่กว่า 100 MB ให้ดาวน์โหลดครั้งเดียวจากแหล่งเผยแพร่บน Hugging Face ลงในโฟลเดอร์ที่อยู่ข้างเดสก์ท็อปของคุณ ไม่ต้องใช้สำเนาบน Google Drive
+ที่เก็บโค้ดนี้ **ไม่มีไฟล์โมเดล** เนื่องจากโมเดลมีขนาดประมาณ 3 GB และ GitHub ไม่รับไฟล์ที่ใหญ่กว่า 100 MB จึงต้องดาวน์โหลดโมเดลจาก Hugging Face ซึ่งเป็นแหล่งเผยแพร่ทางการ โดยดาวน์โหลดเพียงครั้งเดียวลงในโฟลเดอร์บนเดสก์ท็อป ไม่ต้องใช้ไฟล์จาก Google Drive
 
 ### สิ่งที่ต้องมี
 
 | | |
 |---|---|
-| Windows | ขั้นตอนด้านล่างเขียนสำหรับ Windows (ตัวแอปและ `start_whisper_worker.bat` เขียนไว้สำหรับระบบนี้) |
-| Python 3.11 | ใช้สภาพแวดล้อมเสมือน (virtual environment) แยกสำหรับ Whisper จึงไม่กระทบแพ็กเกจของตัวแอป |
-| พื้นที่ดิสก์ | ประมาณ 5.5 GB: โมเดล 3.1 GB และสภาพแวดล้อมเสมือน 2.3 GB |
-| การ์ดจอ NVIDIA (แนะนำ) | ใช้เวลาประมาณ 1 ถึง 2 วินาทีต่อคำสั่ง หากไม่มี Whisper จะทำงานบน CPU แทน ใช้งานได้แต่ใช้เวลาประมาณ 8 ถึง 17 วินาทีต่อคำสั่ง |
+| Windows | ขั้นตอนในคู่มือนี้ใช้กับ Windows เนื่องจากตัวแอปและ `start_whisper_worker.bat` เขียนขึ้นสำหรับ Windows |
+| Python 3.11 | Whisper ใช้สภาพแวดล้อมเสมือน (virtual environment) ของตนเอง จึงไม่กระทบแพ็กเกจ Python ของตัวแอป |
+| พื้นที่ดิสก์ | ประมาณ 5.5 GB แบ่งเป็นโมเดล 3.1 GB และสภาพแวดล้อมเสมือน 2.3 GB |
+| การ์ดจอ NVIDIA (แนะนำ) | ถอดเสียงได้ในประมาณ 1 ถึง 2 วินาทีต่อคำสั่ง หากไม่มีการ์ดจอ NVIDIA ระบบจะใช้ CPU แทน ซึ่งใช้งานได้แต่ใช้เวลาประมาณ 8 ถึง 17 วินาทีต่อคำสั่ง |
 | อินเทอร์เน็ต | ใช้เฉพาะตอนดาวน์โหลดครั้งแรก |
 
-### ขั้นตอน
+### ขั้นตอนการติดตั้ง
 
-เปิด **Command Prompt** (ไม่ใช่ PowerShell) แล้วสั่งทีละบรรทัด
+เปิด **Command Prompt** (ไม่ใช่ PowerShell) แล้วรันคำสั่งทีละบรรทัด
 
-**1. สร้างโฟลเดอร์** ค่าเริ่มต้นคือโฟลเดอร์ `clylar-whisper-lab` บนเดสก์ท็อป
+**1. สร้างโฟลเดอร์** โดยค่าเริ่มต้น แอปจะค้นหาโฟลเดอร์ `clylar-whisper-lab` บนเดสก์ท็อป
 
 ```bat
 mkdir "%USERPROFILE%\Desktop\clylar-whisper-lab"
 cd /d "%USERPROFILE%\Desktop\clylar-whisper-lab"
 ```
 
-**2. สร้างสภาพแวดล้อมเสมือนและติดตั้งแพ็กเกจ** เวอร์ชันด้านล่างคือเวอร์ชันที่ใช้พัฒนาและทดสอบ
+**2. สร้างสภาพแวดล้อมเสมือนและติดตั้งแพ็กเกจ** เวอร์ชันที่ระบุด้านล่างเป็นเวอร์ชันที่ใช้พัฒนาและทดสอบฟีเจอร์นี้
 
 ```bat
 python -m venv venv
@@ -35,56 +35,56 @@ venv\Scripts\python.exe -m pip install --upgrade pip
 venv\Scripts\python.exe -m pip install faster-whisper==1.2.1 nvidia-cublas-cu12 nvidia-cudnn-cu12
 ```
 
-แพ็กเกจที่ขึ้นต้นด้วย `nvidia-` คือไลบรารี CUDA สำหรับการ์ดจอ หากไม่มีการ์ดจอ NVIDIA ให้ข้ามสองแพ็กเกจนี้ได้ (Whisper จะทำงานบน CPU)
+แพ็กเกจ 2 รายการที่ขึ้นต้นด้วย `nvidia-` คือไลบรารี CUDA สำหรับการ์ดจอ ให้ข้ามแพ็กเกจทั้งสองเฉพาะเมื่อเครื่องไม่มีการ์ดจอ NVIDIA ในกรณีนั้น Whisper จะทำงานบน CPU
 
-**3. ดาวน์โหลดโมเดล** คำสั่งนี้ระบุเวอร์ชันที่ตรงกับที่ทดสอบไว้
+**3. ดาวน์โหลดโมเดล** คำสั่งนี้ระบุรุ่น (revision) ของโมเดลให้ตรงกับรุ่นที่โครงการทดสอบไว้
 
 ```bat
 venv\Scripts\python.exe -c "from huggingface_hub import snapshot_download; snapshot_download('Avocaduu14/whisper-th-large-v3-ct2', revision='1a1554ea606d89c937216ada609bb8585e20a36e', local_dir='models/thai-large')"
 ```
 
-ใช้เวลาไม่กี่นาที เมื่อเสร็จแล้ว โฟลเดอร์ `models\thai-large` ต้องมีไฟล์ `model.bin` (ประมาณ 3 GB), `config.json`, `tokenizer.json`, `vocabulary.json` และ `preprocessor_config.json`
+การดาวน์โหลดใช้เวลาหลายนาที ขึ้นอยู่กับความเร็วอินเทอร์เน็ต เมื่อเสร็จแล้ว โฟลเดอร์ `models\thai-large` ต้องมีไฟล์ `model.bin` (ประมาณ 3 GB), `config.json`, `tokenizer.json`, `vocabulary.json` และ `preprocessor_config.json`
 
-ชื่อโฟลเดอร์ต้องเป็น `thai-large` ตามนี้ทุกตัวอักษร เพราะแอปค้นหาไฟล์ `models\thai-large\model.bin`
+ชื่อโฟลเดอร์ต้องเป็น `thai-large` ตรงตามนี้ทุกตัวอักษร เนื่องจากแอปจะค้นหาไฟล์ `models\thai-large\model.bin`
 
-**4. เริ่มทำงาน** เลือกวิธีใดวิธีหนึ่ง
+**4. เริ่มการทำงาน** ทำได้ 2 วิธี
 
 - เปิดแอป ไปที่หน้า **ตั้งค่า** แล้วเปิดสวิตช์ในการ์ด **ตัวถอดเสียงพูด (Whisper ในเครื่อง)**
-- หรือดับเบิลคลิก `start_whisper_worker.bat` ในโฟลเดอร์โปรเจกต์ แล้วเปิดหน้าต่างนั้นทิ้งไว้
+- ดับเบิลคลิกไฟล์ `start_whisper_worker.bat` ในโฟลเดอร์โปรเจกต์ และเปิดหน้าต่างที่ขึ้นมาค้างไว้
 
-การเริ่มครั้งแรกต้องโหลดโมเดล ใช้เวลา 10 ถึง 20 วินาที จากนั้นการ์ดจะแสดง **พร้อมใช้งาน** พร้อมระบุว่าใช้การ์ดจอ (**ใช้การ์ดจอ**) หรือ CPU (**ใช้ CPU (ช้า)**)
+การเริ่มครั้งแรกต้องโหลดโมเดล ซึ่งใช้เวลา 10 ถึง 20 วินาที จากนั้นการ์ดจะแสดงสถานะ **พร้อมใช้งาน** และบอกว่าใช้การ์ดจอ (**ใช้การ์ดจอ**) หรือใช้ CPU (**ใช้ CPU (ช้า)**)
 
-Whisper ไม่เริ่มทำงานเองเมื่อเปิดเครื่องใหม่ กรุณาเปิดสวิตช์อีกครั้ง
+Whisper จะไม่เริ่มทำงานเองหลังรีสตาร์ตเครื่อง กรุณาเปิดสวิตช์อีกครั้งทุกครั้งที่เปิดเครื่องใหม่
 
-### หากโฟลเดอร์อยู่ที่อื่น
+### กรณีเก็บโฟลเดอร์ไว้ที่อื่น
 
-กำหนดค่า `CLYLAR_WHISPER_HOME` เป็นโฟลเดอร์ที่มี `venv` และ `models` ก่อนเริ่มแอปและก่อนรัน `start_whisper_worker.bat`
+ให้กำหนดตัวแปร `CLYLAR_WHISPER_HOME` เป็นโฟลเดอร์ที่มี `venv` และ `models` อยู่ข้างใน โดยต้องกำหนดก่อนเริ่มแอปและก่อนรัน `start_whisper_worker.bat`
 
 ```bat
 setx CLYLAR_WHISPER_HOME "D:\tools\clylar-whisper-lab"
 ```
 
-หลังสั่งแล้ว ให้เปิดหน้าต่างใหม่เพื่อให้ค่ามีผล
+ค่านี้จะมีผลในหน้าต่างที่เปิดใหม่หลังจากรันคำสั่งเท่านั้น
 
 ### ปัญหาที่พบบ่อย
 
-| สิ่งที่เห็น | ความหมาย |
+| อาการ | สาเหตุและวิธีแก้ |
 |---|---|
-| การ์ดแสดง **ยังไม่ได้ติดตั้ง Whisper ในเครื่องนี้** | แอปไม่พบ `venv\Scripts\python.exe` หรือ `models\thai-large\model.bin` ในโฟลเดอร์ข้างต้น กรุณาตรวจชื่อโฟลเดอร์และโครงสร้างตามขั้นตอนที่ 3 |
-| การ์ดแสดง **ใช้ CPU (ช้า)** และไฟล์บันทึกระบุว่าไม่พบ `cublas64_12.dll` | สภาพแวดล้อมยังไม่มีแพ็กเกจ CUDA กรุณารันคำสั่ง `pip install` ในขั้นตอนที่ 2 อีกครั้งโดยรวมแพ็กเกจ `nvidia-` |
-| การ์ดแสดงข้อผิดพลาดหลังกดสวิตช์ | อ่านบรรทัดท้ายของไฟล์ `instance\whisper_worker.log` ในโฟลเดอร์โปรเจกต์ หากพอร์ตถูกใช้อยู่ แสดงว่ามีอีกสำเนาหนึ่งทำงานอยู่ (พอร์ต 5057) |
-| หน้าต่างแสดงบรรทัดเช่น `forrtl: error (200) ... window-CLOSE event` | เป็นเรื่องปกติ ข้อความนี้แสดงเมื่อปิดหน้าต่าง Whisper ไม่ใช่ข้อผิดพลาด |
-| คำสั่งเสียงใช้ได้แต่ช้า | Whisper ทำงานบน CPU ดูแถวที่สองของตารางนี้ |
+| การ์ดแสดงข้อความ **ยังไม่ได้ติดตั้ง Whisper ในเครื่องนี้** | แอปไม่พบ `venv\Scripts\python.exe` หรือ `models\thai-large\model.bin` ในโฟลเดอร์ดังกล่าว กรุณาตรวจสอบชื่อโฟลเดอร์และโครงสร้างโฟลเดอร์ตามขั้นตอนที่ 2 และ 3 |
+| การ์ดแสดง **ใช้ CPU (ช้า)** และไฟล์บันทึกการทำงาน (log) แจ้งว่าไม่พบ `cublas64_12.dll` | สภาพแวดล้อมเสมือนยังไม่มีแพ็กเกจ CUDA กรุณารันคำสั่ง `pip install` ในขั้นตอนที่ 2 อีกครั้ง โดยรวมแพ็กเกจ `nvidia-` ไว้ด้วย |
+| การ์ดแสดงข้อผิดพลาดหลังเปิดสวิตช์ | อ่านบรรทัดท้าย ๆ ของไฟล์ `instance\whisper_worker.log` ในโฟลเดอร์โปรเจกต์ หากพบว่าพอร์ต 5057 ถูกใช้งานอยู่ แสดงว่ามี Whisper อีกชุดหนึ่งทำงานอยู่แล้ว |
+| หน้าต่างแสดงข้อความ เช่น `forrtl: error (200) ... window-CLOSE event` | เป็นเรื่องปกติ ข้อความนี้แสดงขึ้นเมื่อปิดหน้าต่าง Whisper และไม่ใช่ข้อผิดพลาด |
+| คำสั่งเสียงใช้งานได้แต่ช้า | Whisper ทำงานบน CPU อยู่ ดูวิธีแก้ในแถวที่สองของตารางนี้ |
 
-หากต้องการหยุด Whisper ให้ปิดสวิตช์ในหน้าตั้งค่า หรือปิดหน้าต่าง `start_whisper_worker.bat` จากนั้นไมโครโฟนในแชทจะกลับไปใช้ตัวถอดเสียงของเบราว์เซอร์เอง
+หากต้องการหยุด Whisper ให้ปิดสวิตช์ในหน้าตั้งค่า หรือปิดหน้าต่างของ `start_whisper_worker.bat` จากนั้นไมโครโฟนในแชทจะกลับไปใช้ตัวถอดเสียงของเบราว์เซอร์โดยอัตโนมัติ
 
-### เกี่ยวกับโมเดล
+### ข้อมูลเกี่ยวกับโมเดล
 
-- **แหล่งดาวน์โหลด:** <https://huggingface.co/Avocaduu14/whisper-th-large-v3-ct2> (คำสั่งในขั้นตอนที่ 3 ดาวน์โหลดจากที่นี่ หรือจะดาวน์โหลดไฟล์เองจากแท็บ "Files" ของหน้านั้นลงในโฟลเดอร์ `models\thai-large` ก็ได้)
-- **ชื่อ:** `Avocaduu14/whisper-th-large-v3-ct2` บน Hugging Face เป็นโมเดลที่แปลงเป็นรูปแบบ CTranslate2 จาก Whisper large-v3 ที่ปรับให้เหมาะกับภาษาไทย กรุณาอ่านเอกสารประกอบโมเดล (model card) เพื่อดูใบอนุญาตและการให้เครดิตก่อนนำไปเผยแพร่ต่อ (ขณะที่โครงการนี้เลือกใช้ โมเดลนี้เผยแพร่ภายใต้ Apache-2.0)
-- **เหตุผลที่ใช้โมเดลปรับสำหรับภาษาไทย:** จากเสียงที่บันทึกไว้ของโครงการนี้ โมเดลนี้เข้าใจคำสั่งสแกนที่พูดได้ดีกว่าตัวถอดเสียงของเบราว์เซอร์มาก (8 จาก 10 เทียบกับ 1 หรือ 2 จาก 10)
-- **ความเป็นส่วนตัว:** เสียงไม่ออกจากเครื่องและไม่มีการจัดเก็บ โปรแกรมรับคำขอที่ `127.0.0.1` เท่านั้น
-- **ยังไม่ได้ทดสอบ:** คู่มือนี้อ้างอิงการตั้งค่าบนเครื่องพัฒนา ยังไม่ได้ทดสอบการติดตั้งใหม่ทั้งหมดตามขั้นตอนนี้เพียงอย่างเดียว
+- **แหล่งดาวน์โหลด:** <https://huggingface.co/Avocaduu14/whisper-th-large-v3-ct2> คำสั่งในขั้นตอนที่ 3 ดาวน์โหลดจากหน้านี้ หรือจะดาวน์โหลดไฟล์เองจากแท็บ "Files" ของหน้านี้ แล้วเก็บไว้ในโฟลเดอร์ `models\thai-large` ก็ได้
+- **ชื่อโมเดล:** `Avocaduu14/whisper-th-large-v3-ct2` บน Hugging Face เป็นโมเดล Whisper large-v3 ที่ปรับให้เหมาะกับภาษาไทย แล้วแปลงเป็นรูปแบบ CTranslate2 ก่อนนำไปเผยแพร่ต่อ กรุณาอ่านเอกสารประกอบโมเดล (model card) เพื่อดูสัญญาอนุญาตและการให้เครดิต (เมื่อโครงการนี้เริ่มใช้ โมเดลนี้เผยแพร่ภายใต้สัญญาอนุญาต Apache-2.0)
+- **เหตุผลที่เลือกโมเดลภาษาไทย:** จากการทดสอบกับเสียงที่โครงการบันทึกไว้ โมเดลนี้ถอดคำสั่งสแกนได้ถูกต้องมากกว่าตัวถอดเสียงของเบราว์เซอร์อย่างชัดเจน (8 จาก 10 คำสั่ง เทียบกับ 1 หรือ 2 จาก 10 คำสั่ง)
+- **ความเป็นส่วนตัว:** เสียงไม่ถูกส่งออกนอกเครื่องและไม่ถูกจัดเก็บ โปรแกรมรับคำขอผ่าน `127.0.0.1` เท่านั้น
+- **ข้อจำกัดของการทดสอบ:** คู่มือนี้เขียนตามการตั้งค่าบนเครื่องที่ใช้พัฒนา ยังไม่มีการทดสอบติดตั้งบนเครื่องใหม่โดยทำตามขั้นตอนในคู่มือนี้เพียงอย่างเดียว
 
 ---
 
@@ -92,7 +92,7 @@ setx CLYLAR_WHISPER_HOME "D:\tools\clylar-whisper-lab"
 
 CLYLAR can turn spoken commands into text with a **local Whisper model**. It is optional. Without it the chat microphone uses the browser's own speech engine, which sends the audio to Google (Chrome) or Microsoft (Edge) and reads IP addresses less reliably.
 
-The model is **not in this repository**: it is about 3 GB, and GitHub refuses single files over 100 MB. You download it once, from its public home on Hugging Face, into a folder next to your Desktop. Nothing here needs a Google Drive copy.
+The model is **not in this repository**: it is about 3 GB, and GitHub refuses single files over 100 MB. You download it once, from its public home on Hugging Face, into a folder on your Desktop. Nothing here needs a Google Drive copy.
 
 ### What you need
 
@@ -131,7 +131,7 @@ The two `nvidia-` packages are the CUDA libraries for the graphics card. Skip th
 venv\Scripts\python.exe -c "from huggingface_hub import snapshot_download; snapshot_download('Avocaduu14/whisper-th-large-v3-ct2', revision='1a1554ea606d89c937216ada609bb8585e20a36e', local_dir='models/thai-large')"
 ```
 
-It takes a few minutes. When it finishes, `models\thai-large` must hold `model.bin` (about 3 GB), `config.json`, `tokenizer.json`, `vocabulary.json` and `preprocessor_config.json`.
+It takes several minutes, depending on your internet speed. When it finishes, `models\thai-large` must hold `model.bin` (about 3 GB), `config.json`, `tokenizer.json`, `vocabulary.json` and `preprocessor_config.json`.
 
 The folder must be named exactly `thai-large`: the app looks for `models\thai-large\model.bin`.
 
@@ -158,7 +158,7 @@ Open a new window afterwards so the setting is read.
 
 | What you see | What it means |
 |---|---|
-| The card says **ยังไม่ได้ติดตั้ง Whisper ในเครื่องนี้** | The app cannot find `venv\Scripts\python.exe` or `models\thai-large\model.bin` in the folder above. Check the folder name and the layout in step 3. |
+| The card says **ยังไม่ได้ติดตั้ง Whisper ในเครื่องนี้** | The app cannot find `venv\Scripts\python.exe` or `models\thai-large\model.bin` in the folder above. Check the folder name and the layout in steps 2 and 3. |
 | The card says **ใช้ CPU (ช้า)** and the log says `cublas64_12.dll` was not found | The CUDA packages are missing from the environment. Run the `pip install` of step 2 again, with the `nvidia-` packages. |
 | The card shows an error after you pressed the switch | Read the last lines of `instance\whisper_worker.log` in the project folder. A port already in use means another copy is running (port 5057). |
 | A window with lines like `forrtl: error (200) ... window-CLOSE event` | Normal. It is printed when the Whisper window is closed. It is not an error. |
