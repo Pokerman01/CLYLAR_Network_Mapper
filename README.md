@@ -8,9 +8,12 @@ CLYLAR Network Scanner เป็นเว็บแอปพลิเคชัน
 
 ### สิ่งที่ต้องมี
 
+> [!IMPORTANT]
+> **ใช้ Python 3.11 หรือ 3.13 เท่านั้น** Python 3.14 ยังใช้งานไม่ได้ (ผู้ทดสอบรายงานว่าแอปไม่ทำงาน) หากติดตั้ง Python 3.14 ไว้ กรุณาติดตั้งรุ่น 3.13 เพิ่ม และใช้รุ่นนั้นสร้างสภาพแวดล้อมเสมือน
+
 | | |
 |---|---|
-| Python 3.11 | สำหรับเรียกใช้แอปพลิเคชัน |
+| **Python 3.11 หรือ 3.13** | สำหรับเรียกใช้แอปพลิเคชัน ไม่รองรับ 3.14 (ดูหมายเหตุด้านบน) |
 | [nmap](https://nmap.org/download.html) | ต้องเรียกใช้ได้จาก `PATH` ส่วนบน Windows ต้องติดตั้ง **Npcap** ด้วย (เลือกได้ในตัวติดตั้งของ nmap) การตรวจหา OS และการสแกนหลายประเภทต้องใช้สิทธิ์ผู้ดูแลระบบ จึงควรเรียกใช้แอปด้วยสิทธิ์ Administrator หรือ root หากไม่พบ nmap หน้างานสแกนจะแสดงคำเตือนและการสแกนจะไม่สำเร็จ |
 | Microsoft Edge หรือ Google Chrome | ใช้สร้างรายงาน PDF เท่านั้น (ระบบพิมพ์รายงานด้วยเบราว์เซอร์แบบไม่แสดงหน้าต่าง) |
 | อินเทอร์เน็ต | หน้าเว็บโหลด Bootstrap ไอคอน และฟอนต์จาก CDN ส่วนการค้นหา CVE ต้องเชื่อมต่อกับ NVD |
@@ -58,9 +61,12 @@ A Flask web app, branded for NT (National Telecom), that scans a network with `n
 
 ### What you need
 
+> [!IMPORTANT]
+> **Use Python 3.11 or 3.13 only.** Python 3.14 does not work yet (a tester reported that the app fails on it). If you have 3.14 installed, install 3.13 alongside it and create the virtual environment with that version.
+
 | | |
 |---|---|
-| Python 3.11 | The app itself. |
+| **Python 3.11 or 3.13** | The app itself. 3.14 is not supported (see the note above). |
 | [nmap](https://nmap.org/download.html) | On the `PATH`. On Windows also install **Npcap** (the nmap installer offers it). OS detection and several scan types need Administrator / root, so run the app as Administrator (or root). Without nmap, the Tasks page shows a warning and scans fail. |
 | Microsoft Edge or Google Chrome | Only for the PDF report (it is printed by a headless browser). |
 | Internet | The pages load Bootstrap, icons and fonts from CDNs; CVE lookups need the NVD. |

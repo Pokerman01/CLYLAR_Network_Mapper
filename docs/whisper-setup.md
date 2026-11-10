@@ -8,10 +8,13 @@ CLYLAR สามารถถอดเสียงคำสั่งเป็น�
 
 ### สิ่งที่ต้องมี
 
+> [!IMPORTANT]
+> **ใช้ Python 3.11 หรือ 3.13 เท่านั้น** Python 3.14 ยังใช้งานไม่ได้ (ผู้ทดสอบรายงานว่าทั้งโครงการไม่ทำงาน) หากติดตั้ง Python 3.14 ไว้ กรุณาติดตั้งรุ่น 3.13 เพิ่ม และใช้รุ่นนั้นสร้างสภาพแวดล้อมเสมือน
+
 | | |
 |---|---|
 | Windows | ขั้นตอนในคู่มือนี้ใช้กับ Windows เนื่องจากตัวแอปและ `start_whisper_worker.bat` เขียนขึ้นสำหรับ Windows |
-| Python 3.11 | Whisper ใช้สภาพแวดล้อมเสมือน (virtual environment) ของตนเอง จึงไม่กระทบแพ็กเกจ Python ของตัวแอป |
+| **Python 3.11 หรือ 3.13** | Whisper ใช้สภาพแวดล้อมเสมือน (virtual environment) ของตนเอง จึงไม่กระทบแพ็กเกจ Python ของตัวแอป ไม่รองรับ 3.14 (ดูหมายเหตุด้านบน) |
 | พื้นที่ดิสก์ | ประมาณ 5.5 GB แบ่งเป็นโมเดล 3.1 GB และสภาพแวดล้อมเสมือน 2.3 GB |
 | การ์ดจอ NVIDIA (แนะนำ) | ถอดเสียงได้ในประมาณ 1 ถึง 2 วินาทีต่อคำสั่ง หากไม่มีการ์ดจอ NVIDIA ระบบจะใช้ CPU แทน ซึ่งใช้งานได้แต่ใช้เวลาประมาณ 8 ถึง 17 วินาทีต่อคำสั่ง |
 | อินเทอร์เน็ต | ใช้เฉพาะตอนดาวน์โหลดครั้งแรก |
@@ -32,10 +35,12 @@ cd /d "%USERPROFILE%\Desktop\clylar-whisper-lab"
 ```bat
 python -m venv venv
 venv\Scripts\python.exe -m pip install --upgrade pip
-venv\Scripts\python.exe -m pip install faster-whisper==1.2.1 nvidia-cublas-cu12 nvidia-cudnn-cu12
+venv\Scripts\python.exe -m pip install faster-whisper==1.2.1 av==18.1.0 nvidia-cublas-cu12 nvidia-cudnn-cu12
 ```
 
 แพ็กเกจ 2 รายการที่ขึ้นต้นด้วย `nvidia-` คือไลบรารี CUDA สำหรับการ์ดจอ ให้ข้ามแพ็กเกจทั้งสองเฉพาะเมื่อเครื่องไม่มีการ์ดจอ NVIDIA ในกรณีนั้น Whisper จะทำงานบน CPU
+
+ต้องระบุ `av==18.1.0` ไว้ด้วย เนื่องจาก PyAV รุ่น 19 ขึ้นไปใช้งานร่วมกับ faster-whisper 1.2.1 ไม่ได้ ทำให้การถอดเสียงทุกครั้งไม่สำเร็จและแสดง `cannot_transcribe`
 
 **3. ดาวน์โหลดโมเดล** คำสั่งนี้ระบุรุ่น (revision) ของโมเดลให้ตรงกับรุ่นที่โครงการทดสอบไว้
 
@@ -73,6 +78,7 @@ setx CLYLAR_WHISPER_HOME "D:\tools\clylar-whisper-lab"
 | การ์ดแสดงข้อความ **ยังไม่ได้ติดตั้ง Whisper ในเครื่องนี้** | แอปไม่พบ `venv\Scripts\python.exe` หรือ `models\thai-large\model.bin` ในโฟลเดอร์ดังกล่าว กรุณาตรวจสอบชื่อโฟลเดอร์และโครงสร้างโฟลเดอร์ตามขั้นตอนที่ 2 และ 3 |
 | การ์ดแสดง **ใช้ CPU (ช้า)** และไฟล์บันทึกการทำงาน (log) แจ้งว่าไม่พบ `cublas64_12.dll` | สภาพแวดล้อมเสมือนยังไม่มีแพ็กเกจ CUDA กรุณารันคำสั่ง `pip install` ในขั้นตอนที่ 2 อีกครั้ง โดยรวมแพ็กเกจ `nvidia-` ไว้ด้วย |
 | การ์ดแสดงข้อผิดพลาดหลังเปิดสวิตช์ | อ่านบรรทัดท้าย ๆ ของไฟล์ `instance\whisper_worker.log` ในโฟลเดอร์โปรเจกต์ หากพบว่าพอร์ต 5057 ถูกใช้งานอยู่ แสดงว่ามี Whisper อีกชุดหนึ่งทำงานอยู่แล้ว |
+| ถอดเสียงไม่สำเร็จทุกครั้งและแสดง `cannot_transcribe` ส่วนในไฟล์บันทึกหรือในหน้าต่างมีข้อความ `unexpected keyword argument 'metadata_errors'` | PyAV รุ่นใหม่เกินไป กรุณารัน `venv\Scripts\python.exe -m pip install av==18.1.0` แล้วเริ่ม Whisper ใหม่ |
 | หน้าต่างแสดงข้อความ เช่น `forrtl: error (200) ... window-CLOSE event` | เป็นเรื่องปกติ ข้อความนี้แสดงขึ้นเมื่อปิดหน้าต่าง Whisper และไม่ใช่ข้อผิดพลาด |
 | คำสั่งเสียงใช้งานได้แต่ช้า | Whisper ทำงานบน CPU อยู่ ดูวิธีแก้ในแถวที่สองของตารางนี้ |
 
@@ -96,10 +102,13 @@ The model is **not in this repository**: it is about 3 GB, and GitHub refuses si
 
 ### What you need
 
+> [!IMPORTANT]
+> **Use Python 3.11 or 3.13 only.** Python 3.14 does not work yet (a tester reported that the whole project fails on it). If you have 3.14 installed, install 3.13 alongside it and create the virtual environment with that version.
+
 | | |
 |---|---|
 | Windows | The steps below are for Windows (the app and `start_whisper_worker.bat` are written for it). |
-| Python 3.11 | A separate virtual environment is used for Whisper, so it does not touch the app's Python packages. |
+| **Python 3.11 or 3.13** | A separate virtual environment is used for Whisper, so it does not touch the app's Python packages. 3.14 is not supported (see the note above). |
 | Disk | About 5.5 GB: the model 3.1 GB and the environment 2.3 GB. |
 | NVIDIA graphics card (recommended) | About 1 to 2 seconds per spoken command. Without one Whisper falls back to the CPU: it works, but takes about 8 to 17 seconds per command. |
 | Internet | Only for the one-time download. |
@@ -120,10 +129,12 @@ cd /d "%USERPROFILE%\Desktop\clylar-whisper-lab"
 ```bat
 python -m venv venv
 venv\Scripts\python.exe -m pip install --upgrade pip
-venv\Scripts\python.exe -m pip install faster-whisper==1.2.1 nvidia-cublas-cu12 nvidia-cudnn-cu12
+venv\Scripts\python.exe -m pip install faster-whisper==1.2.1 av==18.1.0 nvidia-cublas-cu12 nvidia-cudnn-cu12
 ```
 
 The two `nvidia-` packages are the CUDA libraries for the graphics card. Skip them only if you have no NVIDIA card (Whisper then runs on the CPU).
+
+`av==18.1.0` is pinned on purpose: PyAV 19 and newer do not work with faster-whisper 1.2.1, and every transcription then fails with `cannot_transcribe`.
 
 **3. Download the model.** It is pinned to the exact revision the project was tested with.
 
@@ -161,6 +172,7 @@ Open a new window afterwards so the setting is read.
 | The card says **ยังไม่ได้ติดตั้ง Whisper ในเครื่องนี้** | The app cannot find `venv\Scripts\python.exe` or `models\thai-large\model.bin` in the folder above. Check the folder name and the layout in steps 2 and 3. |
 | The card says **ใช้ CPU (ช้า)** and the log says `cublas64_12.dll` was not found | The CUDA packages are missing from the environment. Run the `pip install` of step 2 again, with the `nvidia-` packages. |
 | The card shows an error after you pressed the switch | Read the last lines of `instance\whisper_worker.log` in the project folder. A port already in use means another copy is running (port 5057). |
+| Every transcription fails with `cannot_transcribe`, and the log or the window shows `unexpected keyword argument 'metadata_errors'` | PyAV is too new. Run `venv\Scripts\python.exe -m pip install av==18.1.0`, then start Whisper again. |
 | A window with lines like `forrtl: error (200) ... window-CLOSE event` | Normal. It is printed when the Whisper window is closed. It is not an error. |
 | Voice commands work but are slow | It is running on the CPU. See the second row of the table above. |
 
