@@ -1,0 +1,1421 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+        <h2 class="mb-1">Scan History</h2>
+        <p class="text-muted mb-0">ประวัติการสแกนทั้งหมดในระบบ</p>
+    </div>
+    <span class="badge bg-secondary fs-6">{{ history|length }} รายการ</span>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ 'success' if category == 'success' else ('warning' if category == 'warning' else 'danger') }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+{# ── scan data for port-search ── #}
+<script>
+const ALL_SCANS = [
+  {% for job in history %}{% if job.status == 'Completed' and job.result_data %}
+  {%- set jd = job.result_data | from_json %}
+  { id:{{ job.id }}, target:{{ job.target|tojson }}, scan_type:{{ (job.scan_type|scan_label)|tojson }},
+    date:{{ job.timestamp.strftime('%Y-%m-%d %H:%M')|tojson }}, url:{{ url_for('scan_detail',scan_id=job.id)|tojson }},
+    hosts:[{% for h in jd %}{% if h.ports %}{ ip:{{ h.ip|tojson }}, ports:[{% for p in h.ports %}{ port:{{ p.port|tojson }}, name:{{ (p.name or '')|tojson }}, proto:{{ (p.protocol or 'tcp')|tojson }}, state:{{ (p.state or '')|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}] }{% if not loop.last %},{% endif %}{% endif %}{% endfor %}]
+  }{% if not loop.last %},{% endif %}
+  {% endif %}{% endfor %}
+];
+</script>
+
+<!-- Tab Bar (Tasks style) -->
+<div class="mt-3 mb-1">
+    <div class="d-inline-flex rounded-3 p-1" style="background:#f0f0f0; gap:4px;">
+        <button id="tab-history-btn" onclick="switchHistoryTab('history')"
+                class="btn btn-sm fw-semibold rounded-2 px-4 py-2 hist-tab-btn active-tab"
+                style="font-size:.875rem; transition:all .18s;">
+            History
+        </button>
+        <button id="tab-portsearch-btn" onclick="switchHistoryTab('portsearch')"
+                class="btn btn-sm fw-semibold rounded-2 px-4 py-2 hist-tab-btn"
+                style="font-size:.875rem; transition:all .18s;">
+            Port Search
+        </button>
+    </div>
+</div>
+<hr class="mt-2 mb-3">
+
+<style>
+.hist-tab-btn { background: transparent; color: #555; border: none; }
+.hist-tab-btn.active-tab { background: #fff; color: #111; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.search-note { font-size: .85rem; color: #475569; }
+.search-note b { font-weight: 600; color: #334155; }
+.search-note a, #historyNoMatch .btn-link { color: #2563eb; text-decoration: none; }
+.search-note a { margin-left: .25rem; white-space: nowrap; }
+.search-note a:hover, #historyNoMatch .btn-link:hover { text-decoration: underline; }
+.search-note.is-warn { color: #92400e; }   /* amber: a problem, not an alarm */
+.search-note .note-pick { border: 0; background: none; padding: 0; font: inherit; color: #2563eb; }
+.search-note .note-pick:hover { text-decoration: underline; }
+</style>
+<div>
+<div id="tab-history">
+
+
+<!-- Filter Bar -->
+<div class="card border-0 shadow-sm mb-3 p-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-md-3">
+            <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="ค้นหา IP, Target หรือชื่องาน" aria-label="ค้นหา IP, Target หรือชื่องาน" autocomplete="off"
+                   title="พิมพ์ส่วนหนึ่งของ Target หรือชื่องาน หรือพิมพ์ IP เต็ม (เช่น 192.168.1.41) หรือช่วง (เช่น 192.168.1.0/24) เพื่อหาสแกนที่พบอุปกรณ์นั้น">
+        </div>
+        <div class="col-md-2">
+            <select id="typeFilter" class="form-select form-select-sm">
+                <option value="">ทุก Type</option>
+                <option value="discovery">Discovery</option>
+                <option value="fast_scan">Fast Scan</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select id="statusFilter" class="form-select form-select-sm">
+                <option value="">ทุก Status</option>
+                <option value="Completed">Completed</option>
+                <option value="Queued">Queued</option>
+                <option value="Running">Running</option>
+            </select>
+        </div>
+        <div class="col-md-5 text-end">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="advToggle" aria-expanded="false" aria-controls="advPanel">
+                <i class="ti ti-adjustments-horizontal me-1" aria-hidden="true"></i>ตัวกรองขั้นสูง<span class="adv-dot" id="advDot" hidden></span>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-1" onclick="clearFilters()">ล้าง</button>
+        </div>
+        <div class="col-12 search-note" id="searchNote" role="status" aria-live="polite" hidden></div>
+    </div>
+</div>
+
+<!-- Advanced filter: criteria builder + recent / saved queries -->
+<div class="adv-card" id="advPanel" hidden>
+    <div class="adv-grid">
+        <div class="adv-main">
+            <div class="adv-h">ตัวกรองขั้นสูง</div>
+            <div id="advInclude"></div>
+            <button type="button" class="adv-add" id="advAddInclude"><i class="ti ti-plus" aria-hidden="true"></i> เพิ่มเงื่อนไข</button>
+            <div class="adv-excl">ยกเว้น</div>
+            <div id="advExclude"></div>
+            <button type="button" class="adv-add" id="advAddExclude"><i class="ti ti-ban" aria-hidden="true"></i> เพิ่มเงื่อนไขที่ยกเว้น</button>
+            <div class="adv-help">หลายแถวเป็น AND · หลายค่าในแถวเดียวกันเป็น OR · เงื่อนไขเกี่ยวกับผลการสแกน (พอร์ต, OS, CVE) ต้องตรงกับอุปกรณ์เครื่องเดียวกัน</div>
+            <div class="adv-save" id="advSaveRow" hidden>
+                <input type="text" class="form-control form-control-sm" id="advSaveName" maxlength="100" placeholder="ตั้งชื่อ query เช่น Windows ที่เปิด 445" aria-label="ชื่อ query">
+                <button type="button" class="btn btn-sm btn-primary" id="advSaveGo">บันทึก</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="advSaveCancel">ยกเลิก</button>
+            </div>
+            <div class="adv-actions">
+                <span class="adv-status" id="advStatus" role="status" aria-live="polite"></span>
+                <button type="button" class="btn btn-sm btn-link text-secondary" id="advClear">ล้าง</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="advSave">บันทึก Query</button>
+                <button type="button" class="btn btn-sm btn-primary px-4 fw-semibold" id="advSearch">ค้นหา</button>
+            </div>
+        </div>
+        <aside class="adv-side" aria-label="Queries">
+            <div class="adv-h">Queries</div>
+            <div class="adv-tabs" role="tablist">
+                <button type="button" class="adv-tab" role="tab" data-tab="recent" aria-selected="true">Recent</button>
+                <button type="button" class="adv-tab" role="tab" data-tab="saved" aria-selected="false">My Saved</button>
+            </div>
+            <ul class="adv-qlist" id="advQList"></ul>
+        </aside>
+    </div>
+</div>
+
+<!-- History Table -->
+<style>
+#historyTable { table-layout: fixed; }
+#historyTable th { white-space: nowrap; }
+#historyTable td { vertical-align: middle; }
+</style>
+<div class="card p-0 shadow-sm border-0">
+    <div class="table-responsive">
+    <table class="table table-hover mb-0" id="historyTable">
+        <thead class="table-dark">
+            <tr>
+                {% if current_user.is_any_admin %}
+                <th style="width: 42px; text-align: center;">
+                    <input type="checkbox" class="form-check-input" id="selectAllCheckbox" title="เลือกทั้งหมด" style="cursor: pointer;">
+                </th>
+                {% endif %}
+                <th style="width: 70px;">Job ID</th>
+                <th style="width: 170px;">Name</th>
+                <th style="width: 230px;">Target</th>
+                <th style="width: 150px;">Type</th>
+                <th style="width: 130px;">Triggered By</th>
+                <th style="width: 110px;">Status</th>
+                <th style="width: 150px;">Date &amp; Time</th>
+                <th style="width: 130px;">Action</th>
+            </tr>
+        </thead>
+        <tbody id="historyBody">
+            {% for job in history %}
+            {% set job_data = job.result_data | from_json if job.result_data else [] %}
+            <tr data-target="{{ job.target }}" data-name="{{ job.scan_name or '' }}" data-type="{{ job.scan_type }}" data-type-label="{{ job.scan_type | scan_label }}" data-when="{{ job.timestamp.strftime('%Y-%m-%d %H:%M') }}" data-status="{{ job.status }}" id="scan-row-{{ job.id }}" class="history-row align-middle">
+                {% if current_user.is_any_admin %}
+                <td class="text-center cb-cell" style="user-select: none; cursor: pointer;">
+                    <input type="checkbox" class="form-check-input scan-row-cb"
+                           value="{{ job.id }}"
+                           data-scan-seq="#{{ owner_seq_map.get(job.id, job.id) }}"
+                           data-target="{{ job.target }}"
+                           data-name="{{ job.scan_name or '' }}"
+                           {% if job.status in ('Queued', 'Running') %}disabled title="เลือกไม่ได้ เพราะงานสแกนนี้กำลังทำงานหรือรอคิว"{% else %}style="cursor: pointer;"{% endif %}>
+                </td>
+                {% endif %}
+                <td><span class="text-muted">#{{ owner_seq_map.get(job.id, job.id) }}</span></td>
+                <td class="text-truncate" style="max-width: 170px;" title="{{ job.scan_name or '' }}">
+                    {% if job.scan_name %}
+                        <span class="fw-semibold">{{ job.scan_name }}</span>
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td class="text-truncate" style="max-width: 230px;">
+                    <code>{{ job.target }}</code>
+                    {% set seq_info = scan_seq_map.get(job.id) %}
+                    {% if seq_info and seq_info[1] > 1 %}
+                    <span class="badge ms-1" style="font-size:.65rem;background:#EAF3DE;color:#3B6D11;border:0.5px solid #C0DD97;" title="สแกนครั้งที่ {{ seq_info[0] }} จากทั้งหมด {{ seq_info[1] }} ครั้ง">count: {{ seq_info[0] }}/{{ seq_info[1] }}</span>
+                    {% endif %}
+                </td>
+                <td><span class="badge bg-secondary">{{ job.scan_type | scan_label }}</span></td>
+                <td>
+                    {% if job.triggered_by == 'schedule' %}
+                        <span class="badge" style="background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;font-weight:500;"><i class="ti ti-clock me-1"></i>Schedule</span>
+                    {% elif job.triggered_by == 'rescan' %}
+                        <span class="badge" style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;font-weight:500;"><i class="ti ti-refresh me-1"></i>Rescan</span>
+                    {% elif job.triggered_by == 'drilldown' %}
+                        <span class="badge" style="background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;font-weight:500;"><i class="ti ti-scan me-1"></i>Drill-down</span>
+                    {% else %}
+                        <span class="badge" style="background:#f8fafc;color:#475569;border:1px solid #e2e8f0;font-weight:500;"><i class="ti ti-user me-1"></i>Manual</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge {{ 'bg-success' if job.status == 'Completed' else 'bg-danger' if job.status in ('Failed', 'Cancelled') else 'bg-warning text-dark' }}">
+                        {{ job.status }}
+                    </span>
+                </td>
+                <td class="text-nowrap">{{ job.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td class="text-nowrap">
+                    <div class="d-flex align-items-center gap-1 flex-nowrap">
+                    {% if job.status == 'Completed' %}
+                        <a href="{{ url_for('scan_detail', scan_id=job.id) }}"
+                           class="btn btn-sm btn-outline-primary">View</a>
+                        {% if current_user.is_any_admin %}
+                        <button class="btn btn-sm btn-outline-danger" title="Delete scan record"
+                                data-scan-id="{{ job.id }}" data-scan-seq="#{{ owner_seq_map.get(job.id, job.id) }}" data-target="{{ job.target }}" data-total="{{ scan_seq_map.get(job.id, (1,1))[1] }}"
+                                onclick="confirmDelete(+this.dataset.scanId, this.dataset.target, +this.dataset.total, this.dataset.scanSeq)">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                        {% endif %}
+                    {% elif job.status == 'Failed' %}
+                        {% if current_user.is_any_admin %}
+                        <button class="btn btn-sm btn-outline-danger" title="Delete scan record"
+                                data-scan-id="{{ job.id }}" data-scan-seq="#{{ owner_seq_map.get(job.id, job.id) }}" data-target="{{ job.target }}" data-total="{{ scan_seq_map.get(job.id, (1,1))[1] }}"
+                                onclick="confirmDelete(+this.dataset.scanId, this.dataset.target, +this.dataset.total, this.dataset.scanSeq)">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                        {% endif %}
+                    {% elif job.status == 'Cancelled' %}
+                        {% if current_user.is_any_admin %}
+                        <button class="btn btn-sm btn-outline-danger" title="Delete scan record"
+                                data-scan-id="{{ job.id }}" data-scan-seq="#{{ owner_seq_map.get(job.id, job.id) }}" data-target="{{ job.target }}" data-total="{{ scan_seq_map.get(job.id, (1,1))[1] }}"
+                                onclick="confirmDelete(+this.dataset.scanId, this.dataset.target, +this.dataset.total, this.dataset.scanSeq)">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                        {% endif %}
+                    {% else %}
+                        <button class="btn btn-sm btn-secondary" disabled>{{ 'Queued...' if job.status == 'Queued' else 'Running...' }}</button>
+                    {% endif %}
+                    </div>
+                </td>
+            </tr>
+
+            {% else %}
+            <tr>
+                <td colspan="{{ 9 if current_user.is_any_admin else 8 }}" class="text-center text-muted py-4">ยังไม่มีประวัติการสแกน</td>
+            </tr>
+            {% endfor %}
+            {% if history %}
+            <tr id="historyNoMatch" hidden>
+                <td colspan="{{ 9 if current_user.is_any_admin else 8 }}" class="text-center text-muted py-4">
+                    ไม่พบรายการที่ตรงกับเงื่อนไข
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-2 align-baseline" onclick="clearFilters()">ล้างตัวกรอง</button>
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+</div><!-- /tab-history -->
+
+<!-- TAB 2 — PORT SEARCH -->
+<div id="tab-portsearch" style="display:none;">
+
+    <div class="card border-0 shadow-sm mb-3 p-3">
+        <div class="row g-2 align-items-center mb-2">
+            <div class="col">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white border-end-0">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    </span>
+                    <input type="text" id="portSearchInput" class="form-control border-start-0"
+                           placeholder="พิมพ์พอร์ต เช่น 80, 443, ssh, rdp..."
+                           oninput="doPortSearch(this.value)">
+                    <button class="btn btn-outline-secondary" onclick="clearPortSearch()" id="portClearBtn" style="display:none;">&#x2715;</button>
+                </div>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2" id="portChips">
+            <button class="btn btn-sm port-chip active-chip" onclick="quickPort(this,'80')">80 / http</button>
+            <button class="btn btn-sm port-chip" onclick="quickPort(this,'443')">443 / https</button>
+            <button class="btn btn-sm port-chip" onclick="quickPort(this,'22')">22 / ssh</button>
+            <button class="btn btn-sm port-chip" onclick="quickPort(this,'3389')">3389 / rdp</button>
+            <button class="btn btn-sm port-chip" onclick="quickPort(this,'3306')">3306 / mysql</button>
+            <button class="btn btn-sm port-chip" onclick="quickPort(this,'21')">21 / ftp</button>
+            <button class="btn btn-sm port-chip" onclick="quickPort(this,'')">ทั้งหมด</button>
+        </div>
+    </div>
+
+    <p class="text-muted small mb-2" id="portResultInfo"></p>
+
+    <div class="card p-0 shadow-sm border-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-dark">
+                <tr>
+                    <th style="width:22%">IP Address</th>
+                    <th style="width:28%">Matched port</th>
+                    <th style="width:22%">Target / Scan</th>
+                    <th style="width:16%">Date</th>
+                    <th style="width:12%">Action</th>
+                </tr>
+            </thead>
+            <tbody id="portBody">
+                <tr><td colspan="5" class="text-center text-muted py-4">เปิด tab Port Search เพื่อค้นหา</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+</div><!-- /tab-portsearch -->
+</div>
+
+<style>
+.port-chip { font-size:.75rem; padding:3px 10px; border-radius:999px; border:1px solid #dee2e6; background:#fff; color:#6c757d; transition:all .12s; }
+.port-chip:hover { background:#f8f9fa; }
+.active-chip { background:#0d6efd !important; color:#fff !important; border-color:#0d6efd !important; }
+.port-pill { display:inline-block; font-family:monospace; font-size:.72rem; font-weight:600; padding:2px 7px; border-radius:4px; background:#fff3cd; color:#856404; border:1px solid #ffc107; margin:2px 2px 2px 0; white-space:nowrap; }
+</style>
+
+<script>
+function doPortSearch(q) {
+    q = (q || '').trim().toLowerCase();
+    document.getElementById('portClearBtn').style.display = q ? '' : 'none';
+    const rows = [];
+    ALL_SCANS.forEach(scan => {
+        scan.hosts.forEach(host => {
+            const opened = host.ports.filter(p => p.state === 'open');      // only an open port is an "open port" (a filtered or open|filtered one is not)
+            const matched = q
+                ? opened.filter(p => String(p.port).includes(q) || p.name.toLowerCase().includes(q) || (p.port + '/' + p.proto).includes(q))
+                : opened;
+            if (matched.length) rows.push({ host, matched, scan });
+        });
+    });
+    const info = document.getElementById('portResultInfo');
+    info.innerHTML = q
+        ? `พบ <strong>${rows.length}</strong> host ที่มี port ตรงกับ "<strong>${q}</strong>"`
+        : `แสดงทุก host ที่มี open port ทั้งหมด <strong>${rows.length}</strong> รายการ`;
+    const tbody = document.getElementById('portBody');
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">ไม่พบ host ที่มี port ตรงกับ "${q}"</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows.map(({ host, matched, scan }) => {
+        const pills = matched.map(p => `<span class="port-pill">${p.port}/${p.name || p.proto}${p.proto !== 'tcp' ? ' (' + p.proto.toUpperCase() + ')' : ''}</span>`).join('');
+        return `<tr>
+            <td><code>${host.ip}</code></td>
+            <td>${pills}</td>
+            <td><code style="font-size:.78rem">${scan.target}</code><br>
+                <span class="badge bg-secondary" style="font-size:.65rem">${scan.scan_type}</span></td>
+            <td><span class="text-muted small">${scan.date}</span></td>
+            <td><a href="${scan.url}" class="btn btn-sm btn-outline-primary">View</a></td>
+        </tr>`;
+    }).join('');
+}
+function quickPort(el, val) {
+    document.querySelectorAll('.port-chip').forEach(c => c.classList.remove('active-chip'));
+    el.classList.add('active-chip');
+    document.getElementById('portSearchInput').value = val;
+    doPortSearch(val);
+}
+function clearPortSearch() {
+    document.getElementById('portSearchInput').value = '';
+    document.querySelectorAll('.port-chip').forEach(c => c.classList.remove('active-chip'));
+    const chips = document.querySelectorAll('.port-chip');
+    chips[chips.length - 1].classList.add('active-chip');
+    doPortSearch('');
+}
+function switchHistoryTab(tab) {
+    document.getElementById('tab-history').style.display = tab === 'history' ? '' : 'none';
+    document.getElementById('tab-portsearch').style.display = tab === 'portsearch' ? '' : 'none';
+    document.getElementById('tab-history-btn').classList.toggle('active-tab', tab === 'history');
+    document.getElementById('tab-portsearch-btn').classList.toggle('active-tab', tab === 'portsearch');
+    if (tab === 'portsearch' && !document.getElementById('portSearchInput').value) {
+        document.getElementById('portSearchInput').value = '80';
+        doPortSearch('80');
+    }
+}
+</script>
+
+<script>
+// The simple search box. Words match the Target and Name columns. A complete IP address or network (192.168.1.41, 192.168.1.0/24)
+// also finds the scans that FOUND such a device: the Target column says what was scanned (192.168.1.0/24), not which devices
+// answered. That lookup is the advanced filter's own "อุปกรณ์ (IP)" search, asked of the server; a single address is sent as a /32
+// (or /128) so that 192.168.1.1 does not also match .10 and .100. When a single address matched nothing, the server also names the
+// devices whose address starts with it ("did you mean 192.168.1.41?"), and the note offers them as buttons.
+const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
+const IPV4 = new RegExp('^' + OCTET + '(?:\\.' + OCTET + '){3}$');
+let hostLookup = null;      // the last answer from the server: { key, ids: Set, or null when the lookup failed }
+let hostPending = false;    // an address is typed and its answer has not come back yet
+let hostSeq = 0;            // so a slow answer for an old query never replaces a newer one
+let hostTimer = null;
+
+function parseAddress(q) {
+    const m = q.match(/^([^/\s]+)(?:\/(\d{1,3}))?$/);
+    if (!m) return null;
+    const ip = m[1], prefix = m[2] === undefined ? null : +m[2];
+    const v4 = IPV4.test(ip);
+    const v6 = !v4 && /^[0-9a-f:]+$/i.test(ip) && (ip.match(/:/g) || []).length >= 2;
+    if (!v4 && !v6) return null;
+    if (prefix !== null && prefix > (v4 ? 32 : 128)) return null;
+    const single = prefix === null;
+    return { ip: ip, text: q, single: single, value: single ? ip + (v4 ? '/32' : '/128') : q };
+}
+
+function lookupHosts(key, addr) {
+    const seq = ++hostSeq;
+    fetch('/api/history/search', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ criteria: { include: [{ field: 'host', values: [addr.value] }], exclude: [] }, record: false, suggest: addr.single ? addr.ip : '' })
+    })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(data => { if (seq === hostSeq) { hostLookup = { key: key, ids: new Set(data.ids), near: data.suggestions || [], nearTotal: data.suggestions_total || 0 }; hostPending = false; filterTable(); } })
+        .catch(() => { if (seq === hostSeq) { hostLookup = { key: key, ids: null }; hostPending = false; filterTable(); } });
+}
+
+function onSearchInput() {
+    const key = document.getElementById('searchInput').value.trim().toLowerCase();
+    const addr = parseAddress(key);
+    clearTimeout(hostTimer);
+    hostSeq++;                                          // whatever is still on its way is about an older query
+    if (!addr) { hostLookup = null; hostPending = false; }
+    else if (!hostLookup || hostLookup.key !== key || !hostLookup.ids) {     // (a failed lookup is asked again)
+        hostLookup = null; hostPending = true;
+        hostTimer = setTimeout(() => lookupHosts(key, addr), 250);
+    } else hostPending = false;
+    filterTable();
+}
+
+function pickAddress(ip) {
+    const box = document.getElementById('searchInput');
+    box.value = ip;
+    box.focus();
+    onSearchInput();
+}
+
+function renderSearchNote(key) {
+    const note = document.getElementById('searchNote');
+    const addr = parseAddress(key);
+    note.replaceChildren();
+    note.classList.remove('is-warn');
+    note.hidden = !addr;
+    if (!addr) return;
+    const bold = text => { const b = document.createElement('b'); b.textContent = text; return b; };
+    if (hostPending || !hostLookup || hostLookup.key !== key) { note.textContent = 'กำลังค้นหาอุปกรณ์ ' + addr.text + ' …'; return; }
+    if (!hostLookup.ids) {
+        note.classList.add('is-warn');
+        note.textContent = 'ค้นหาตามอุปกรณ์ไม่สำเร็จ จึงแสดงเฉพาะรายการที่ Target หรือชื่องานตรงกับที่พิมพ์';
+        return;
+    }
+    const n = hostLookup.ids.size;
+    if (!n) {
+        note.append(addr.single ? 'ไม่พบอุปกรณ์ ' : 'ไม่พบอุปกรณ์ในช่วง ', bold(addr.text), ' ในผลสแกนใดเลย');
+        if (addr.single && hostLookup.near.length) {
+            note.append(' · มีอุปกรณ์ที่ขึ้นต้นด้วยข้อความนี้: ');
+            hostLookup.near.forEach((ip, i) => {
+                if (i) note.append(', ');
+                const b = document.createElement('button');
+                b.type = 'button'; b.className = 'note-pick'; b.textContent = ip;
+                b.addEventListener('click', () => pickAddress(ip));
+                note.append(b);
+            });
+            const more = hostLookup.nearTotal - hostLookup.near.length;
+            if (more > 0) note.append(' และอีก ' + more + ' เครื่อง');
+        }
+        return;
+    }
+    note.append(addr.single ? 'พบอุปกรณ์ ' : 'พบอุปกรณ์ในช่วง ', bold(addr.text), ' ใน ' + n + ' สแกน');
+    if (addr.single) {
+        const a = document.createElement('a');
+        a.href = '/devices/' + encodeURIComponent(addr.ip);
+        a.append('ไปที่หน้าอุปกรณ์ ' + addr.ip + ' ');
+        const arrow = document.createElement('i'); arrow.className = 'ti ti-arrow-right'; arrow.setAttribute('aria-hidden', 'true');
+        a.append(arrow);
+        note.append(' · ', a);
+    }
+}
+
+function filterTable() {
+    const search = document.getElementById('searchInput').value.trim().toLowerCase();
+    const type   = document.getElementById('typeFilter').value.toLowerCase();
+    const status = document.getElementById('statusFilter').value.toLowerCase();
+    const rows   = document.querySelectorAll('#historyBody tr[data-target]');
+    const foundIds = hostLookup && hostLookup.key === search ? hostLookup.ids : null;
+    let shown = 0;
+
+    rows.forEach(row => {
+        // skip collapse/expand port rows (they don't have data-type)
+        if (!row.dataset.type) return;
+        const id     = +row.id.replace('scan-row-', '');
+        const text   = (row.dataset.target + ' ' + (row.dataset.name || '')).toLowerCase();
+        const rType  = row.dataset.type.toLowerCase();
+        const rStat  = row.dataset.status.toLowerCase();
+        const show   = (!search || text.includes(search) || (foundIds && foundIds.has(id)))
+                    && (!type   || rType === type)
+                    && (!status || rStat === status)
+                    // the advanced filter (see the script below) has already worked out which scans match: the ids it returned
+                    && (!window.advIds || window.advIds.has(id));
+        row.style.display = show ? '' : 'none';
+        if (show) shown++;
+    });
+
+    // nothing matches: say so (not while an address is still being looked up, or "not found" would flash)
+    const none = document.getElementById('historyNoMatch');
+    if (none) none.hidden = shown > 0 || hostPending;
+    renderSearchNote(search);
+
+    if (typeof updateBulkUI === 'function') {
+        updateBulkUI();
+    }
+}
+
+function clearFilters() {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('typeFilter').value = '';
+    document.getElementById('statusFilter').value = '';
+    clearTimeout(hostTimer); hostSeq++; hostLookup = null; hostPending = false;
+    if (window.advReset) window.advReset();          // "ล้าง" clears the advanced filter too
+    filterTable();
+}
+
+document.getElementById('searchInput').addEventListener('input', onSearchInput);
+document.getElementById('typeFilter').addEventListener('change', filterTable);
+document.getElementById('statusFilter').addEventListener('change', filterTable);
+</script>
+
+<style>
+/* ── Advanced filter ── */
+.adv-dot { display: inline-block; width: 7px; height: 7px; margin-left: .45rem; border-radius: 50%; background: #2563eb; vertical-align: middle; }
+.adv-dot[hidden], .adv-save[hidden] { display: none; }   /* their display rules would otherwise override the hidden attribute */
+.adv-card { margin-bottom: 1rem; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 1px 3px rgba(15, 23, 42, .05); overflow: hidden; }
+.adv-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+.adv-main { padding: 1.1rem 1.25rem 1rem; }
+.adv-side { padding: 1.1rem; border-left: 1px solid #e2e8f0; background: #fafbfc; }
+@media (max-width: 991px) { .adv-grid { grid-template-columns: 1fr; } .adv-side { border-left: 0; border-top: 1px solid #e2e8f0; } }
+.adv-h { margin-bottom: .75rem; font-size: .95rem; font-weight: 700; color: #0f172a; }
+
+.adv-row { display: grid; grid-template-columns: 44px 200px minmax(0, 1fr) 30px; gap: .5rem; align-items: start; margin-bottom: .5rem; }
+@media (max-width: 767px) { .adv-row { grid-template-columns: 44px minmax(0, 1fr) 30px; } .adv-row .adv-values, .adv-row .adv-date { grid-column: 2 / 4; } }
+.adv-and { padding: .38rem 0; border: 1px solid #e2e8f0; border-radius: 6px; background: #f1f5f9; font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-align: center; color: #64748b; }
+.adv-and:empty { visibility: hidden; }
+.adv-field { font-size: .82rem; }
+.adv-values { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; min-height: 31px; padding: 3px 6px; border: 1px solid #dee2e6; border-radius: 6px; background: #fff; }
+.adv-values:focus-within { border-color: #94a3b8; box-shadow: 0 0 0 3px rgba(148, 163, 184, .2); }
+.adv-values:has(.adv-chip) .adv-input::placeholder { color: transparent; }   /* the hint is only for an empty box */
+.adv-chip { display: inline-flex; align-items: center; gap: .15rem; padding: 1px 3px 1px 9px; border-radius: 999px; background: #eef1f5; font-size: .76rem; font-weight: 500; color: #334155; }
+.adv-chip button { padding: 0 4px; border: 0; background: none; font-size: .95rem; line-height: 1; color: #94a3b8; cursor: pointer; }
+.adv-chip button:hover { color: #0f172a; }
+.adv-input { flex: 1 1 120px; min-width: 110px; padding: 2px; border: 0; outline: 0; background: transparent; font-size: .82rem; }
+.adv-opt { padding: 2px 11px; border: 1px solid #dee2e6; border-radius: 999px; background: #fff; font-size: .76rem; font-weight: 500; color: #475569; cursor: pointer; }
+.adv-opt:hover { border-color: #94a3b8; }
+.adv-opt[aria-pressed="true"] { border-color: #bfdbfe; background: #dbeafe; color: #1e40af; }
+.adv-opt[aria-pressed="true"]::before { content: '\2713\00a0'; font-size: .7rem; }   /* the tick says "on" so the colour is not the only cue */
+.adv-date { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .78rem; color: #64748b; }
+.adv-date input { width: auto; font-size: .8rem; }
+.adv-x { padding: .15rem; border: 0; border-radius: 6px; background: none; font-size: 1.2rem; line-height: 1; color: #94a3b8; cursor: pointer; }
+.adv-x:hover { background: #f1f5f9; color: #0f172a; }
+.adv-add { padding: .25rem 0; border: 0; background: none; font-size: .8rem; font-weight: 600; color: #475569; cursor: pointer; }
+.adv-add:hover { color: #0f172a; text-decoration: underline; }
+.adv-excl { display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .6rem; font-size: .68rem; font-weight: 700; letter-spacing: .06em; color: #94a3b8; }
+.adv-excl::after { content: ''; flex: 1; height: 1px; background: #e2e8f0; }
+.adv-help { margin-top: .8rem; font-size: .72rem; line-height: 1.5; color: #94a3b8; }
+.adv-save { display: flex; gap: .4rem; margin-top: .7rem; }
+.adv-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; margin-top: 1rem; padding-top: .9rem; border-top: 1px solid #eef1f5; }
+.adv-status { margin-right: auto; font-size: .78rem; color: #64748b; }
+.adv-status b { color: #0f172a; }
+.adv-status.is-error { color: #b42318; }
+
+.adv-tabs { display: flex; gap: 3px; margin-bottom: .7rem; padding: 3px; border-radius: 8px; background: #eef1f5; }
+.adv-tab { flex: 1; padding: .3rem; border: 0; border-radius: 6px; background: transparent; font-size: .78rem; font-weight: 600; color: #64748b; cursor: pointer; }
+.adv-tab[aria-selected="true"] { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(15, 23, 42, .1); }
+.adv-qlist { display: flex; flex-direction: column; gap: .45rem; max-height: 340px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.adv-qitem { position: relative; }
+.adv-q { display: block; width: 100%; padding: .55rem 2rem .55rem .7rem; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; text-align: left; cursor: pointer; }
+.adv-q:hover { border-color: #cbd5e1; }
+.adv-q-name { font-size: .78rem; font-weight: 700; color: #0f172a; }
+.adv-q-sum { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: .74rem; line-height: 1.45; color: #475569; }
+.adv-q-meta { margin-top: .15rem; font-size: .68rem; color: #94a3b8; }
+.adv-q-del { position: absolute; top: 5px; right: 5px; }
+.adv-qempty { padding: .6rem .2rem; font-size: .76rem; color: #94a3b8; }
+</style>
+
+<script>
+// ── Advanced filter ──
+// The builder keeps its rows in `state`. "ค้นหา" sends them to /api/history/search, which works out (on the server, so it can look inside the
+// scan results) which scans match and returns their ids; the table just shows those rows (see filterTable). The criteria also live in the
+// URL (?f=...) so a link keeps the search, and the server remembers each search as a recent query.
+(function () {
+    const FIELDS = {{ adv_fields | tojson }};
+    const meta = Object.create(null);   // no inherited keys, so a link with field "constructor" is not mistaken for a field
+    FIELDS.forEach(f => { meta[f.key] = f; });
+    const $ = id => document.getElementById(id);
+    const panel = $('advPanel'), toggle = $('advToggle'), dot = $('advDot'), status = $('advStatus');
+    let state = { include: [], exclude: [] };
+    let tab = 'recent', queries = { recent: [], saved: [] }, loaded = false;
+    window.advIds = null;
+
+    const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+    const blankRow = () => ({ field: 'type', values: [] });
+    const clone = c => ({ include: (c.include || []).map(r => ({ field: r.field, values: r.values.slice() })), exclude: (c.exclude || []).map(r => ({ field: r.field, values: r.values.slice() })) });
+    const hasConditions = c => [].concat(c.include, c.exclude).some(r => r.values.some(v => v));
+    const payload = () => clone(state);
+    function say(text, error) { status.className = 'adv-status' + (error ? ' is-error' : ''); status.textContent = text || ''; }
+
+    // ── one row of the builder ──
+    function chip(text, onRemove) {
+        const c = el('span', 'adv-chip', text), x = el('button', null, '×');
+        x.type = 'button';
+        x.setAttribute('aria-label', 'ลบ ' + text);
+        x.addEventListener('click', () => { c.remove(); onRemove(); });
+        c.appendChild(x);
+        return c;
+    }
+    function valueBox(row) {
+        const m = meta[row.field];
+        if (m.kind === 'enum') {
+            const box = el('div', 'adv-values');
+            m.options.forEach(o => {
+                const b = el('button', 'adv-opt', o[1]);
+                b.type = 'button';
+                b.setAttribute('aria-pressed', row.values.indexOf(o[0]) >= 0 ? 'true' : 'false');
+                b.addEventListener('click', () => {
+                    const i = row.values.indexOf(o[0]);
+                    if (i >= 0) row.values.splice(i, 1); else row.values.push(o[0]);
+                    b.setAttribute('aria-pressed', i >= 0 ? 'false' : 'true');
+                });
+                box.appendChild(b);
+            });
+            return box;
+        }
+        if (m.kind === 'date') {
+            const box = el('div', 'adv-date');
+            [['ตั้งแต่', 0], ['ถึง', 1]].forEach(p => {
+                const label = el('label', null, p[0] + ' '), input = el('input', 'form-control form-control-sm');
+                input.type = 'date';
+                input.value = row.values[p[1]] || '';
+                input.addEventListener('change', () => { row.values[0] = row.values[0] || ''; row.values[1] = row.values[1] || ''; row.values[p[1]] = input.value; });
+                label.appendChild(input);
+                box.appendChild(label);
+            });
+            return box;
+        }
+        const box = el('div', 'adv-values'), input = el('input', 'adv-input');
+        input.type = 'text';
+        input.maxLength = 100;
+        input.placeholder = m.hint || 'พิมพ์แล้วกด Enter';
+        input.setAttribute('aria-label', m.label);
+        const add = value => {
+            value = value.trim().replace(/,+$/, '').trim();
+            if (value && row.values.indexOf(value) < 0 && row.values.length < 20) {
+                row.values.push(value);
+                box.insertBefore(chip(value, () => { row.values = row.values.filter(v => v !== value); }), input);
+            }
+            input.value = '';
+        };
+        row.values.forEach(v => box.appendChild(chip(v, () => { row.values = row.values.filter(x => x !== v); })));
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); add(input.value); }
+            else if (e.key === 'Backspace' && !input.value && row.values.length) { row.values.pop(); box.removeChild(input.previousElementSibling); }
+        });
+        // a comma ends a value too, whether it was typed or pasted ("445, ssh, 80" becomes three chips)
+        input.addEventListener('input', () => {
+            if (input.value.indexOf(',') < 0) return;
+            const parts = input.value.split(',');
+            const rest = parts.pop();
+            parts.forEach(add);
+            input.value = rest;
+        });
+        input.addEventListener('blur', () => add(input.value));
+        box.appendChild(input);
+        box.addEventListener('click', () => input.focus());
+        return box;
+    }
+    function buildRow(section, row, index) {
+        const wrap = el('div', 'adv-row');
+        wrap.appendChild(el('span', 'adv-and', section === 'include' && index ? 'AND' : ''));
+        const select = el('select', 'form-select form-select-sm adv-field');
+        select.setAttribute('aria-label', 'เลือกเงื่อนไข');
+        [['scan', 'ข้อมูลการสแกน'], ['result', 'ผลการสแกน']].forEach(g => {
+            const group = document.createElement('optgroup');
+            group.label = g[1];
+            FIELDS.filter(f => f.level === g[0]).forEach(f => { const o = el('option', null, f.label); o.value = f.key; group.appendChild(o); });
+            select.appendChild(group);
+        });
+        select.value = row.field;
+        select.addEventListener('change', () => { row.field = select.value; row.values = []; render(); });
+        wrap.appendChild(select);
+        wrap.appendChild(valueBox(row));
+        const del = el('button', 'adv-x', '×');
+        del.type = 'button';
+        del.setAttribute('aria-label', 'ลบเงื่อนไข');
+        del.addEventListener('click', () => { state[section].splice(index, 1); if (section === 'include' && !state.include.length) state.include.push(blankRow()); render(); });
+        wrap.appendChild(del);
+        return wrap;
+    }
+    function render() {
+        ['include', 'exclude'].forEach(section => {
+            const box = $(section === 'include' ? 'advInclude' : 'advExclude');
+            box.textContent = '';
+            state[section].forEach((row, i) => box.appendChild(buildRow(section, row, i)));
+        });
+    }
+
+    // ── searching ──
+    function setUrl(criteria) {
+        const url = new URL(location.href);
+        if (criteria) url.searchParams.set('f', JSON.stringify(criteria)); else url.searchParams.delete('f');
+        history.replaceState(null, '', url);
+    }
+    function search(record) {
+        say('กำลังค้นหา…');
+        return fetch('/api/history/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ criteria: payload(), record: record !== false }) })
+            .then(r => r.json())
+            .then(data => {
+                const active = data.criteria.include.length + data.criteria.exclude.length > 0;
+                window.advIds = active ? new Set(data.ids) : null;
+                dot.hidden = !active;
+                setUrl(active ? data.criteria : null);
+                filterTable();
+                status.className = 'adv-status';
+                status.textContent = '';
+                if (active) {
+                    const b = el('b', null, data.matched + ' จาก ' + data.total + ' รายการ');
+                    status.append('ตรงกับตัวกรอง ', b);
+                } else {
+                    say('ยังไม่ได้ระบุเงื่อนไข');
+                }
+                if (active && record !== false) loadQueries();
+            })
+            .catch(() => say('ค้นหาไม่สำเร็จ ลองใหม่อีกครั้ง', true));
+    }
+    function reset() {
+        state = { include: [blankRow()], exclude: [] };
+        window.advIds = null;
+        dot.hidden = true;
+        setUrl(null);
+        render();
+        say('');
+    }
+    window.advReset = reset;
+
+    // ── recent / saved queries ──
+    function renderQueries() {
+        const list = $('advQList');
+        list.textContent = '';
+        document.querySelectorAll('.adv-tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === tab ? 'true' : 'false'));
+        const items = queries[tab];
+        if (!items.length) list.appendChild(el('li', 'adv-qempty', tab === 'saved' ? 'ยังไม่มี query ที่บันทึกไว้ · ตั้งค่าเงื่อนไขแล้วกด "บันทึก Query"' : 'ยังไม่มีการค้นหาล่าสุด'));
+        items.forEach(q => {
+            const li = el('li', 'adv-qitem'), b = el('button', 'adv-q');
+            b.type = 'button';
+            if (q.name) b.appendChild(el('div', 'adv-q-name', q.name));
+            b.appendChild(el('div', 'adv-q-sum', q.summary));
+            b.appendChild(el('div', 'adv-q-meta', 'ใช้ล่าสุด ' + q.last_used));
+            b.addEventListener('click', () => { state = clone(q.criteria); if (!state.include.length) state.include.push(blankRow()); render(); search(true); });
+            li.appendChild(b);
+            if (tab === 'saved') {
+                const del = el('button', 'adv-x adv-q-del', '×');
+                del.type = 'button';
+                del.setAttribute('aria-label', 'ลบ query ' + q.name);
+                del.addEventListener('click', () => fetch('/api/history/queries/' + q.id + '/delete', { method: 'POST' }).then(() => loadQueries()));
+                li.appendChild(del);
+            }
+            list.appendChild(li);
+        });
+    }
+    function loadQueries() {
+        return fetch('/api/history/queries').then(r => r.json()).then(d => { queries = d; loaded = true; renderQueries(); }).catch(() => {});
+    }
+    document.querySelectorAll('.adv-tab').forEach(t => t.addEventListener('click', () => { tab = t.dataset.tab; renderQueries(); }));
+
+    // ── wiring ──
+    function openPanel(open) {
+        panel.hidden = !open;
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open && !loaded) loadQueries();
+    }
+    toggle.addEventListener('click', () => openPanel(panel.hidden));
+    $('advAddInclude').addEventListener('click', () => { state.include.push(blankRow()); render(); });
+    $('advAddExclude').addEventListener('click', () => { state.exclude.push({ field: 'status', values: [] }); render(); });
+    $('advSearch').addEventListener('click', () => search(true));
+    $('advClear').addEventListener('click', () => { reset(); filterTable(); });
+    $('advSave').addEventListener('click', () => {
+        if (!hasConditions(state)) { say('ยังไม่มีเงื่อนไขให้บันทึก', true); return; }
+        $('advSaveRow').hidden = false;
+        $('advSaveName').focus();
+    });
+    $('advSaveCancel').addEventListener('click', () => { $('advSaveRow').hidden = true; });
+    function save() {
+        const name = $('advSaveName').value.trim();
+        if (!name) { $('advSaveName').focus(); return; }
+        fetch('/api/history/queries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, criteria: payload() }) })
+            .then(r => r.json().then(d => ({ ok: r.ok, d: d })))
+            .then(res => {
+                if (!res.ok) { say(res.d.error || 'บันทึกไม่สำเร็จ', true); return; }
+                $('advSaveRow').hidden = true;
+                $('advSaveName').value = '';
+                tab = 'saved';
+                loadQueries();
+                say('บันทึก "' + res.d.name + '" แล้ว');
+            })
+            .catch(() => say('บันทึกไม่สำเร็จ', true));
+    }
+    $('advSaveGo').addEventListener('click', save);
+    $('advSaveName').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+
+    // a link with ?f=... opens the panel with that search already run (it is not counted as a new recent query)
+    state = { include: [blankRow()], exclude: [] };
+    try {
+        const f = new URL(location.href).searchParams.get('f');
+        if (f) {
+            const c = JSON.parse(f);
+            if (c && typeof c === 'object') {
+                state = clone({ include: Array.isArray(c.include) ? c.include.filter(r => r && meta[r.field] && Array.isArray(r.values)) : [], exclude: Array.isArray(c.exclude) ? c.exclude.filter(r => r && meta[r.field] && Array.isArray(r.values)) : [] });
+                if (!state.include.length) state.include.push(blankRow());
+                openPanel(true);
+                render();
+                search(false);
+            }
+        }
+    } catch (e) { /* a broken link just opens the page without a filter */ }
+    render();
+})();
+</script>
+
+<!-- Floating Bulk Action Toolbar: shown while at least one row is selected (class is-open, set by updateBulkUI) -->
+{% if current_user.is_any_admin %}
+<div id="bulkActionBar" class="bulk-action-bar" role="region" aria-label="การดำเนินการกับงานสแกนที่เลือก">
+    <div class="bulk-action-content">
+        <span class="bulk-count" aria-live="polite" aria-atomic="true">เลือก <span id="selectedCount">0</span> รายการ</span>
+        <span class="bulk-sep" aria-hidden="true"></span>
+        <button type="button" class="bulk-btn bulk-btn-quiet" onclick="deselectAllRows()" title="ยกเลิกการเลือก">
+            <i class="ti ti-x" aria-hidden="true"></i><span class="bulk-lbl">ยกเลิกการเลือก</span>
+        </button>
+        <button type="button" class="bulk-btn bulk-btn-delete" onclick="openBulkDeleteModal()" title="ลบงานสแกนที่เลือก">
+            <i class="ti ti-trash" aria-hidden="true"></i><span>ลบ<span class="bulk-more">ที่เลือก</span></span><span class="visually-hidden"> <span id="bulkBtnCount">0</span> รายการ</span>
+        </button>
+    </div>
+</div>
+
+<!-- Bulk Delete Confirmation Modal -->
+<div class="modal fade" id="bulkDeleteModal" tabindex="-1" aria-labelledby="bulkDeleteTitle" aria-describedby="bulkDeleteLead" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered dd-dialog">
+        <div class="modal-content dd-content">
+            <div class="dd-head">
+                <h5 class="dd-title" id="bulkDeleteTitle">ลบงานสแกน <span id="bulkModalCountBadge">0</span> รายการ</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+            </div>
+            <p class="dd-lead" id="bulkDeleteLead">ผลการสแกนและประวัติของงานที่เลือกจะถูกลบออกจากฐานข้อมูลอย่างถาวร และไม่สามารถย้อนกลับได้</p>
+            <div class="dd-list" id="bulkModalSelectedList" role="region" aria-label="งานสแกนที่จะลบ">
+                <table class="dd-table">
+                    <colgroup><col class="dd-c-no"><col><col class="dd-c-type"><col class="dd-c-when"></colgroup>
+                    <thead><tr><th scope="col">งาน</th><th scope="col">เป้าหมาย</th><th scope="col" class="dd-c-type">ประเภท</th><th scope="col">วันที่และเวลา</th></tr></thead>
+                    <tbody id="bulkModalRows"><!-- rows are built in JS (textContent only) --></tbody>
+                </table>
+            </div>
+            <form id="bulkDeleteForm" method="POST" action="{{ url_for('delete_scans_bulk') }}" class="dd-actions">
+                <div id="bulkDeleteHiddenInputs" hidden></div>
+                <button type="button" class="dd-btn dd-btn-quiet" data-bs-dismiss="modal">ยกเลิก</button>
+                <button type="submit" class="dd-btn dd-btn-danger" id="bulkConfirmBtn">ลบ <span id="bulkConfirmBtnCount">0</span> รายการ</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Single Delete Confirmation Modal -->
+<style>
+/* Delete confirmations (one scan, or the selected scans): the same parts in both, so the two dialogs read as one family.
+   White like the app's other dialogs (Rescan, Drill-down), no coloured header and no icon; red is on the delete button only. */
+.dd-dialog { --bs-modal-width: 580px; }
+.dd-content {
+    border: 0;
+    border-radius: 1rem;
+    background: #fff;
+    padding: 22px 24px 20px;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, .16), 0 0 0 1px rgba(15, 23, 42, .04);
+}
+.dd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.dd-title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.5;
+    color: var(--nt-text);
+    overflow-wrap: anywhere;
+}
+.dd-head .btn-close { flex: none; margin: 4px -4px 0 0; --bs-btn-close-opacity: .4; }
+.dd-lead { margin: 4px 0 16px; font-size: .875rem; line-height: 1.7; color: #4b5563; text-wrap: balance; }
+
+/* the list: a hairline box, a sticky header, scrolls when long */
+.dd-list {
+    max-height: min(17rem, 38vh);
+    overflow: auto;
+    scrollbar-width: thin;
+    border: 1px solid #e5e8ec;
+    border-radius: 10px;
+}
+.dd-list:focus-visible { outline: 0; border-color: #8796ab; box-shadow: 0 0 0 3px rgba(100, 116, 139, .2); }
+.dd-table {
+    width: 100%;
+    margin: 0;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: .8125rem;
+    color: var(--nt-text);
+}
+.dd-table .dd-c-no { width: 64px; }
+.dd-table .dd-c-type { width: 172px; }
+.dd-table .dd-c-when { width: 138px; }
+.dd-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 7px 12px;
+    background: var(--nt-bg);
+    border-bottom: 1px solid #e5e8ec;
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.5;
+    text-align: left;
+    white-space: nowrap;
+    color: #5b6472;
+}
+.dd-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f2f5;
+    line-height: 1.5;
+    vertical-align: top;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dd-table tbody tr:last-child td { border-bottom: 0; }
+.dd-table .dd-no, .dd-table .dd-when { color: #5b6472; font-variant-numeric: tabular-nums; }
+.dd-table .dd-target, .dd-table .dd-name { display: block; overflow: hidden; text-overflow: ellipsis; }
+.dd-table .dd-target { font-family: var(--bs-font-monospace); font-size: .8125rem; }
+.dd-table .dd-name { margin-top: 1px; font-size: .75rem; color: #5b6472; }
+
+.dd-actions { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: 8px; margin: 18px 0 0; }
+.dd-btn {
+    padding: 7px 16px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font: inherit;
+    font-size: .875rem;
+    font-weight: 500;
+    line-height: 1.5;
+    cursor: pointer;
+    transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.dd-btn:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(100, 116, 139, .22); border-color: #8796ab; }
+.dd-btn-quiet { background: #fff; border-color: #d9dee5; color: #475569; }
+.dd-btn-quiet:hover { background: #f3f5f8; border-color: #c8cfd9; color: #334155; }
+.dd-btn-danger { background: #b91c1c; border-color: #b91c1c; color: #fff; font-weight: 600; }
+.dd-btn-danger:hover { background: #a01919; border-color: #a01919; }
+.dd-btn-danger:focus-visible { border-color: #7f1d1d; box-shadow: 0 0 0 3px rgba(185, 28, 28, .25); }
+/* the wider choice (every scan of this target) is a quiet text button at the far left, away from the main pair */
+.dd-actions form { display: contents; }
+.dd-all { display: flex; flex-direction: column; align-items: flex-start; margin: 0 auto 0 -8px; }
+.dd-btn-text { padding-left: 8px; padding-right: 8px; background: none; color: #b42318; }
+.dd-btn-text:hover { background: #fdf1f0; }
+.dd-btn-text:focus-visible { border-color: #b42318; box-shadow: 0 0 0 3px rgba(185, 28, 28, .18); }
+/* what "all of this target" leaves out (scans that are waiting or running: the server never deletes those), as a muted line under the button */
+.dd-note { padding: 0 8px; font-size: .8125rem; line-height: 1.5; color: #5b6472; }
+
+@media (max-width: 575.98px) {
+    .dd-content { padding: 18px 16px 16px; }
+    .dd-table .dd-c-type { display: none; }       /* the type column goes first on a phone; the target keeps the room */
+    .dd-table .dd-c-no { width: 58px; }
+    .dd-table .dd-c-when { width: 132px; }
+    .dd-table th, .dd-table td { padding-left: 10px; padding-right: 10px; }
+    .dd-all { flex: 0 0 100%; margin-left: -8px; }   /* on a phone it takes a row of its own above Cancel and Delete */
+    .dd-btn-text { text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dd-btn { transition: none; }
+}
+</style>
+
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalTitle" aria-describedby="deleteModalLead" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered dd-dialog">
+        <div class="modal-content dd-content">
+            <div class="dd-head">
+                <h5 class="dd-title" id="deleteModalTitle">ลบงานสแกน <span id="modalScanId">—</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+            </div>
+            <p class="dd-lead" id="deleteModalLead">ผลการสแกนและประวัติของงานนี้จะถูกลบออกจากฐานข้อมูลอย่างถาวร และไม่สามารถย้อนกลับได้</p>
+            <div class="dd-list">
+                <table class="dd-table">
+                    <colgroup><col class="dd-c-no"><col><col class="dd-c-type"><col class="dd-c-when"></colgroup>
+                    <thead><tr><th scope="col">งาน</th><th scope="col">เป้าหมาย</th><th scope="col" class="dd-c-type">ประเภท</th><th scope="col">วันที่และเวลา</th></tr></thead>
+                    <tbody><tr>
+                        <td class="dd-no" id="modalSeqCell">—</td>
+                        <td id="modalTargetCell"><span class="dd-target" id="modalTarget">—</span><span class="dd-name" id="modalName" hidden></span></td>
+                        <td class="dd-c-type" id="modalType">—</td>
+                        <td class="dd-when" id="modalWhen">—</td>
+                    </tr></tbody>
+                </table>
+            </div>
+            <div class="dd-actions">
+                <div class="dd-all" id="deleteAllWrap" hidden>
+                    <form id="deleteAllForm" method="POST" action="{{ url_for('delete_scans_by_target') }}">
+                        <input type="hidden" name="target" id="deleteTargetInput">
+                        <button type="submit" class="dd-btn dd-btn-text" id="deleteAllBtn" aria-describedby="deleteAllNote">ลบทั้งหมดของเป้าหมายนี้</button>
+                    </form>
+                    <span class="dd-note" id="deleteAllNote" hidden></span>
+                </div>
+                <button type="button" class="dd-btn dd-btn-quiet" data-bs-dismiss="modal">ยกเลิก</button>
+                <form id="deleteSingleForm" method="POST">
+                    <button type="submit" class="dd-btn dd-btn-danger">ลบงานนี้</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Floating Bulk Action Bar: a light card like the delete dialogs (white, hairline, soft shadow, no blur, no dark fill).
+   It sits on the dial's baseline (the chat button is 58px tall at right/bottom 28px) and never reaches under it:
+   centred with a side margin on a wide screen, anchored left and stopping before the button on a narrow one.
+   It is always in the page and fades in and out (opacity / visibility, so it leaves the tab order while hidden). */
+.bulk-action-bar {
+    --bx: -50%;
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    z-index: 1050;
+    max-width: calc(100vw - 200px);
+    padding: 6px;
+    background: #fff;
+    border: 1px solid #dfe3e9;
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .10), 0 1px 3px rgba(15, 23, 42, .06);
+    color: var(--nt-text);
+    transform: translate(var(--bx), 8px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+}
+.bulk-action-bar.is-open {
+    transform: translate(var(--bx), 0);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity .18s ease, transform .18s ease, visibility 0s;
+}
+.bulk-action-content {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.bulk-count {
+    padding: 0 12px 0 12px;
+    font-size: .875rem;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--nt-text);
+}
+.bulk-sep { flex: none; width: 1px; height: 22px; margin-right: 6px; background: #e5e8ec; }
+.bulk-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: none;
+    font: inherit;
+    font-size: .875rem;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.bulk-btn .ti { font-size: 1.05rem; line-height: 1; }
+.bulk-btn:focus-visible { outline: 0; border-color: #8796ab; box-shadow: 0 0 0 3px rgba(100, 116, 139, .22); }
+.bulk-btn-quiet { color: #475569; }
+.bulk-btn-quiet:hover { background: #f3f5f8; color: #334155; }
+/* the delete action is the restrained one: deep red text and icon, a pale half-strength outline; the solid red belongs to the dialog's last button */
+.bulk-btn-delete { background: #fff; border-color: rgba(185, 28, 28, .3); color: #b91c1c; }
+.bulk-btn-delete:hover { background: #fdf1f0; border-color: rgba(185, 28, 28, .45); }
+.bulk-btn-delete:focus-visible { border-color: #b42318; box-shadow: 0 0 0 3px rgba(185, 28, 28, .18); }
+@media (max-width: 639.98px) {
+    /* narrow: anchored left, ending 8px before the chat button; the cancel button keeps only its icon (its words stay for screen readers) */
+    .bulk-action-bar { --bx: 0; left: 12px; right: 94px; max-width: none; }
+    .bulk-action-content { gap: 2px; }
+    .bulk-count { flex: 1 1 auto; min-width: 0; padding: 0 6px 0 10px; overflow: hidden; text-overflow: ellipsis; }
+    .bulk-sep { display: none; }
+    .bulk-btn-quiet { flex: none; width: 36px; padding: 0; justify-content: center; }
+    .bulk-btn-quiet .bulk-lbl {
+        position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+        clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+    }
+    .bulk-btn-delete { flex: none; padding: 0 12px; }
+}
+@media (max-width: 399.98px) {
+    .bulk-more { display: none; }       /* "ลบ" alone, with its icon, when the room runs out */
+}
+@media (prefers-reduced-motion: reduce) {
+    .bulk-action-bar, .bulk-action-bar.is-open, .bulk-btn { transition: none; }
+}
+.history-row.row-selected {
+    background-color: #f0f7ff !important;
+}
+.history-row.row-selected > td {
+    background-color: #f0f7ff !important;
+}
+</style>
+
+<script>
+// Bulk Selection & Shift+Click Functions
+let lastCheckedCheckbox = null;
+
+function getVisibleCheckboxes() {
+    const visibleCheckboxes = [];
+    const rows = document.querySelectorAll('#historyBody tr.history-row');
+    rows.forEach(row => {
+        if (row.style.display !== 'none') {
+            const cb = row.querySelector('.scan-row-cb');
+            if (cb && !cb.disabled) {
+                visibleCheckboxes.push(cb);
+            }
+        }
+    });
+    return visibleCheckboxes;
+}
+
+function getSelectedCheckboxes() {
+    return Array.from(document.querySelectorAll('.scan-row-cb:checked'));
+}
+
+function handleCheckboxClick(e) {
+    const currentCb = this;
+    
+    // Shift + Click range selection
+    if (e && e.shiftKey && lastCheckedCheckbox && lastCheckedCheckbox !== currentCb) {
+        const visibleCbs = getVisibleCheckboxes();
+        const startIdx = visibleCbs.indexOf(lastCheckedCheckbox);
+        const endIdx = visibleCbs.indexOf(currentCb);
+        
+        if (startIdx !== -1 && endIdx !== -1) {
+            const minIdx = Math.min(startIdx, endIdx);
+            const maxIdx = Math.max(startIdx, endIdx);
+            const targetState = currentCb.checked;
+            
+            for (let i = minIdx; i <= maxIdx; i++) {
+                visibleCbs[i].checked = targetState;
+            }
+            
+            // Clear any text selection that Shift+Click might create in browser
+            if (window.getSelection) {
+                window.getSelection().removeAllRanges();
+            }
+        }
+    }
+    
+    lastCheckedCheckbox = currentCb;
+    updateBulkUI();
+}
+
+function updateBulkUI() {
+    const selected = getSelectedCheckboxes();
+    const count = selected.length;
+    const bar = document.getElementById('bulkActionBar');
+    const selectAllCb = document.getElementById('selectAllCheckbox');
+    
+    // Update count labels
+    const countEl = document.getElementById('selectedCount');
+    const btnCountEl = document.getElementById('bulkBtnCount');
+    if (countEl) countEl.textContent = count;
+    if (btnCountEl) btnCountEl.textContent = count;
+    
+    // Toggle floating bar (CSS fades it in and out; it is out of the tab order while hidden)
+    if (bar) {
+        bar.classList.toggle('is-open', count > 0);
+    }
+    
+    // Update row highlights
+    document.querySelectorAll('.scan-row-cb').forEach(cb => {
+        const row = cb.closest('tr');
+        if (row) {
+            row.classList.toggle('row-selected', cb.checked);
+        }
+    });
+    
+    // Update select-all checkbox state based on visible checkboxes
+    if (selectAllCb) {
+        const visible = getVisibleCheckboxes();
+        if (visible.length === 0) {
+            selectAllCb.checked = false;
+            selectAllCb.indeterminate = false;
+        } else {
+            const visibleChecked = visible.filter(cb => cb.checked).length;
+            if (visibleChecked === 0) {
+                selectAllCb.checked = false;
+                selectAllCb.indeterminate = false;
+            } else if (visibleChecked === visible.length) {
+                selectAllCb.checked = true;
+                selectAllCb.indeterminate = false;
+            } else {
+                selectAllCb.checked = false;
+                selectAllCb.indeterminate = true;
+            }
+        }
+    }
+}
+
+function deselectAllRows() {
+    // The bar disappears when the selection is empty. If the keyboard was used, hand the focus back to the table
+    // (the row last ticked, else the header checkbox) so it is not lost; a mouse click does not move the page.
+    const bar = document.getElementById('bulkActionBar');
+    const ae = document.activeElement;
+    const viaKeyboard = !!(bar && ae && bar.contains(ae) && ae.matches(':focus-visible'));
+    const back = lastCheckedCheckbox;
+    document.querySelectorAll('.scan-row-cb').forEach(cb => {
+        cb.checked = false;
+    });
+    lastCheckedCheckbox = null;
+    updateBulkUI();
+    if (viaKeyboard) {
+        const t = (back && back.isConnected && !back.disabled) ? back : document.getElementById('selectAllCheckbox');
+        if (t) t.focus();
+    }
+}
+
+// Delete confirmations. Everything that comes from a scan (target, name) goes in with textContent / DOM calls, never as markup.
+function ddInfo(cb) {
+    // cb is a row's checkbox; the row carries the type label and the date (data-type-label, data-when)
+    const tr = cb.closest('tr');
+    const d = (tr && tr.dataset) || {};
+    return {
+        id: cb.value,
+        seq: cb.dataset.scanSeq || `#${cb.value}`,        // the number the page shows as "Job ID", not the database id
+        target: cb.dataset.target || d.target || '',
+        name: cb.dataset.name || d.name || '',
+        type: d.typeLabel || '',
+        when: d.when || ''
+    };
+}
+
+function ddBuildRow(o) {
+    const tr = document.createElement('tr');
+    const cell = (cls, text) => { const td = tr.insertCell(); td.className = cls; td.textContent = text; return td; };
+    cell('dd-no', o.seq);
+    const tg = tr.insertCell();
+    const t = document.createElement('span');
+    t.className = 'dd-target';
+    t.textContent = o.target;
+    tg.appendChild(t);
+    if (o.name) {
+        const n = document.createElement('span');
+        n.className = 'dd-name';
+        n.textContent = o.name;
+        tg.appendChild(n);
+    }
+    tg.title = o.name ? `${o.target}\n${o.name}` : o.target;      // the full text when it was cut short
+    const ty = cell('dd-c-type', o.type);
+    ty.title = o.type;
+    cell('dd-when', o.when);
+    return tr;
+}
+
+// Focus goes to Cancel when a dialog opens (Enter must never delete), and back to where it was when the dialog closes.
+function ddShow(modalId) {
+    const el = document.getElementById(modalId);
+    if (!el) return;
+    el._ddOpener = document.activeElement;
+    bootstrap.Modal.getOrCreateInstance(el).show();
+}
+['bulkDeleteModal', 'deleteModal'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('shown.bs.modal', function() {
+        const list = el.querySelector('.dd-list');
+        if (list) {                                              // a list that scrolls can be reached with the keyboard
+            if (list.scrollHeight > list.clientHeight + 1) list.tabIndex = 0; else list.removeAttribute('tabindex');
+        }
+        const cancel = el.querySelector('.dd-btn-quiet');
+        if (cancel) cancel.focus();
+    });
+    el.addEventListener('hidden.bs.modal', function() {
+        const o = el._ddOpener;
+        el._ddOpener = null;
+        if (o && o.isConnected && typeof o.focus === 'function') o.focus();
+    });
+});
+
+function openBulkDeleteModal() {
+    const selected = getSelectedCheckboxes();
+    if (selected.length === 0) return;
+    const n = selected.length;
+
+    const countEl = document.getElementById('bulkModalCountBadge');
+    const confirmBtnCount = document.getElementById('bulkConfirmBtnCount');
+    const wrap = document.getElementById('bulkModalSelectedList');
+    const rows = document.getElementById('bulkModalRows');
+    const hiddenInputs = document.getElementById('bulkDeleteHiddenInputs');
+
+    if (countEl) countEl.textContent = n;
+    if (confirmBtnCount) confirmBtnCount.textContent = n;
+
+    if (hiddenInputs) {
+        hiddenInputs.replaceChildren(...selected.map(cb => {
+            const i = document.createElement('input');
+            i.type = 'hidden';
+            i.name = 'scan_ids';
+            i.value = cb.value;
+            return i;
+        }));
+    }
+    if (rows) rows.replaceChildren(...selected.map(cb => ddBuildRow(ddInfo(cb))));
+    if (wrap) wrap.scrollTop = 0;
+
+    ddShow('bulkDeleteModal');
+}
+
+// Single delete confirmation
+function confirmDelete(scanId, target, totalCount, scanSeq) {
+    const seq = scanSeq || `#${scanId}`;
+    const row = document.getElementById('scan-row-' + scanId);
+    const cb = row && row.querySelector('.scan-row-cb');
+    const o = cb ? ddInfo(cb) : { name: (row && row.dataset.name) || '', type: (row && row.dataset.typeLabel) || '', when: (row && row.dataset.when) || '' };
+
+    document.getElementById('deleteSingleForm').action = `/history/${scanId}/delete`;
+    document.getElementById('deleteTargetInput').value = target;
+    document.getElementById('modalScanId').textContent = seq;
+    document.getElementById('modalSeqCell').textContent = seq;
+    document.getElementById('modalTarget').textContent = target;
+    const nameEl = document.getElementById('modalName');
+    nameEl.textContent = o.name || '';
+    nameEl.hidden = !o.name;
+    document.getElementById('modalTargetCell').title = o.name ? `${target}\n${o.name}` : target;
+    document.getElementById('modalType').textContent = o.type || '—';
+    document.getElementById('modalType').title = o.type || '';
+    document.getElementById('modalWhen').textContent = o.when || '—';
+
+    // "All of this target": the server never deletes a scan that is waiting or running, so the count is of the rows it WILL delete.
+    // Only the page's own rows carry the status (every scan the user may see is on the page: there is no paging), so it is counted here.
+    // (totalCount, the server's count of all rows of the target, is no longer used: it includes the active ones.)
+    let deletable = 0, active = 0;
+    document.querySelectorAll('#historyBody tr.history-row').forEach(function(tr) {
+        if (tr.dataset.target !== target) return;
+        if (tr.dataset.status === 'Queued' || tr.dataset.status === 'Running') active++; else deletable++;
+    });
+    const allWrap = document.getElementById('deleteAllWrap');
+    const deleteAllBtn = document.getElementById('deleteAllBtn');
+    const allNote = document.getElementById('deleteAllNote');
+    if (deletable > 1) {
+        deleteAllBtn.textContent = `ลบทั้ง ${deletable} รายการของเป้าหมายนี้`;
+        allNote.textContent = active ? `ไม่รวม ${active} งานที่กำลังทำงานหรือรอคิว` : '';
+        allNote.hidden = !active;
+        allWrap.hidden = false;
+    } else {
+        allNote.hidden = true;
+        allWrap.hidden = true;                     // nothing else of this target can be deleted: the single button is enough
+    }
+
+    ddShow('deleteModal');
+
+    // auto-close modal when any form inside it is submitted
+    ['deleteSingleForm', 'deleteAllForm'].forEach(function(id) {
+        const f = document.getElementById(id);
+        if (!f) return;
+        f.addEventListener('submit', function() {
+            const bsModal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'));
+            if (bsModal) bsModal.hide();
+        }, { once: true });
+    });
+}
+// Initialize event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAllCb = document.getElementById('selectAllCheckbox');
+    if (selectAllCb) {
+        selectAllCb.addEventListener('change', function() {
+            const isChecked = this.checked;
+            const visible = getVisibleCheckboxes();
+            visible.forEach(cb => {
+                cb.checked = isChecked;
+            });
+            lastCheckedCheckbox = null;
+            updateBulkUI();
+        });
+    }
+    
+    // Attach click and change listeners to checkboxes
+    document.querySelectorAll('.scan-row-cb').forEach(cb => {
+        cb.addEventListener('click', handleCheckboxClick);
+    });
+
+    // Allow clicking the cell padding to toggle checkbox with Shift support
+    document.querySelectorAll('td.cb-cell').forEach(td => {
+        td.addEventListener('click', function(e) {
+            if (e.target.classList.contains('scan-row-cb')) return;
+            const cb = this.querySelector('.scan-row-cb');
+            if (cb && !cb.disabled) {
+                cb.checked = !cb.checked;
+                handleCheckboxClick.call(cb, e);
+            }
+        });
+    });
+
+    const bulkForm = document.getElementById('bulkDeleteForm');
+    if (bulkForm) {
+        bulkForm.addEventListener('submit', function() {
+            const bsModal = bootstrap.Modal.getInstance(document.getElementById('bulkDeleteModal'));
+            if (bsModal) bsModal.hide();
+        });
+    }
+
+    // A reload can bring ticked checkboxes back from the browser: make the rows and the bar agree with them
+    updateBulkUI();
+});
+</script>
+{% endblock %}

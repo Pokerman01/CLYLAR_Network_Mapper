@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block page_title %}<div class="topbar-page-title">ผู้ช่วย</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">ถามข้อมูล สั่งสแกน เปิดหน้า</div>{% endblock %}
+{% block page_context %}"หน้า: ผู้ช่วย (แชทเต็มหน้า)"{% endblock %}
+
+{% block content %}
+{# The widget itself (markup in partials/_chat_widget.html, CSS and JavaScript in base.html) laid out as a page. The workspace height is the window's, so the
+   conversation scrolls inside it and the composer stays in view. #}
+<div class="as-ws" id="as-ws">
+  {% include 'partials/_chat_widget.html' %}
+</div>
+<script>
+(function () {
+  const ws = document.getElementById('as-ws');
+  function fit() {
+    const top = ws.getBoundingClientRect().top + window.scrollY;
+    ws.style.height = Math.max(520, document.documentElement.clientHeight - top - 24) + 'px';
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fit); else fit();      // measuring before base.html's chat CSS is parsed made the history drawer slide out at every load
+  window.addEventListener('resize', fit);
+})();
+</script>
+{% endblock %}

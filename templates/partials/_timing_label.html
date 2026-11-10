@@ -1,0 +1,20 @@
+{# Header of the Timing row of the advanced options: the label, the (i) card that explains the levels, and (right) the timing in effect,
+   filled in by initTimingSeg() in base.html. Needs `prefix`. #}
+<div class="adv-head">
+    <label class="adv-label" id="{{ prefix }}_timing_label">Timing</label>
+    <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="ความแม่นยำของ Timing แต่ละระดับ">
+        <i class="ti ti-info-circle"></i>
+        <div class="scan-adv-info-card">
+            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">ความแม่นยำของผลสแกน</div>
+            <div class="text-secondary mb-2" style="font-size:0.77rem;">ระดับที่เร็วขึ้นจะรอคำตอบสั้นลงและส่งซ้ำน้อยลง บนเครือข่ายที่ช้าหรือมีแพ็กเก็ตสูญหายจึงอาจพลาดบางพอร์ตหรือบางอุปกรณ์</div>
+            <div class="scan-adv-info-rows">
+                <div><b>T1</b><span>แม่นยำที่สุด แต่ช้ามาก</span></div>
+                <div><b>T2</b><span>แม่นยำสูง และไม่กดดันอุปกรณ์ที่รับโหลดได้น้อย</span></div>
+                <div><b>T3</b><span>สมดุลระหว่างความเร็วและความแม่นยำ</span></div>
+                <div><b>T4</b><span>เร็ว ผลมักใกล้เคียง T3 บนเครือข่ายภายในที่เสถียร</span></div>
+            </div>
+            <div class="pt-1 mt-2 border-top text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;">หากผลไม่ครบ ให้สแกนซ้ำด้วยระดับที่ช้าลง</div>
+        </div>
+    </span>
+    <span class="adv-val" id="{{ prefix }}_timing_text"></span>
+</div>

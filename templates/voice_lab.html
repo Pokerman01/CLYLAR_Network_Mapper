@@ -1,0 +1,300 @@
+{% extends 'base.html' %}
+
+{% block page_title %}<div class="topbar-page-title">ห้องทดสอบเสียง</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">อัดประโยคคำสั่ง เพื่อวัดว่าตัวถอดเสียงฟังถูกกี่ครั้ง</div>{% endblock %}
+{% block page_context %}"หน้า: ห้องทดสอบเสียง (อัดเสียงเพื่อวัดความแม่นยำของตัวถอดเสียง)"{% endblock %}
+
+{% block content %}
+<style>
+  .vl-card { background: #fff; border: 1px solid #e7e9ee; border-radius: 14px; padding: 20px 22px; }
+  .vl-steps { margin: 0; padding-left: 1.2rem; color: #475569; font-size: .9rem; line-height: 1.75; }
+  .vl-note { font-size: .82rem; color: #64748b; }
+  .vl-dots { display: flex; flex-wrap: wrap; gap: 6px; }
+  .vl-dot { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid #cbd5e1; background: #fff; padding: 0; font-size: .68rem; color: #64748b; line-height: 1; }
+  .vl-dot.ok { background: #dcfce7; border-color: #86c9a0; color: #166534; }
+  .vl-dot.bad { background: #fff3cd; border-color: #e6c36a; color: #92400e; }
+  .vl-dot.now { box-shadow: 0 0 0 3px rgba(230, 167, 0, .35); border-color: #e6a700; }
+  .vl-lang { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .04em; padding: 2px 9px; border-radius: 999px; background: #fff4d1; color: #8a6100; }
+  .vl-say { font-size: 2rem; font-weight: 700; color: #0f172a; line-height: 1.35; margin: 10px 0 4px; word-break: break-word; }
+  .vl-meter { height: 10px; border-radius: 999px; background: #eef1f5; overflow: hidden; }
+  .vl-meter > i { display: block; height: 100%; width: 0; background: #e6a700; transition: width .06s linear; }
+  .vl-rec { border: 0; border-radius: 999px; padding: 10px 26px; font-weight: 700; font-size: 1rem; background: #1e293b; color: #fff; }
+  .vl-rec:hover { background: #334155; }
+  .vl-rec.on { background: #fff4d1; color: #8a6100; box-shadow: inset 0 0 0 1.5px #e6c36a; }
+  .vl-rec:disabled { opacity: .55; }
+  .vl-btn { border: 1px solid #cbd5e1; background: #fff; color: #334155; border-radius: 999px; padding: 7px 16px; font-size: .88rem; }
+  .vl-btn:hover:not(:disabled) { background: #f1f5f9; }
+  .vl-btn:disabled { opacity: .45; }
+  .vl-verdict { border-radius: 10px; padding: 10px 14px; font-size: .92rem; }
+  .vl-verdict.ok { background: #e8f5ec; color: #166534; }
+  .vl-verdict.bad { background: #fff7e0; color: #92400e; }
+  .vl-verdict.neutral { background: #f1f5f9; color: #475569; }
+  .vl-heard { font-family: ui-monospace, Consolas, monospace; font-size: 1.05rem; color: #0f172a; word-break: break-all; }
+  .vl-sum td, .vl-sum th { padding: 4px 12px 4px 0; font-size: .88rem; }
+</style>
+
+<div class="row g-3">
+  <div class="col-12">
+    <div class="vl-card">
+      <h6 class="fw-bold mb-2">วิธีใช้ (ใช้เวลาประมาณ 15 นาที)</h6>
+      <ol class="vl-steps">
+        <li>ใช้ <b>Chrome หรือ Edge</b> ในห้องที่เงียบพอสมควร และใช้ไมโครโฟนตัวที่ใช้งานจริง</li>
+        <li>กด <b>เริ่มอัด</b> แล้วพูดประโยคที่เห็นบนจอ <b>เหมือนที่คุณจะพูดจริง</b> ไม่ต้องอ่านเลขแบบเดียวกันทุกครั้ง</li>
+        <li>หยุดพูดสักครู่ ระบบจะหยุดอัดเอง (หรือกด <b>หยุด</b> ก็ได้)</li>
+        <li>ดูผลทันทีด้านล่าง ถ้าอัดพลาด (เช่น ไอ หรือพูดผิด) กด <b>อัดใหม่</b> ได้</li>
+        <li>ครบ {{ prompts | length }} ประโยคแล้วถือว่าเสร็จ แจ้งผู้พัฒนาได้เลยว่าอัดครบแล้ว</li>
+      </ol>
+      <div class="vl-note mt-2"><i class="ti ti-lock"></i> เสียงถูกเก็บไว้ในเครื่องนี้เท่านั้น ที่โฟลเดอร์ <code>{{ folder }}</code> ไม่ถูกส่งออกไปไหน (ยกเว้นที่เบราว์เซอร์ส่งไปถอดเสียงให้ตามปกติ เหมือนตอนใช้ปุ่มไมโครโฟนในแชท) ลบโฟลเดอร์ทิ้งได้ทุกเมื่อ</div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-8">
+    <div class="vl-card">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+        <div><span class="fw-bold" id="vl-pos">ประโยคที่ 1 / {{ prompts | length }}</span> <span class="vl-lang ms-2" id="vl-lang"></span></div>
+        <div class="vl-dots" id="vl-dots" aria-label="ความคืบหน้า"></div>
+      </div>
+      <div class="vl-note" id="vl-kind"></div>
+      <div class="vl-say" id="vl-say" aria-live="polite"></div>
+
+      <div class="d-flex align-items-center flex-wrap gap-3 mt-3">
+        <button class="vl-rec" id="vl-rec" type="button"><i class="ti ti-microphone"></i> <span id="vl-rec-t">เริ่มอัด</span></button>
+        <div style="flex:1;min-width:160px;">
+          <div class="vl-meter" aria-hidden="true"><i id="vl-level"></i></div>
+          <div class="vl-note mt-1" id="vl-status">พร้อม กด &ldquo;เริ่มอัด&rdquo; แล้วพูดได้เลย</div>
+        </div>
+      </div>
+
+      <div id="vl-result" class="mt-3" hidden>
+        <div class="vl-note mb-1">เบราว์เซอร์ถอดเสียงได้ว่า</div>
+        <div class="vl-heard" id="vl-heard"></div>
+        <div class="vl-verdict mt-2" id="vl-verdict"></div>
+        <div class="d-flex align-items-center flex-wrap gap-2 mt-3">
+          <audio id="vl-audio" controls preload="none" style="height:36px;max-width:100%;"></audio>
+        </div>
+      </div>
+
+      <div class="d-flex flex-wrap gap-2 mt-4">
+        <button class="vl-btn" id="vl-prev" type="button">&larr; ก่อนหน้า</button>
+        <button class="vl-btn" id="vl-next" type="button">ถัดไป &rarr;</button>
+        <button class="vl-btn" id="vl-todo" type="button">ไปประโยคที่ยังไม่ได้อัด</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-4">
+    <div class="vl-card">
+      <h6 class="fw-bold mb-2">สรุปตอนนี้</h6>
+      <div id="vl-sum" class="vl-note">ยังไม่มีคลิป</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const PROMPTS = {{ prompts | tojson }};
+  const SESSION = {{ session_id | tojson }};
+  const TAGS = { en: 'en-US', th: 'th-TH' };
+  const KIND = { scan: 'คำสั่งสแกน', navigate: 'คำสั่งเปิดหน้า', fact: 'คำถามเกี่ยวกับข้อมูล' };
+  const SILENCE_MS = 1500, MAX_MS = 12000, SPEECH_RMS = 0.02;
+  const $ = (id) => document.getElementById(id);
+  const results = {};                       // prompt id -> { score, url }
+  let idx = 0, busy = false, stream = null, audioCtx = null, analyser = null, raf = 0;
+
+  const VERDICT = {
+    exact: 'ถูกต้องทั้งหมด ระบบจะแสดงการ์ดยืนยันที่ถูกต้อง',
+    wrong_type: 'ที่อยู่ถูก แต่ชนิดการสแกนผิด',
+    wrong_target: 'ได้ที่อยู่อื่น',
+    not_a_command: 'ระบบไม่เข้าใจว่าเป็นคำสั่ง',
+    other_command: 'ระบบเข้าใจเป็นคำสั่งอื่น',
+    no_text: 'เบราว์เซอร์ไม่ส่งข้อความมา (ไม่ได้ยิน หรือใช้ตัวถอดเสียงไม่ได้) แต่เสียงถูกบันทึกไว้แล้ว'
+  };
+  const REFUSED = { incomplete: 'ที่อยู่ไม่ครบ', too_many: 'มีตัวเลขเกิน', octet: 'มีตัวเลขเกิน 255', reserved: 'ที่อยู่ที่ใช้สแกนไม่ได้', prefix: 'เครือข่ายกว้างเกินไป' };
+  const DIGITS = { same_digits: 'ตัวเลขถูกครบทุกตัว แต่จุดผิดที่', lost: 'ตัวเลขหายไป 1 ตัว', extra: 'ตัวเลขเกินมา 1 ตัว', one_wrong: 'ตัวเลขผิด 1 ตัว',
+                   off2: 'ตัวเลขผิดประมาณ 2 ตัว', different: 'ตัวเลขต่างจากที่พูดมาก' };
+
+  function setStatus(t) { $('vl-status').textContent = t; }
+
+  function drawDots() {
+    const box = $('vl-dots'); box.textContent = '';
+    PROMPTS.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'vl-dot'; b.textContent = String(i + 1);
+      const r = results[p.id];
+      if (r) b.classList.add(r.score.ok ? 'ok' : 'bad');
+      if (i === idx) b.classList.add('now');
+      b.title = p.text;
+      b.addEventListener('click', () => { if (!busy) go(i); });
+      box.appendChild(b);
+    });
+  }
+
+  function showResult(p) {
+    const r = results[p.id], box = $('vl-result');
+    if (!r) { box.hidden = true; return; }
+    box.hidden = false;
+    const s = r.score;
+    $('vl-heard').textContent = s.heard ? '“' + s.heard + '”' : '(ไม่มีข้อความ)';
+    let text = s.category === 'refused' ? ('ระบบปฏิเสธ: ' + (REFUSED[s.reason] || 'ที่อยู่ไม่ถูกต้อง')) : (VERDICT[s.category] || s.category);
+    if (s.digits && DIGITS[s.digits]) text += ' · ' + DIGITS[s.digits];
+    if (s.ok && !s.best_ok) text += ' (ใช้คำอื่นที่เบราว์เซอร์เสนอมา)';
+    const v = $('vl-verdict');
+    v.textContent = text;
+    v.className = 'vl-verdict ' + (s.ok ? 'ok' : s.category === 'no_text' ? 'neutral' : 'bad');
+    $('vl-audio').src = r.url;
+  }
+
+  function show() {
+    const p = PROMPTS[idx];
+    $('vl-pos').textContent = 'ประโยคที่ ' + (idx + 1) + ' / ' + PROMPTS.length;
+    $('vl-lang').textContent = p.lang === 'th' ? 'ภาษาไทย' : 'ENGLISH';
+    $('vl-kind').textContent = KIND[p.kind] || '';
+    $('vl-say').textContent = p.text;
+    $('vl-prev').disabled = busy || idx === 0;
+    $('vl-next').disabled = busy || idx === PROMPTS.length - 1;
+    $('vl-rec').disabled = false;
+    $('vl-rec-t').textContent = results[p.id] ? 'อัดใหม่' : 'เริ่มอัด';
+    showResult(p);
+    drawDots();
+  }
+  function go(i) { if (i < 0 || i >= PROMPTS.length) return; idx = i; setStatus('พร้อม กด “เริ่มอัด” แล้วพูดได้เลย'); $('vl-level').style.width = '0'; show(); }
+
+  async function getStream() {
+    if (stream && stream.getTracks().every((t) => t.readyState === 'live')) return stream;
+    if (!window.isSecureContext && !window.__labGetStream) throw new Error('insecure');
+    stream = await (window.__labGetStream ? window.__labGetStream() : navigator.mediaDevices.getUserMedia({ audio: true }));
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    return stream;
+  }
+
+  function micMessage(e) {
+    const n = (e && e.name) || String(e);
+    if (n === 'insecure') return 'เปิดหน้านี้ผ่าน localhost หรือ https เท่านั้น ไมโครโฟนถึงจะใช้ได้';
+    if (n === 'NotAllowedError' || n === 'SecurityError') return 'ไมโครโฟนถูกบล็อก กดไอคอนข้าง URL แล้วอนุญาตให้ใช้ไมโครโฟน';
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'ไม่พบไมโครโฟน';
+    return 'เปิดไมโครโฟนไม่ได้ (' + n + ')';
+  }
+
+  // the browser's own engine, run in parallel on the same sentence, collected EXACTLY the way the chat's mic does it (base.html voiceStart)
+  function startEngine(lang) {
+    const Engine = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const out = { error: '', texts: [], done: Promise.resolve(), stop: () => {} };
+    if (!Engine) { out.error = 'unsupported'; return out; }
+    let finalText = '', lastText = '';
+    const segments = [];
+    const rec = new Engine();
+    rec.lang = TAGS[lang]; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 5;
+    rec.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i], readings = [];
+        for (let k = 0; k < Math.max(res.length || 0, 1) && res[k]; k++) readings.push(res[k].transcript);
+        if (!readings.length) continue;
+        if (res.isFinal) { finalText += readings[0]; segments.push(readings); } else interim += readings[0];
+      }
+      lastText = (finalText + interim).replace(/\s+/g, ' ').trim();
+    };
+    rec.onerror = (e) => { out.error = e.error || 'error'; };
+    out.done = new Promise((resolve) => {
+      rec.onend = () => {
+        if (lastText) {
+          const alts = (segments.length === 1 && segments[0][0].replace(/\s+/g, ' ').trim() === lastText) ? segments[0].slice(1) : [];
+          out.texts = [lastText].concat(alts);
+        }
+        resolve();
+      };
+    });
+    out.stop = () => { try { rec.stop(); } catch (e) { } };
+    try { rec.start(); } catch (e) { out.error = String((e && e.name) || e); }
+    return out;
+  }
+
+  async function record() {
+    if (busy) return;
+    const p = PROMPTS[idx];
+    busy = true; show(); $('vl-rec').disabled = true;
+    try { await getStream(); } catch (e) { busy = false; show(); setStatus(micMessage(e)); return; }
+    const chunks = [];
+    const want = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+    const mime = (window.MediaRecorder && want.find((m) => MediaRecorder.isTypeSupported(m))) || '';
+    let mr;
+    try { mr = new MediaRecorder(stream, mime ? { mimeType: mime } : {}); } catch (e) { busy = false; show(); setStatus('เบราว์เซอร์นี้อัดเสียงไม่ได้ (' + ((e && e.name) || e) + ')'); return; }
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    const stopped = new Promise((resolve) => { mr.onstop = resolve; });
+    const engine = startEngine(p.lang);
+    if (audioCtx && audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (e) { } }
+    mr.start();
+    const t0 = performance.now(), buf = new Uint8Array(analyser.fftSize);
+    let spoke = false, lastVoice = t0, ended = false;
+    $('vl-rec').disabled = false; $('vl-rec').classList.add('on'); $('vl-rec-t').textContent = 'หยุด';
+    setStatus('กำลังอัด… พูดได้เลย');
+    const stop = () => { if (ended) return; ended = true; cancelAnimationFrame(raf); try { mr.stop(); } catch (e) { } engine.stop(); };
+    $('vl-rec').onclick = stop;
+    const tick = () => {
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0; for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+      const rms = Math.sqrt(sum / buf.length), now = performance.now();
+      $('vl-level').style.width = Math.min(100, Math.round(rms * 260)) + '%';
+      if (rms > SPEECH_RMS) { spoke = true; lastVoice = now; }
+      if ((spoke && now - lastVoice > SILENCE_MS) || now - t0 > MAX_MS) { stop(); return; }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    await stopped;
+    $('vl-rec').classList.remove('on'); $('vl-rec').onclick = null; $('vl-level').style.width = '0';
+    setStatus('กำลังบันทึกและตรวจผล…');
+    await Promise.race([engine.done, new Promise((r) => setTimeout(r, 2500))]);   // the engine may answer a moment after the audio stopped
+    const blob = new Blob(chunks, { type: (mr.mimeType || mime || 'audio/webm').split(';')[0] || 'audio/webm' });
+    await upload(p, blob, engine, Math.round(performance.now() - t0), stream);
+    busy = false; show();
+  }
+
+  async function upload(p, blob, engine, ms, s) {
+    const fd = new FormData();
+    fd.append('audio', blob, 'clip.' + (blob.type.indexOf('ogg') >= 0 ? 'ogg' : 'webm'));
+    fd.append('session', SESSION); fd.append('prompt', p.id);
+    fd.append('texts', JSON.stringify(engine.texts));
+    fd.append('duration_ms', String(ms)); fd.append('engine_error', engine.error || ''); fd.append('engine_lang', TAGS[p.lang]);
+    try { const t = s.getAudioTracks()[0]; fd.append('audio_settings', JSON.stringify(Object.assign({ label: t.label }, t.getSettings()))); } catch (e) { }
+    try {
+      const resp = await fetch('/api/voice-lab/clip', { method: 'POST', body: fd });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const j = await resp.json();
+      if (results[p.id] && results[p.id].url) URL.revokeObjectURL(results[p.id].url);
+      results[p.id] = { score: j.score, url: URL.createObjectURL(blob) };
+      setStatus(j.score.ok ? 'บันทึกแล้ว ถูกต้อง' : 'บันทึกแล้ว (ผลยังไม่ถูกต้อง ไม่เป็นไร เป็นข้อมูลที่ต้องการ)');
+      refreshSummary();
+    } catch (e) {
+      setStatus('บันทึกไม่สำเร็จ: ' + ((e && e.message) || e) + ' ลองกดอัดใหม่อีกครั้ง');
+    }
+  }
+
+  async function refreshSummary() {
+    try {
+      const j = await (await fetch('/api/voice-lab/summary?session=' + encodeURIComponent(SESSION))).json();
+      const box = $('vl-sum'); box.textContent = '';
+      if (!j.total) { box.textContent = 'ยังไม่มีคลิป'; return; }
+      const mk = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; };
+      const t = document.createElement('table'); t.className = 'vl-sum';
+      const row = (a, b) => { const tr = document.createElement('tr'); tr.appendChild(mk('th', a)); tr.appendChild(mk('td', b)); t.appendChild(tr); };
+      row('อัดแล้ว', j.total + ' / ' + PROMPTS.length);
+      row('ถูกต้องทั้งหมด', j.exact + ' (' + Math.round(100 * j.exact / j.total) + '%)');
+      if (j.by_lang.th) row('ภาษาไทย', j.by_lang.th.exact + ' / ' + j.by_lang.th.total);
+      if (j.by_lang.en) row('ภาษาอังกฤษ', j.by_lang.en.exact + ' / ' + j.by_lang.en.total);
+      if (j.by_kind.scan) row('คำสั่งสแกน (มีที่อยู่)', j.by_kind.scan.exact + ' / ' + j.by_kind.scan.total);
+      box.appendChild(t);
+      box.appendChild(mk('div', 'ตัวเลขนี้คือผลของตัวถอดเสียงในเบราว์เซอร์ (ตัวเทียบ) ส่วนผลของ Whisper จะวัดจากเสียงชุดเดียวกันนี้ทีหลัง', 'vl-note mt-2'));
+    } catch (e) { /* the summary is a convenience */ }
+  }
+
+  $('vl-rec').addEventListener('click', () => { if (!busy) record(); });
+  $('vl-prev').addEventListener('click', () => { if (!busy) go(idx - 1); });
+  $('vl-next').addEventListener('click', () => { if (!busy) go(idx + 1); });
+  $('vl-todo').addEventListener('click', () => { if (busy) return; const i = PROMPTS.findIndex((p) => !results[p.id]); go(i < 0 ? idx : i); });
+  window.__lab = { PROMPTS, results, go: (i) => go(i), record: () => record(), upload: (p, blob, texts) => upload(p, blob, { texts: texts, error: '' }, 1000, { getAudioTracks: () => [] }) };   // for the checks
+  show();
+})();
+</script>
+{% endblock %}

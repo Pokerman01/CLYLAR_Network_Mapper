@@ -1,0 +1,20 @@
+{# Switch for -Pn ("treat all hosts as online"), with an (i) hover card. Needs `prefix` ('ns' / 'rescan' / 'dd').
+   The row around it (#<prefix>_pn_row) is hidden for Discovery by updateScanAdvancedForType() in base.html: with -Pn every address would count as online.
+   The checkbox keeps its name (skip_ping) and id (<prefix>_pn_input): the forms and scripts read `.checked`. #}
+<div class="adv-switch scan-adv-mc">
+    <div class="adv-switch-text">
+        <div class="d-flex align-items-center gap-1">
+            <label class="adv-label" for="{{ prefix }}_pn_input">ข้ามการ ping (-Pn)</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายการข้ามการ ping">
+                <i class="ti ti-info-circle"></i>
+                <div class="scan-adv-info-card">
+                    <div class="text-secondary" style="font-size:0.77rem;">nmap จะสแกนพอร์ตของทุกที่อยู่โดยไม่ตรวจก่อนว่าตอบ ping หรือไม่ ใช้เมื่ออุปกรณ์ปิดกั้น ping จนสแกนปกติไม่พบ ใช้เวลานานขึ้นมากเมื่อเป้าหมายเป็นช่วงกว้าง และรับเป้าหมายได้ไม่เกิน 1,024 ที่อยู่ ผลจะแสดงเฉพาะอุปกรณ์ที่มีหลักฐานตอบกลับ เช่น พอร์ตที่เปิด พอร์ตที่ปิด หรือ MAC</div>
+                </div>
+            </span>
+        </div>
+        <div class="adv-help">ถือว่าทุก IP ออนไลน์ ใช้เมื่ออุปกรณ์ปิดกั้น ping</div>
+    </div>
+    <div class="form-check form-switch m-0 p-0">
+        <input class="form-check-input" type="checkbox" role="switch" name="skip_ping" value="1" id="{{ prefix }}_pn_input">
+    </div>
+</div>

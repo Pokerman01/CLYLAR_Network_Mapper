@@ -1,0 +1,21 @@
+{# Switch for "do not look up device names through DNS" (nmap -n), with an (i) hover card. Needs `prefix` ('ns' / 'rescan' / 'dd').
+   Shown for every scan type except Custom (the whole Advanced panel is hidden there): Discovery does reverse DNS too. The checkbox keeps its name (no_dns) and
+   id (<prefix>_dns_input): the forms and scripts read `.checked`. With it on, neither nmap nor the app asks a DNS server for device names; NetBIOS names
+   (asked from the device itself) are still read. #}
+<div class="adv-switch scan-adv-mc">
+    <div class="adv-switch-text">
+        <div class="d-flex align-items-center gap-1">
+            <label class="adv-label" for="{{ prefix }}_dns_input">ไม่ค้นหาชื่ออุปกรณ์ผ่าน DNS (-n)</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายการไม่ค้นหาชื่อผ่าน DNS">
+                <i class="ti ti-info-circle"></i>
+                <div class="scan-adv-info-card">
+                    <div class="text-secondary" style="font-size:0.77rem;">ทั้ง nmap และระบบจะไม่ถามเซิร์ฟเวอร์ DNS ว่าแต่ละที่อยู่ IP มีชื่ออะไร สแกนจึงเร็วขึ้นและไม่ส่งที่อยู่ IP ภายในไปยังเซิร์ฟเวอร์ DNS แต่ผลสแกนจะไม่มีชื่อจาก DNS ระบบยังอ่านชื่อ NetBIOS ที่ถามจากตัวอุปกรณ์ได้ อุปกรณ์และพอร์ตที่พบไม่เปลี่ยน</div>
+                </div>
+            </span>
+        </div>
+        <div class="adv-help">เร็วขึ้น ไม่ส่ง IP ภายในไปยัง DNS แต่จะไม่มีชื่อจาก DNS</div>
+    </div>
+    <div class="form-check form-switch m-0 p-0">
+        <input class="form-check-input" type="checkbox" role="switch" name="no_dns" value="1" id="{{ prefix }}_dns_input">
+    </div>
+</div>

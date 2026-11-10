@@ -1,0 +1,21 @@
+{# Switch for the Gentle scan (-T2, a packet-rate cap, two retries, a per-host time limit), with an (i) hover card. Needs `prefix` ('ns' / 'rescan' / 'dd').
+   Shown for the three port scans (hidden for Discovery by updateScanAdvancedForType(); the whole panel is hidden for Custom). The checkbox keeps its name (gentle) and
+   id (<prefix>_gt_input). While it is on, the Timing control is greyed out (the speed is set here) and "scan all ports" is disabled, and the reverse
+   (syncAdvancedExclusions() in base.html); the server refuses both pairs as well. #}
+<div class="adv-switch scan-adv-mc">
+    <div class="adv-switch-text">
+        <div class="d-flex align-items-center gap-1">
+            <label class="adv-label" for="{{ prefix }}_gt_input">สแกนแบบนุ่มนวล</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายการสแกนแบบนุ่มนวล">
+                <i class="ti ti-info-circle"></i>
+                <div class="scan-adv-info-card">
+                    <div class="text-secondary" style="font-size:0.77rem;">สำหรับอุปกรณ์ที่รับโหลดได้น้อยหรือลิงก์ที่แบนด์วิดท์ต่ำ ส่งแพ็กเก็ตช้าลงมาก ใช้ความเร็ว T2 ส่งรวมไม่เกิน 50 แพ็กเก็ตต่อวินาที ส่งซ้ำไม่เกิน 2 ครั้ง และข้ามอุปกรณ์ที่ใช้เวลาเกิน 45 นาที ช้ากว่าปกติโดยประมาณ 10 ถึง 40 เท่า รับเป้าหมายได้ไม่เกิน 1,024 ที่อยู่ ระบบหยุดงานที่ใช้เวลาเกิน 8 ชั่วโมง และงานนั้นจะไม่มีผลสแกน Intense Scan และ Vulnerability Scan จะไม่รันสคริปต์ NSE เริ่มต้นของ -A (ระบบไม่เก็บผลสคริปต์อยู่แล้ว) แต่ยังตรวจเวอร์ชัน ระบบปฏิบัติการ และ traceroute ใช้ร่วมกับการสแกนทุกพอร์ตไม่ได้ และใช้ T2 แทนตัวเลือก Timing</div>
+                </div>
+            </span>
+        </div>
+        <div class="adv-help">ส่งแพ็กเก็ตช้าลงมาก ลดภาระของอุปกรณ์และเครือข่าย</div>
+    </div>
+    <div class="form-check form-switch m-0 p-0">
+        <input class="form-check-input" type="checkbox" role="switch" name="gentle" value="1" id="{{ prefix }}_gt_input">
+    </div>
+</div>

@@ -1,0 +1,21 @@
+{# Switch for "find devices that ignore ping" (host-discovery probes: ICMP echo and timestamp, SYN and ACK to common ports), with an (i) hover card.
+   Needs `prefix` ('ns' / 'rescan' / 'dd'). Shown for Discovery and the three port scans; the whole Advanced panel is hidden for Custom. The checkbox keeps its name
+   (host_probes) and id (<prefix>_pr_input). It is switched off and disabled while -Pn is on (syncAdvancedExclusions() in base.html): the two answer the same question
+   in opposite ways and the server refuses the pair. #}
+<div class="adv-switch scan-adv-mc">
+    <div class="adv-switch-text">
+        <div class="d-flex align-items-center gap-1">
+            <label class="adv-label" for="{{ prefix }}_pr_input">ตรวจหาอุปกรณ์ที่ไม่ตอบ ping</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายการตรวจหาอุปกรณ์ที่ไม่ตอบ ping">
+                <i class="ti ti-info-circle"></i>
+                <div class="scan-adv-info-card">
+                    <div class="text-secondary" style="font-size:0.77rem;">ก่อนสแกน nmap จะส่งแพ็กเก็ต TCP ไปยังพอร์ตที่พบบ่อย (22, 23, 80, 443, 445, 3389, 8080) เพิ่มจากการ ping ปกติ เพื่อหาอุปกรณ์ที่ปิดกั้น ping ต่างจาก -Pn ตรงที่ไม่ถือว่าทุกที่อยู่ออนไลน์ ได้ผลเมื่อเป้าหมายอยู่คนละเครือข่ายย่อย (ผ่านเราเตอร์) ในเครือข่ายย่อยเดียวกัน nmap ใช้ ARP อยู่แล้วจึงไม่ต่างจากเดิม ใช้เวลานานขึ้นเล็กน้อย ระบบตรวจจับการบุกรุก (IDS) อาจมองว่าเป็นการสแกน กรุณาแจ้งทีมความปลอดภัยก่อนใช้กับช่วงกว้าง ใช้ร่วมกับ -Pn ไม่ได้</div>
+                </div>
+            </span>
+        </div>
+        <div class="adv-help">ส่งแพ็กเก็ตไปยังพอร์ตที่พบบ่อยเพื่อหาอุปกรณ์ที่ปิดกั้น ping</div>
+    </div>
+    <div class="form-check form-switch m-0 p-0">
+        <input class="form-check-input" type="checkbox" role="switch" name="host_probes" value="1" id="{{ prefix }}_pr_input">
+    </div>
+</div>

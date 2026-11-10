@@ -1,0 +1,154 @@
+{# Draggable column borders for tables marked data-resizable (the Scan Result and CVE tables).
+   When the table is first shown, its current column widths are frozen into a <colgroup> and it switches to table-layout: fixed,
+   so nothing moves. A handle on each header border (every column but the last, and none before an untitled buttons column) trades width between the two columns beside it,
+   so the table keeps filling its card. A column never goes below its own minimum (its widest word or value, hidden rows included),
+   which keeps the protection auto layout gave against overlapping text; a card narrower than all the minimums scrolls sideways as before.
+   Double-click a handle to restore the original widths. With a handle focused, the arrow keys nudge it (Shift = bigger steps). #}
+<style>
+    .table.is-resizable { table-layout: fixed; }
+    .table.is-resizable > thead > tr > th { position: relative; }
+
+    .col-resizer {
+        position: absolute; top: 0; bottom: 0; right: -5px; width: 10px; z-index: 3;
+        cursor: col-resize; touch-action: none;
+    }
+    .col-resizer::after {
+        content: ''; position: absolute; top: 24%; bottom: 24%; left: 4px; width: 1px;
+        background: #94a3b8; transition: background .15s, top .15s, bottom .15s;
+    }
+    .col-resizer:hover::after, .col-resizer.is-active::after, .col-resizer:focus-visible::after { top: 8%; bottom: 8%; background: #475569; }
+    .col-resizer:focus-visible { outline: none; background: rgba(71, 85, 105, .15); }
+    body.col-resizing { cursor: col-resize; user-select: none; }
+</style>
+<script>
+    (function () {
+        var MIN_COL = 48;     // px floor, even for short labels
+        var KEY_STEP = 10;    // px per arrow-key press
+
+        function sum(list) { return list.reduce(function (total, v) { return total + v; }, 0); }
+
+        function setup(table) {
+            var head = table.tHead && table.tHead.rows[0];
+            if (!head || head.cells.length < 2) return;
+            var ths = Array.prototype.slice.call(head.cells);
+            var cols = [], mins = [], frac = [], initial = [];
+            var ready = false, dragging = false, lastW = 0;
+
+            function areaWidth() {
+                var p = table.parentElement, cs = getComputedStyle(p);
+                return p.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+            }
+            function widths() { return ths.map(function (th) { return th.getBoundingClientRect().width; }); }
+
+            // Column widths for a card W px wide: each keeps its share, but none drops below its minimum.
+            function layout(W) {
+                var floor = sum(mins);
+                if (W <= floor) return mins.slice();
+                var slack = frac.map(function (f, i) { return Math.max(f * W - mins[i], 0); });
+                var slackSum = sum(slack), extra = W - floor;
+                return mins.map(function (m, i) { return m + extra * (slackSum ? slack[i] / slackSum : 1 / mins.length); });
+            }
+            function apply(force) {
+                var W = areaWidth();
+                if (W <= 0 || (!force && Math.abs(W - lastW) < 0.5)) return;
+                lastW = W;
+                layout(W).forEach(function (w, i) { cols[i].style.width = w.toFixed(2) + 'px'; });
+                table.style.minWidth = sum(mins) + 'px';
+            }
+            function remember() {
+                var w = widths(), total = sum(w);
+                frac = w.map(function (v) { return v / total; });
+            }
+            function setPair(i, left, pair) {
+                cols[i].style.width = left.toFixed(2) + 'px';
+                cols[i + 1].style.width = (pair - left).toFixed(2) + 'px';
+            }
+            function clampLeft(i, want, pair) { return Math.min(Math.max(want, mins[i]), pair - mins[i + 1]); }
+
+            function nudge(i, delta) {
+                var w = widths(), pair = w[i] + w[i + 1];
+                setPair(i, clampLeft(i, w[i] + delta, pair), pair);
+                remember();
+            }
+            function reset() { frac = initial.slice(); apply(true); }
+
+            function startDrag(e, i, handle) {
+                if (e.button) return;                 // primary button, touch or pen only
+                e.preventDefault();
+                var start = widths(), pair = start[i] + start[i + 1], x0 = e.clientX, dx = 0, frame = 0;
+                dragging = true;
+                document.body.classList.add('col-resizing');
+                handle.classList.add('is-active');
+                try { handle.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already-released pointer */ }
+                function paint() { frame = 0; setPair(i, clampLeft(i, start[i] + dx, pair), pair); }
+                function move(ev) { dx = ev.clientX - x0; if (!frame) frame = requestAnimationFrame(paint); }
+                function end() {
+                    document.removeEventListener('pointermove', move);
+                    document.removeEventListener('pointerup', end);
+                    document.removeEventListener('pointercancel', end);
+                    if (frame) cancelAnimationFrame(frame);
+                    paint();
+                    dragging = false;
+                    document.body.classList.remove('col-resizing');
+                    handle.classList.remove('is-active');
+                    remember();
+                }
+                document.addEventListener('pointermove', move);
+                document.addEventListener('pointerup', end);
+                document.addEventListener('pointercancel', end);
+            }
+
+            function makeHandle(th, i) {
+                var h = document.createElement('span');
+                h.className = 'col-resizer';
+                h.tabIndex = 0;
+                h.setAttribute('role', 'separator');
+                h.setAttribute('aria-orientation', 'vertical');
+                h.setAttribute('aria-label', 'Resize ' + th.textContent.trim() + ' column');
+                h.title = 'Drag to resize · double-click to reset';
+                h.addEventListener('pointerdown', function (e) { startDrag(e, i, h); });
+                h.addEventListener('dblclick', reset);
+                h.addEventListener('keydown', function (e) {
+                    var dir = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+                    if (!dir) return;
+                    e.preventDefault();
+                    nudge(i, dir * KEY_STEP * (e.shiftKey ? 4 : 1));
+                });
+                return h;
+            }
+
+            function init() {
+                var natural = widths();                                   // what auto layout gave, hidden rows included
+                var inline = table.style.width;
+                table.style.width = '1px';                                // squeeze to each column's minimum, then read it
+                mins = widths().map(function (w) { return Math.max(w, MIN_COL); });
+                table.style.width = inline;
+                var total = sum(natural);
+                frac = natural.map(function (w) { return w / total; });
+                initial = frac.slice();
+                var group = document.createElement('colgroup');
+                cols = ths.map(function () { var c = document.createElement('col'); group.appendChild(c); return c; });
+                table.insertBefore(group, table.firstChild);
+                table.classList.add('is-resizable');
+                apply(true);
+                // no handle on the border before a column with no title (the buttons column): nothing there to size
+                ths.forEach(function (th, i) { if (i < ths.length - 1 && ths[i + 1].textContent.trim()) th.appendChild(makeHandle(th, i)); });
+                ready = true;
+            }
+
+            // Start once the table actually has a width: a table in a hidden tab has none until the tab is opened.
+            if (typeof ResizeObserver === 'function') {
+                new ResizeObserver(function () {
+                    if (dragging || !table.offsetWidth) return;
+                    if (!ready) init(); else apply();
+                }).observe(table.parentElement);
+            } else {
+                window.addEventListener('load', function () { if (table.offsetWidth) init(); });
+            }
+        }
+
+        function run() { Array.prototype.forEach.call(document.querySelectorAll('table[data-resizable]'), setup); }
+        function start() { (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(run); }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+    })();
+</script>

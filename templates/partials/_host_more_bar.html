@@ -1,0 +1,25 @@
+{# The "show more ports" bar under one host in a scan report (CSS and toggleHostRows() are in _host_collapse.html).
+   It is its own <tbody class="host-more"> after the host's <tbody class="host-group">, and is included from inside the hosts loop.
+   Expects: bar_group (id of the host's <tbody>), bar_span (columns from Port to the right edge: 5, or 6 with the Actions column),
+   hidden_rows (how many ports are folded away) and behind (hidden_port_summary() of the hidden ports).
+   The left three cells (IP / MAC / OS) stay empty and white under the host's own, so the row starts under the Port column.
+   The note after the label says only what is not the default: the states are listed when some hidden port is not open (a list of
+   all-open ports would just repeat the label), CVEs per severity when the hidden ports carry any. The tooltip always has all of it.
+   With nothing to say the note's <span> is not drawn at all (it carries the hairline that separates it from the label). #}
+{%- set tip = [] %}
+{%- set odd = namespace(state=false) %}
+{%- for state, n in behind.states %}{% set _ = tip.append(state ~ ' ' ~ n) %}{% if state != 'open' %}{% set odd.state = true %}{% endif %}{% endfor %}
+{%- if behind.severities %}{% set sev_tip = [] %}{% for sev, n in behind.severities %}{% set _ = sev_tip.append((sev | title) ~ ' ' ~ n) %}{% endfor %}{% set _ = tip.append('CVE: ' ~ (sev_tip | join(', '))) %}{% endif %}
+{%- set has_note = odd.state or behind.severities %}
+<tbody class="host-more">
+    <tr>
+        <td colspan="3" class="host-more-gap"></td>
+        <td colspan="{{ bar_span }}" class="host-more-cell">
+            <button type="button" class="host-more-btn" onclick="toggleHostRows(this)" aria-controls="{{ bar_group }}" aria-expanded="false"
+                    data-hidden="{{ hidden_rows }}" title="ในพอร์ตที่ซ่อนอยู่: {{ tip | join(' · ') }}"><i class="ti ti-chevron-down" aria-hidden="true"></i><span class="host-more-label">แสดงอีก {{ hidden_rows }} พอร์ต</span>
+                {%- if has_note %}<span class="host-more-info">
+                {%- if odd.state %}{% for state, n in behind.states %}<span class="hm-note"><span class="hm-dot hm-dot-{{ state | replace('|', '-') }}" aria-hidden="true"></span>{{ state }} {{ n }}</span>{% endfor %}{% endif %}
+                {%- if behind.severities %}<span class="hm-note hm-cve">CVE{% for sev, n in behind.severities %}<span class="hm-note"><span class="hm-dot hm-dot-{{ sev | lower }}" aria-hidden="true"></span>{{ sev | title }} {{ n }}</span>{% endfor %}</span>{% endif %}</span>{% endif %}</button>
+        </td>
+    </tr>
+</tbody>

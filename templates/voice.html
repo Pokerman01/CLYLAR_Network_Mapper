@@ -1,0 +1,446 @@
+{% extends 'base.html' %}
+
+{% block page_title %}<div class="topbar-page-title">เสียง</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">พูดคำสั่งหรือถามข้อมูลเกี่ยวกับเครือข่าย</div>{% endblock %}
+{% block page_context %}"หน้า: เสียง (คำสั่งเสียง)"{% endblock %}
+
+{% block content %}
+{# The Voice page, option B of docs/design-options/voice-orb (a ring of rounded bars around one big microphone). It is NOT a second voice engine: the markup is the shared
+   widget (partials/_chat_widget.html, voice_page branch), the microphone, Whisper, the parser and the confirmation card are the code in base.html, and this file only
+   draws the ring and mirrors the shared code's state onto the page. Cost: nothing is drawn while idle; the one canvas animates (about 30 frames a second) only while
+   listening or working, and stops when the state settles, when the tab is hidden, and under reduced motion. No blur, no backdrop-filter. #}
+<style>
+body:has(.vp-ws) .main-content { padding: 20px 28px 24px; }
+.vp-ws { position: relative; min-height: 560px; }
+#vp-root { --ink: #363a42; --muted: #5b6779; --cream: #fff4d1; --gold: #e6a700; --edge: #f0d58c;
+  position: relative; height: 100%; min-height: 560px; overflow: hidden; isolation: isolate; container-type: inline-size;
+  display: flex; flex-direction: column; align-items: stretch; padding: 14px 22px 20px;
+  border-radius: 24px; border: 1px solid #efe9d6; background: radial-gradient(64% 50% at 50% 42%, rgba(255,241,196,.7), rgba(255,255,255,0) 70%), #fffefb; }
+#vp-root [hidden] { display: none !important; }
+#vp-root :focus-visible { outline: 2px solid #64748b; outline-offset: 3px; }
+#vp-root button { font-family: inherit; }
+#vp-root p { margin: 0; }
+#vp-root #panel-chat { flex: 1; min-height: 0; margin: 0; overflow: visible; display: flex; flex-direction: column; }
+
+/* language and engine: two quiet words, never a panel */
+#vp-root .vp-top { display: flex; align-items: center; justify-content: space-between; min-height: 36px; flex: none; }
+#vp-root .vp-meta { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 2px; flex-wrap: wrap; line-height: 1.6; }
+#vp-root .vp-lang { height: auto; border: 0; background: transparent; color: #475569; font: inherit; font-weight: 600; padding: 3px 8px; border-radius: 8px; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
+#vp-root .vp-lang:hover, #vp-root .vp-lang[aria-expanded="true"] { background: rgba(255,255,255,.75); }
+#vp-root .vp-meta { position: relative; }
+#vp-root .vp-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; min-width: 190px; padding: 6px; background: #fff; border: 1px solid #eee7cf; border-radius: 14px;
+  box-shadow: 0 18px 40px -16px rgba(100,80,20,.38); display: flex; flex-direction: column; gap: 2px; }
+#vp-root .vp-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; padding: 8px 10px; border-radius: 9px; font-size: 14px; color: #475569; text-align: left; cursor: pointer; line-height: 1.5; }
+#vp-root .vp-menu button:hover, #vp-root .vp-menu button:focus-visible { background: #f8f5ea; outline: none; }
+#vp-root .vp-menu button i { font-size: 16px; color: var(--gold); visibility: hidden; flex: none; }
+#vp-root .vp-menu button[aria-checked="true"] { color: var(--ink); font-weight: 600; }
+#vp-root .vp-menu button[aria-checked="true"] i { visibility: visible; }
+#vp-root .vp-lang i { font-size: 14px; color: #64748b; }
+#vp-root .vp-sep { opacity: .7; padding: 0 2px; }
+#vp-root .vp-eng.off::before { content: ""; width: 9px; height: 9px; border: 2px solid #b45309; border-radius: 50%; box-sizing: border-box; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+
+/* round buttons: a few, like the reference */
+#vp-root .vp-rbtn { width: 50px; height: 50px; border-radius: 50%; border: 1px solid rgba(226,232,240,.95); background: linear-gradient(180deg,#fff,#fbf8ef); color: #475569;
+  display: inline-grid; place-items: center; cursor: pointer; padding: 0; flex: none; position: relative;
+  box-shadow: 0 8px 18px -8px rgba(170,130,30,.32), inset 0 1px 0 #fff; transition: transform .15s, box-shadow .15s, background .2s, opacity .2s; }
+#vp-root .vp-rbtn i { font-size: 21px; line-height: 1; }
+#vp-root .vp-rbtn:hover { transform: translateY(-1px); box-shadow: 0 12px 22px -8px rgba(170,130,30,.38), inset 0 1px 0 #fff; }
+#vp-root .vp-rbtn:active { transform: scale(.96); }
+#vp-root .vp-rbtn.xs { width: 34px; height: 34px; box-shadow: 0 4px 10px -5px rgba(170,130,30,.3), inset 0 1px 0 #fff; }
+#vp-root .vp-rbtn.xs i { font-size: 17px; }
+#vp-root .vp-rbtn[aria-disabled="true"] { opacity: .45; cursor: default; box-shadow: none; transform: none; }
+#vp-root .vp-rbtn[aria-pressed="true"], #vp-root .vp-rbtn[aria-expanded="true"] { background: #fff4d1; border-color: var(--edge); color: #8a6200; }
+
+/* the stage */
+#vp-root .vp-center { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 4px 0; }
+#vp-root .vp-center > :first-child { margin-top: auto; }
+#vp-root .vp-center > :last-child { margin-bottom: auto; }
+#vp-root .vp-row { display: flex; align-items: center; justify-content: center; gap: 26px; width: 100%; flex: none; }
+#vp-root .vp-ringwrap { --rw: min(400px, 40vh, calc(100cqw - 170px)); position: relative; width: var(--rw); height: var(--rw); flex: none; display: grid; place-items: center;
+  transition: width .6s cubic-bezier(.3,.7,.2,1), height .6s cubic-bezier(.3,.7,.2,1); }
+#vp-root[data-state="result"] .vp-ringwrap { --rw: min(200px, calc(100cqw - 170px)); }
+#vp-root .vp-glow { position: absolute; inset: 6%; border-radius: 50%; background: radial-gradient(circle, rgba(247,200,74,.3), rgba(247,200,74,0) 68%);
+  opacity: calc(.35 + var(--lvl, 0) * .65); transform: scale(calc(.9 + var(--lvl, 0) * .22)); pointer-events: none; }
+#vp-root .vp-cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* the big disc is the shared #cb-mic button */
+#vp-root .cb-mic.vp-disc { position: relative; width: 34%; height: auto; aspect-ratio: 1; border-radius: 50%; padding: 0; cursor: pointer;
+  background: linear-gradient(145deg, #fffdf2, #fff0c4); border: 1px solid #f1e2b0; color: var(--gold); font-size: clamp(22px, 6cqw, 38px);
+  box-shadow: 10px 14px 26px -10px rgba(206,158,32,.5), -8px -8px 18px #fff, inset 0 1px 0 #fff; animation: none;
+  transform: scale(calc(1 + var(--lvl, 0) * .05)); transition: background .2s, color .2s, opacity .2s; }
+#vp-root .cb-mic.vp-disc:hover { transform: scale(calc(1.02 + var(--lvl, 0) * .05)); }
+#vp-root .cb-mic.vp-disc i { font-size: inherit; line-height: 1; }
+#vp-root .cb-mic.vp-disc .ic-stop { display: none; }
+#vp-root .cb-mic.vp-disc.is-listening { background: #475569; border-color: #475569; color: #fff; box-shadow: 10px 14px 26px -10px rgba(71,85,105,.6), -8px -8px 18px #fff; animation: none; }
+#vp-root .cb-mic.vp-disc.is-listening .ic-mic { display: none; }
+#vp-root .cb-mic.vp-disc.is-listening .ic-stop { display: block; }
+#vp-root .cb-mic.vp-disc.is-off { color: #94a3b8; cursor: help; }
+#vp-root .cb-mic.vp-disc[aria-disabled="true"] { opacity: .55; cursor: progress; }
+
+/* the words under the ring: the shared voice strip (title and one line) or, when idle, "press to speak" */
+#vp-root .vp-text { display: flex; flex-direction: column; align-items: center; gap: 2px; max-width: 520px; width: 100%; text-align: center; flex: none; }
+#vp-root .vp-label { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+#vp-root .vp-label[data-k="work"] { animation: vp-late .01s linear .22s both; }      /* our parser answers in milliseconds: the wording shows only if it takes noticeable time */
+@keyframes vp-late { from { opacity: 0; } to { opacity: 1; } }
+#vp-root .vp-label b, #vp-root .cb-vs-text b { font-size: 17px; font-weight: 700; color: var(--ink); line-height: 1.5; }
+#vp-root .vp-label small, #vp-root .cb-vs-text small { font-size: 13px; color: var(--muted); line-height: 1.7; white-space: normal; overflow: visible; }
+#vp-root .cb-vstrip { display: flex; justify-content: center; align-items: center; padding: 0; margin: 0; background: transparent; border: 0; }
+#vp-root .cb-vs-ico, #vp-root .cb-vs-time, #vp-root .cb-vs-stop { display: none !important; }
+#vp-root .cb-vs-text { flex: none; align-items: center; text-align: center; }
+#vp-root .vp-cap { font-size: 20px; line-height: 1.6; color: #475569; min-height: 0; overflow-wrap: anywhere; }
+#vp-root .vp-cap:empty { display: none; }
+
+/* the result: the shared messages, only the last exchange (the page script removes the older ones) */
+#vp-root .cb-messages { flex: none; overflow: visible; background: transparent; border: 0; padding: 0; width: min(440px, 100%); gap: 12px; scroll-behavior: auto; align-items: stretch; }
+#vp-root .cb-messages:empty { display: none; }
+#vp-root #cb-typing-indicator { display: none; }
+#vp-root .cb-msg { animation: vp-rise .35s ease-out; }
+@keyframes vp-rise { from { opacity: 0; transform: translateY(8px); } }
+#vp-root .cb-msg.user { flex-direction: column; align-items: center; }
+#vp-root .cb-msg.user > div { align-items: center; max-width: 100%; }
+#vp-root .cb-msg.user .cb-bubble { background: transparent; border: 0; box-shadow: none; color: #475569; font-size: 20px; line-height: 1.6; text-align: center; padding: 0; white-space: normal; border-radius: 0; }
+#vp-root .cb-msg.user .cb-bubble .cb-ico { display: none; }
+#vp-root .cb-msg.user .cb-bubble::before { content: "\201C"; }
+#vp-root .cb-msg.user .cb-bubble::after { content: "\201D"; }
+#vp-root .cb-msg.user .cb-time { display: none; }
+/* while the page waits for the answer to "which target?" and the microphone is open, the earlier quoted sentence ("scan") is hidden: it sits where the live words appear and reads as if it were being heard now. The question bubble stays. */
+#vp-root[data-await="1"]:is([data-state="listening"], [data-state="start"], [data-state="transcribing"]) .cb-msg.user { display: none; }
+#vp-root .cb-msg.bot > div { width: 100%; max-width: 100%; }
+#vp-root .cb-msg.bot .cb-bubble { width: 100%; background: rgba(255,255,255,.94); border: 1px solid #eee7cf; border-radius: 18px; padding: 16px 18px; box-shadow: 0 16px 32px -20px rgba(150,110,20,.4);
+  font-size: 15px; line-height: 1.65; color: var(--ink); white-space: normal; }
+#vp-root .cb-msg.bot .cb-bubble.k-warn { border-left: 3px solid #c99a2e; }
+#vp-root .cb-msg.bot .cb-bubble.cb-voice-card { width: 100%; padding: 16px 18px; border-radius: 18px; border: 1px solid #eee7cf; }
+#vp-root .cb-msg.bot .cb-time { padding-left: 6px; }
+#vp-root .cb-voice-title { font-size: 15.5px; color: var(--ink); }
+#vp-root .cb-voice-title i { color: var(--gold); font-size: 21px; background: var(--cream); width: 38px; height: 38px; border-radius: 12px; display: inline-grid; place-items: center; }
+#vp-root .cb-voice-title + .cb-voice-row { display: none; }      /* "heard" is the quote above the card already */
+#vp-root .cb-voice-row { font-size: 14px; padding: 8px 0; border-bottom: 1px solid #f1ede0; justify-content: space-between; }
+#vp-root .cb-voice-row > span { flex: 0 0 auto; }
+#vp-root .cb-voice-row > b { text-align: right; }
+#vp-root .cb-voice-actions { gap: 10px; margin-top: 14px; flex-wrap: wrap; flex-direction: row-reverse; }
+#vp-root .cb-voice-actions button { flex: 1 1 auto; min-height: 42px; border-radius: 12px; padding: 0 16px; font-size: 14px; justify-content: center; }
+#vp-root .cb-voice-yes { background: #475569; border-color: #475569; }
+#vp-root .cb-voice-no { border-color: #e2e8f0 !important; }
+#vp-root .cb-voice-note { font-size: 12.5px; }
+
+/* typed command, and the one quiet note about the engine */
+#vp-root .vp-bottom { flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; min-height: 12px; padding-top: 8px; }
+#vp-root .vp-typed { display: flex; align-items: center; gap: 8px; width: min(440px, 100%); background: rgba(255,255,255,.9); border: 1px solid #eadfb8; border-radius: 999px; padding: 5px 5px 5px 18px; box-shadow: 0 8px 20px -12px rgba(150,110,20,.35); }
+#vp-root .vp-typed:focus-within { border-color: #94a3b8; box-shadow: 0 0 0 3px rgba(100,116,139,.18), 0 8px 20px -12px rgba(150,110,20,.35); }      /* a soft slate ring says the box is waiting for typing */
+#vp-root .vp-typed .cb-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; box-shadow: none; padding: 0; font: inherit; font-size: 16px; color: var(--ink); caret-color: #1e293b; }      /* the blinking caret is the text colour at full strength, and the text is a little larger so the caret is taller */
+#vp-root .vp-typed .cb-input:focus { border: 0; box-shadow: none; background: transparent; outline: none; }
+#vp-root .vp-typed .cb-input::placeholder { color: #6b7280; }
+#vp-root .vp-send { width: 36px; height: 36px; border-radius: 50%; border: 0; background: #475569; color: #fff; display: grid; place-items: center; cursor: pointer; flex: none; padding: 0; }
+#vp-root .vp-send i { font-size: 17px; }
+#vp-root .vp-note { font-size: 12.5px; color: var(--muted); line-height: 1.7; text-align: center; max-width: 520px; }
+#vp-root .vp-note::before { content: ""; width: 9px; height: 9px; border: 2px solid #b45309; border-radius: 50%; box-sizing: border-box; display: inline-block; margin-right: 7px; vertical-align: -1px; }
+#vp-root .vp-note a { color: #475569; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 3px; white-space: nowrap; }
+#vp-root .vp-note a:hover { text-decoration-color: #64748b; }
+
+/* the "?" popover reuses the shared help panel (its tabs and examples) */
+#vp-root .vp-helpwrap { position: relative; }
+#vp-root .vp-right { display: flex; align-items: center; gap: 14px; }
+#vp-root .cb-auto { font-size: 13px; color: #475569; height: 34px; box-sizing: border-box; padding: 0 12px 0 14px; gap: 8px; border: 1px solid rgba(226,232,240,.95); border-radius: 999px; background: #fff; }
+#vp-root .cb-help { position: absolute; inset: auto; top: calc(100% + 8px); right: 0; width: min(380px, calc(100cqw - 32px)); max-height: min(70vh, 480px); z-index: 20;
+  border: 1px solid #eee7cf; border-radius: 16px; background: #fff; box-shadow: 0 18px 40px -16px rgba(100,80,20,.38); text-align: left; }
+
+@media (max-width: 1000px) { body:has(.vp-ws) .main-content { padding: 14px 12px 24px; } #vp-root .vp-row { gap: 12px; } }
+@media (prefers-reduced-motion: reduce) { #vp-root *, #vp-root *::before, #vp-root *::after { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="vp-ws" id="vp-ws">
+  {% include 'partials/_chat_widget.html' %}
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const RM = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const SETTINGS_URL = {{ url_for('settings_page') | tojson }};
+
+  // The page's own words. Everything else (the strip, the answers, the card) is written by the shared voice code in base.html.
+  const TXT = {
+    th: {
+      press: 'กดเพื่อพูด', working: 'กำลังทำความเข้าใจคำสั่ง',
+      langAuto: 'อัตโนมัติ', langTh: 'ไทย', langEn: 'English', langAria: 'ภาษาที่ฟัง {l} กดเพื่อเลือกภาษา', langMenu: 'ภาษาที่ใช้พูด',
+      noteWhisper: 'Whisper ไม่ได้ทำงาน จึงใช้ตัวถอดเสียงของเบราว์เซอร์ ซึ่งส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ ต้องใช้อินเทอร์เน็ต และถอดที่อยู่ IP ได้แม่นยำน้อยกว่า ',
+      notePinned: 'ตั้งค่าไว้ให้ใช้ตัวถอดเสียงของเบราว์เซอร์ ซึ่งส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ ต้องใช้อินเทอร์เน็ต และถอดที่อยู่ IP ได้แม่นยำน้อยกว่า ',
+      noteLink: 'เปิดใช้ Whisper ในหน้าตั้งค่า', closeTip: 'ยกเลิกและล้างหน้าจอ (Esc)', stopTip: 'ยกเลิกการฟัง (Esc)'
+    },
+    en: {
+      press: 'Press to speak', working: 'Working out the command',
+      langAuto: 'Auto', langTh: 'Thai', langEn: 'English', langAria: 'Speaking language {l}, press to choose', langMenu: 'Speaking language',
+      noteWhisper: 'Whisper is not running, so the browser\'s speech engine is used. It sends the audio to the browser vendor, needs the internet, and reads IP addresses less accurately. ',
+      notePinned: 'The browser\'s speech engine is selected in Settings. It sends the audio to the browser vendor, needs the internet, and reads IP addresses less accurately. ',
+      noteLink: 'Turn on Whisper in Settings', closeTip: 'Cancel and clear the screen (Esc)', stopTip: 'Cancel listening (Esc)'
+    }
+  };
+  const L = () => TXT[voiceUiLang()];
+
+  const root = $('vp-root'), ring = $('vp-ring'), cv = $('cv') || $('vp-cv'), strip = $('cb-vstrip'), wrap = $('cb-messages');
+  const ACTIVE = { listening: 1, transcribing: 1, understanding: 1 };      // the states that animate the ring
+  let state = 'idle', prev = 'idle';
+
+  // ─── which state is the page in? (read from the shared code's own elements) ───
+  function realMsgs() { return Array.from(wrap.children).filter((n) => n.classList.contains('cb-msg') && n.id !== 'cb-typing-indicator'); }
+  function computeState() {
+    if (strip && !strip.hidden) {
+      const st = strip.dataset.stage || '';
+      if (st.indexOf('listen') === 0) return 'listening';
+      if (st === 'start') return 'start';
+      if (st === 'transcribe') return 'transcribing';
+      return 'understanding';                                   // understand, ai
+    }
+    const m = realMsgs();
+    if (!m.length) return 'idle';
+    if ($('cb-typing-indicator') || m[m.length - 1].classList.contains('user')) return 'understanding';      // asked, not answered yet
+    return 'result';
+  }
+  function retire(node) {                                       // an older exchange: an unanswered confirmation card is cancelled, then the node goes
+    const no = node.querySelector('.cb-voice-no:not(:disabled)');
+    if (no) no.click();
+    node.remove();
+  }
+  function prune() {                                            // only the last exchange stays on screen: the last thing said, and the answers after it
+    const m = realMsgs();
+    let lastUser = -1;
+    m.forEach((n, i) => { if (n.classList.contains('user')) lastUser = i; });
+    const from = lastUser >= 0 ? lastUser : Math.max(0, m.length - 1);
+    m.slice(0, from).forEach(retire);
+  }
+  function awaitingTarget() {                                   // "which target?" is open (60 s): the next thing said is read as just an address
+    try { return !!(voicePending && Date.now() < voicePending.until); } catch (e) { return false; }
+  }
+  function clearResult() {
+    realMsgs().forEach(retire);
+    wrap.textContent = '';
+    try { voicePending = null; } catch (e) { }                  // a waiting "which target?" belongs to the screen that was cleared
+  }
+
+  // ─── mirror the state onto the page ───
+  function setTyped(on) {
+    const f = $('vp-typed'), b = $('vp-type');
+    f.hidden = !on; b.setAttribute('aria-pressed', String(on));
+    if (on) $('cb-input').focus();
+  }
+  window.voiceUiShowTyped = () => setTyped(true);
+
+  function micOf(st) { return st === 'transcribing' || st === 'understanding'; }
+  function renderMeta() {
+    const T = voiceT(), l = L();
+    const lang = $('cb-vlang');
+    const word = voiceMode === 'auto' ? l.langAuto : voiceMode === 'th' ? l.langTh : l.langEn;
+    lang.textContent = '';
+    lang.appendChild(document.createTextNode(word));
+    const i = document.createElement('i'); i.className = 'ti ti-chevron-down'; i.setAttribute('aria-hidden', 'true'); lang.appendChild(i);
+    lang.setAttribute('aria-label', l.langAria.replace('{l}', word)); lang.title = lang.getAttribute('aria-label');
+    const menu = $('vp-langmenu'); menu.setAttribute('aria-label', l.langMenu);
+    menu.querySelectorAll('button').forEach((bt) => {
+      bt.querySelector('span').textContent = bt.dataset.mode === 'auto' ? l.langAuto : bt.dataset.mode === 'th' ? l.langTh : l.langEn;
+      bt.setAttribute('aria-checked', String(bt.dataset.mode === voiceMode));
+    });
+    const why = voiceSupport(), kind = why ? 'off' : (whisperReady() ? 'whisper' : 'browser');
+    const e = $('vp-eng');
+    e.textContent = kind === 'whisper' ? T.engWhisper : kind === 'browser' ? T.engBrowser : T.statusVoiceOff;
+    e.classList.toggle('off', kind !== 'whisper');
+    e.title = kind === 'whisper' ? T.tipVoiceWhisper : kind === 'browser' ? T.tipVoiceBrowser : why;
+    const note = $('vp-note');
+    note.textContent = '';
+    if (kind === 'off') { note.textContent = why; note.hidden = false; return; }
+    if (kind === 'whisper') { note.hidden = true; return; }
+    note.appendChild(document.createTextNode(voiceEnginePref === 'browser' ? l.notePinned : l.noteWhisper));
+    const a = document.createElement('a'); a.href = SETTINGS_URL; a.textContent = l.noteLink; note.appendChild(a);
+    note.hidden = false;
+  }
+  function renderLabel(st) {
+    const lab = $('vp-label'), t = $('vp-label-t'), s = $('vp-label-s'), l = L();
+    const own = st === 'idle' || (st === 'understanding' && (!strip || strip.hidden));      // the strip says the rest
+    lab.hidden = !own;
+    lab.dataset.k = st === 'understanding' ? 'work' : '';
+    if (!own) return;
+    t.textContent = st === 'idle' ? l.press : l.working;
+    s.textContent = ''; s.hidden = true;
+  }
+  function sync() {
+    prune();
+    state = computeState();
+    // a new press: the old answer goes, EXCEPT the question "which target?": it stays on screen, and stays open, while the address is spoken
+    // (clearing it dropped the waiting state, so a spoken address was read as an ordinary sentence and refused; a typed one never came through here).
+    // The 60 s are counted again from the press, so a press late in the wait is not cut off by the clock in the middle of the answer.
+    const newPress = (state === 'listening' || state === 'start') && prev !== 'listening' && prev !== 'start';
+    if (newPress && awaitingTarget()) voicePending.until = Date.now() + VOICE_PENDING_MS;
+    else if (newPress) { clearResult(); state = computeState(); }
+    root.dataset.state = state;
+    root.dataset.await = awaitingTarget() ? '1' : '0';      // lets the CSS hide the old quoted sentence while the microphone is open for the answer
+    if (state === 'listening' && strip.dataset.src === 'browser') meterStart(); else meterStop();
+    const mic = $('cb-mic'), x = $('vp-close'), l = L();
+    mic.setAttribute('aria-disabled', micOf(state) ? 'true' : 'false');
+    const closable = state === 'listening' || state === 'result';
+    x.setAttribute('aria-disabled', closable ? 'false' : 'true');
+    x.title = state === 'listening' ? l.stopTip : l.closeTip; x.setAttribute('aria-label', x.title);
+    renderMeta(); renderLabel(state);
+    if (state !== prev) { prev = state; kick(); }
+    drawSoon();
+  }
+  function onClose() {
+    if (state === 'listening') { voiceCancel(); return; }       // stop and throw the recording away
+    if (state === 'result') { clearResult(); sync(); }
+  }
+
+  // ─── the ring: one canvas, 72 rounded bars (no blur, nothing drawn while idle) ───
+  const N = 72, TAU = Math.PI * 2, vals = new Float32Array(N);
+  const GOLD = [236, 164, 0], PALE = [250, 207, 72], BLUE = [140, 166, 220], GREY = [203, 213, 225];
+  const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+  let cool = 0, grey = 0, lv = 0, lastLvl = -1, raf = 0, timer = 0, lastT = 0, sized = '';
+  function fitCanvas() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1), w = cv.clientWidth, h = cv.clientHeight;
+    const key = w + 'x' + h + '@' + dpr;
+    if (key !== sized) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); sized = key; }
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w, h };
+  }
+  // The browser's speech engine gives no loudness. So while IT is listening, this page opens the microphone a second time, for a level meter only (an AnalyserNode: nothing is
+  // recorded or sent anywhere), and lets go of it the moment listening ends. If the browser refuses a second capture the ring falls back to a steady sway while speech is heard.
+  let meter = null, meterOff = false;
+  function meterStop() {
+    const m = meter; meter = null;
+    if (!m) return;
+    m.dead = true;
+    try { if (m.stream) m.stream.getTracks().forEach((t) => t.stop()); } catch (e) { }
+    try { if (m.ac) m.ac.close(); } catch (e) { }
+  }
+  async function meterStart() {
+    if (meter || meterOff) return;
+    const m = meter = { dead: false, an: null, buf: null, stream: null, ac: null };
+    try {
+      const stream = await (window.__voiceGetStream ? window.__voiceGetStream() : navigator.mediaDevices.getUserMedia({ audio: true }));
+      if (m.dead) { stream.getTracks().forEach((t) => t.stop()); return; }
+      const ac = new (window.AudioContext || window.webkitAudioContext)(), an = ac.createAnalyser();
+      an.fftSize = 1024; ac.createMediaStreamSource(stream).connect(an);
+      m.stream = stream; m.ac = ac; m.an = an; m.buf = new Uint8Array(an.fftSize);
+    } catch (e) { if (meter === m) meter = null; meterOff = true; }      // refused or no second capture: do not try again on this page
+  }
+  function meterLevel() {
+    if (!meter || !meter.an) return -1;
+    meter.an.getByteTimeDomainData(meter.buf);
+    let sum = 0;
+    for (let i = 0; i < meter.buf.length; i++) { const v = (meter.buf[i] - 128) / 128; sum += v * v; }
+    return Math.min(1, Math.sqrt(sum / meter.buf.length) / 0.12);      // the same scale the Whisper recorder uses for --lvl
+  }
+  function rawLevel(now) {
+    if (state !== 'listening') return 0;
+    if (strip.dataset.src === 'browser') {
+      const real = meterLevel();
+      if (real >= 0) return real;
+      return strip.dataset.stage === 'listen-hear' ? .3 + .07 * Math.sin(now / 380) : .06;      // no meter: a steady sway only
+    }
+    return Math.min(1, parseFloat(strip.style.getPropertyValue('--lvl')) || 0);
+  }
+  function warnShown() { const b = wrap.querySelector('.cb-msg.bot .cb-bubble.k-warn'); return !!b; }
+  function draw(now, dt, snap) {                               // returns true while something is still moving
+    const { ctx, w, h } = fitCanvas(); ctx.clearRect(0, 0, w, h);
+    const W = Math.min(w, h), cx = w / 2, cy = h / 2, t = now / 1000, st = state;
+    const r0 = W * .27, maxL = W * .2, min = W * .014;
+    const rate = (tau) => snap ? 1 : 1 - Math.exp(-dt / tau);
+    const raw = rawLevel(now);
+    lv += (raw - lv) * rate(raw > lv ? 60 : 260);
+    const coolT = st === 'understanding' ? 1 : st === 'transcribing' ? .35 : 0, greyT = (st === 'result' && warnShown()) ? 1 : 0;
+    cool += (coolT - cool) * rate(300); grey += (greyT - grey) * rate(300);
+    const shown = RM.matches ? lv * .5 : lv;
+    if (Math.abs(shown - lastLvl) > .01) { ring.style.setProperty('--lvl', shown.toFixed(2)); lastLvl = shown; }
+    ctx.lineCap = 'round'; ctx.lineWidth = Math.max(2.4, W * .0105);
+    let moving = Math.abs(lv - raw) > .004 || Math.abs(cool - coolT) > .01 || Math.abs(grey - greyT) > .01;
+    for (let i = 0; i < N; i++) {
+      const ang = i / N * TAU - Math.PI / 2, j = Math.min(i, N - i);
+      let len = min, a = 1;
+      if (st === 'listening') {
+        const n = .5 + .5 * Math.sin(j * .9 + t * 5.1) * Math.cos(j * .37 - t * 3.3);
+        len = min + shown * (.18 + .82 * n) * maxL;
+      } else if (st === 'transcribing') {
+        const d = (((t * 2.1 - (ang + Math.PI / 2)) % TAU) + TAU) % TAU / TAU, k = Math.exp(-d * 5);
+        len = min + k * W * .1; a = .3 + .7 * k;
+      } else if (st === 'understanding') {
+        let k = 0; for (let m = 0; m < 3; m++) { const d = ((((t * .8 - (ang + Math.PI / 2)) + m * TAU / 3) % TAU) + TAU) % TAU / TAU; k = Math.max(k, Math.exp(-d * 12)); }
+        len = min + k * W * .04; a = .45 + .55 * k;
+      } else if (st === 'idle') {
+        len = min + W * .0075;                                  // still: nothing animates while idle
+      }
+      vals[i] += (len - vals[i]) * (snap ? 1 : 1 - Math.exp(-dt / (st === 'listening' ? 70 : 220)));
+      if (!ACTIVE[st] && Math.abs(vals[i] - len) > .25) moving = true;
+      let col = mix(PALE, GOLD, .5 - .5 * Math.cos(ang + Math.PI / 2));
+      col = mix(col, BLUE, cool); col = mix(col, GREY, grey);
+      ctx.strokeStyle = 'rgba(' + (col[0] | 0) + ',' + (col[1] | 0) + ',' + (col[2] | 0) + ',' + (a * .95).toFixed(3) + ')';
+      const c = Math.cos(ang), s = Math.sin(ang);
+      ctx.beginPath(); ctx.moveTo(cx + c * r0, cy + s * r0); ctx.lineTo(cx + c * (r0 + vals[i]), cy + s * (r0 + vals[i])); ctx.stroke();
+    }
+    return moving;
+  }
+  // The loop runs only while the ring has something to do: an animated state, or the short settle after one. At most ~30 steps a second; never in a hidden tab.
+  function caption() {
+    const el = $('vp-cap');
+    const txt = (state === 'listening' && strip.dataset.src === 'browser') ? String($('cb-input').value || '') : '';      // that engine writes the words while they are spoken
+    if (el.textContent !== txt) el.textContent = txt;
+  }
+  // A step is a setTimeout of about 28 ms that asks for ONE animation frame, so the page wakes about 30 times a second, not on every screen refresh (a 165 Hz monitor would be 165).
+  function frame(now) {
+    raf = 0;
+    if (document.hidden) return;
+    const dt = Math.min(64, Math.max(16, now - lastT)); lastT = now;
+    const moving = draw(now, dt, false); caption();
+    if (ACTIVE[state] || moving || state === 'start') schedule();
+  }
+  function schedule() { if (!timer && !raf) timer = setTimeout(() => { timer = 0; raf = requestAnimationFrame(frame); }, 28); }
+  function kick() {
+    if (RM.matches) { draw(performance.now(), 16, true); caption(); return; }       // reduced motion: one still picture per state
+    if (raf || timer || document.hidden) return;
+    lastT = performance.now() - 40;
+    raf = requestAnimationFrame(frame);
+  }
+  let soon = 0;
+  function drawSoon() { if (raf || timer) return; cancelAnimationFrame(soon); soon = requestAnimationFrame(() => { soon = 0; if (!raf && !timer) draw(performance.now(), 16, true); }); }      // a still picture after a change (the idle ring)
+
+  // ─── wiring ───
+  function init() {
+    cv.id = 'vp-cv';
+    ring.addEventListener('click', (e) => { if (micOf(state)) { e.stopPropagation(); e.preventDefault(); } }, true);      // no new recording while the last one is being worked on
+    $('vp-close').addEventListener('click', () => { if ($('vp-close').getAttribute('aria-disabled') !== 'true') onClose(); });
+    $('vp-type').addEventListener('click', () => setTyped($('vp-typed').hidden));
+    const lb = $('cb-vlang'), lm = $('vp-langmenu');
+    const menuItems = () => Array.from(lm.querySelectorAll('button'));
+    const closeMenu = (focusBack) => { if (lm.hidden) return; lm.hidden = true; lb.setAttribute('aria-expanded', 'false'); if (focusBack) lb.focus(); };
+    const openMenu = () => { lm.hidden = false; lb.setAttribute('aria-expanded', 'true'); (menuItems().find((x) => x.dataset.mode === voiceMode) || menuItems()[0]).focus(); };
+    lb.addEventListener('click', (e) => { e.stopPropagation(); if (lm.hidden) openMenu(); else closeMenu(false); });
+    lb.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' && lm.hidden) { e.preventDefault(); openMenu(); } });
+    lm.addEventListener('click', (e) => { const bt = e.target.closest('button[data-mode]'); if (!bt) return; voiceSetMode(bt.dataset.mode); closeMenu(true); sync(); });
+    lm.addEventListener('keydown', (e) => {
+      const items = menuItems(), i = items.indexOf(document.activeElement);
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(true); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i + items.length - 1) % items.length].focus(); }
+      else if (e.key === 'Tab') closeMenu(false);
+    });
+    document.addEventListener('click', (e) => { if (!lm.hidden && !e.target.closest('.vp-meta')) closeMenu(false); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (!$('vp-typed').hidden) { setTyped(false); $('vp-type').focus(); return; }
+      onClose();
+    });
+    const mo = new MutationObserver(sync);
+    mo.observe(wrap, { childList: true });
+    mo.observe(strip, { attributes: true, attributeFilter: ['hidden', 'data-stage', 'data-src'] });
+    mo.observe($('cb-mic'), { attributes: true, attributeFilter: ['class', 'aria-pressed', 'title'] });      // the shared voiceInit() touches these when the engine or the language changes
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+    RM.addEventListener('change', kick);
+    if ('ResizeObserver' in window) new ResizeObserver(() => { if (!raf && !timer) drawSoon(); }).observe(ring); else window.addEventListener('resize', drawSoon);
+    const fit = () => { const top = $('vp-ws').getBoundingClientRect().top + window.scrollY; $('vp-ws').style.height = Math.max(560, document.documentElement.clientHeight - top - 24) + 'px'; };
+    fit(); window.addEventListener('resize', fit);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+    sync();
+    // the shared code fetches the Whisper and AI status after it loads; its voiceInit() then touches #cb-mic, which sync() hears. A late answer is also picked up here.
+    setTimeout(sync, 800);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+{% endblock %}

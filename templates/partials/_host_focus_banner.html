@@ -1,0 +1,12 @@
+{# Shown on a scan report opened with ?host=<ip>: tells the reader the page is narrowed to one device and offers the whole report. #}
+{% if focus_ip %}
+<div class="d-flex align-items-center gap-2 flex-wrap mb-4 px-3 py-2" role="status"
+     style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;color:#1e3a8a;font-size:.88rem;">
+    <i class="ti ti-filter" style="font-size:1.05rem;"></i>
+    <span>แสดงเฉพาะอุปกรณ์ <strong class="font-monospace">{{ focus_ip }}</strong>
+        <span style="color:#3b5ba5;">· จากทั้งหมด {{ total_hosts }} เครื่องใน Job นี้</span></span>
+    <a href="{{ url_for('scan_detail', scan_id=job.id) }}" class="btn btn-sm btn-outline-primary ms-auto text-nowrap">
+        <i class="ti ti-list-details me-1"></i>ดูอุปกรณ์ทั้งหมด
+    </a>
+</div>
+{% endif %}

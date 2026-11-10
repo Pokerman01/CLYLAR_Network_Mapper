@@ -1,0 +1,23 @@
+{# Switch for "scan all ports 1-65535", with an (i) hover card and a live estimate line. Needs `prefix` ('ns' / 'rescan' / 'dd').
+   The row around it (#<prefix>_ap_row) is hidden for Discovery (it looks at no ports) by updateScanAdvancedForType() in base.html; a Custom scan hides the whole
+   Advanced panel (it names its own ports with -p). The checkbox keeps its name (all_ports) and id (<prefix>_ap_input): the forms and scripts read `.checked`.
+   The line under it (#<prefix>_ap_note) is filled by refreshAllPortsNote() in base.html from the target and the scan type: the number of addresses,
+   a rough time (marked as an estimate) and, above scanner.ALL_PORTS_MAX_ADDRESSES (64), the sentence that the system will not accept it. #}
+<div class="adv-switch scan-adv-mc">
+    <div class="adv-switch-text">
+        <div class="d-flex align-items-center gap-1">
+            <label class="adv-label" for="{{ prefix }}_ap_input">สแกนทุกพอร์ต (1-65535)</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายการสแกนทุกพอร์ต">
+                <i class="ti ti-info-circle"></i>
+                <div class="scan-adv-info-card">
+                    <div class="text-secondary" style="font-size:0.77rem;">ตรวจพอร์ต TCP ทั้ง 65,535 พอร์ตแทนรายการปกติ (Fast Scan 100 พอร์ต, Intense Scan และ Vulnerability Scan 1,000 พอร์ต) จึงอาจพบบริการบนพอร์ตที่ไม่อยู่ในรายการนั้น แต่ใช้เวลานานกว่ามากและส่งแพ็กเก็ตจำนวนมาก ระบบตรวจจับการบุกรุก (IDS) อาจแจ้งเตือน รับเป้าหมายได้ไม่เกิน 64 ที่อยู่ อุปกรณ์ที่ใช้เวลาเกิน 45 นาทีจะถูกข้ามและแสดงว่าไม่ทราบพอร์ต ระบบหยุดงานที่ใช้เวลาเกิน 6 ชั่วโมง และงานนั้นจะไม่มีผลสแกน</div>
+                </div>
+            </span>
+        </div>
+        <div class="adv-help">ตรวจ 65,535 พอร์ตแทนรายการปกติ ใช้เวลานานกว่ามาก</div>
+    </div>
+    <div class="form-check form-switch m-0 p-0">
+        <input class="form-check-input" type="checkbox" role="switch" name="all_ports" value="1" id="{{ prefix }}_ap_input" onchange="refreshAllPortsNote('{{ prefix }}')">
+    </div>
+</div>
+<div class="adv-apnote" id="{{ prefix }}_ap_note" hidden></div>

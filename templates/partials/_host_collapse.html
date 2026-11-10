@@ -1,0 +1,62 @@
+{# "Show more" bar for the Scan Result tables (scan_detail.html, vuln_scan_detail.html).
+   A host with more than `preview_rows` ports shows only its first rows; the rest carry .host-row-extra and stay hidden until
+   the bar under the host (its own <tbody class="host-more">, markup in _host_more_bar.html) is clicked. The bar is a plain white
+   row with a hairline on top, starting under the Port column so it reads as part of the port list, and in it one outlined pill
+   button (the owner's merge of two mock-ups: B, a light blue link row, and C, an outlined pill). It used to be a pale slate band
+   from the Port column to the right edge, which left a white notch under the IP / MAC / OS cells and pushed the note to the far
+   right; there is no fill now, so nothing is left over. The pill holds a chevron and how many ports are hidden (data-hidden,
+   "แสดงอีก N พอร์ต"), then after a hairline a quiet note of what is in them: their states when some are not open and, in a
+   vulnerability scan, their CVEs by severity (hidden_port_summary() in app.py). While the host is open the note goes away and
+   the label reads "แสดงน้อยลง".
+   The hidden rows are collapsed, not display:none: a collapsed row has no height but its cells still count when the browser
+   sizes the columns, so every column keeps the same width whether a host is open or closed (no jump when the bar is clicked).
+   For the same reason the IP/MAC/OS (and Actions) cells always span all of the host's rows. #}
+<style>
+    .host-group ~ .host-group { border-top: 2px solid #e2e8f0; }
+
+    .host-group:not(.is-expanded) .host-row-extra { visibility: collapse; }
+
+    .table .host-more > tr > td { box-shadow: none; }                    /* no Bootstrap row-hover tint: the pill has its own hover */
+    .table .host-more-gap { padding: 0; background: transparent; }
+    .table .host-more-cell { padding: .5rem 1rem; background: #fff; border-top: 1px solid #e2e8f0; }
+    .host-more-btn {
+        display: inline-flex; align-items: center; gap: .45rem; max-width: 100%; min-height: 34px; padding: .3rem 1rem .3rem .6rem;
+        border: 1px solid #c3cddb; border-radius: 17px; background: #fff; color: #2563eb; text-align: left; line-height: 1.2; cursor: pointer;
+        font-size: .85rem; font-weight: 600;
+        transition: background-color .15s, border-color .15s, color .15s;
+    }
+    .host-more-btn:hover { background: #f1f5f9; border-color: #aab7c9; color: #1d4ed8; }
+    .host-more-btn:active { background: #e8eef5; }
+    .host-more-btn:focus-visible { outline: 2px solid #64748b; outline-offset: 2px; }
+    .host-more-btn > i { font-size: 1.25rem; transition: transform .2s ease; }
+    .host-more-btn[aria-expanded="true"] > i { transform: rotate(180deg); }
+    .host-more-label { white-space: nowrap; }
+
+    /* what is behind the bar: after a hairline, right next to the label (the markup leaves the span out when there is nothing to say) */
+    .host-more-info {
+        display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; margin-left: .2rem; padding-left: .8rem;
+        border-left: 1px solid #dbe3ec; font-size: .78rem; font-weight: 400; color: #475569;
+    }
+    .host-more-btn[aria-expanded="true"] .host-more-info { display: none; }
+    .hm-note { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
+    .hm-cve { gap: .6rem; }
+    .hm-dot { width: .5rem; height: .5rem; border-radius: 50%; flex-shrink: 0; background: #94a3b8; }   /* filtered, unknown and anything else: grey */
+    .hm-dot-open { background: #3fae49; }
+    .hm-dot-closed { background: #cbd5e1; }
+    .hm-dot-critical { background: #d43f3a; }
+    .hm-dot-high { background: #ee9336; }
+    .hm-dot-medium { background: #fdc431; }
+    .hm-dot-low { background: #3fae49; }
+</style>
+<script>
+    function toggleHostRows(btn) {
+        const group = document.getElementById(btn.getAttribute('aria-controls'));
+        if (!group) return;
+        const expanded = group.classList.toggle('is-expanded');
+        btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        // the bar says how many ports are still hidden ("แสดงอีก N พอร์ต"); open, it offers to fold them away again
+        btn.querySelector('.host-more-label').textContent = expanded ? 'แสดงน้อยลง' : 'แสดงอีก ' + btn.dataset.hidden + ' พอร์ต';
+        // Collapsing from the bottom of a long list leaves the host far above the viewport; bring it (and the bar just below it) back.
+        if (!expanded) group.scrollIntoView({ block: 'nearest' });
+    }
+</script>

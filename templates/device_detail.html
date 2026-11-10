@@ -1,0 +1,233 @@
+{% extends 'base.html' %}
+{#- One page per device (one IP) over every scan the user may see. The data is device_builder.build_device(); this only draws it.
+    The rule behind every line (the owner's): what is not known is shown as unknown, never guessed. CVEs are shown only from a
+    VULNERABILITY scan, and the page says which scan and when; a Fast Scan that came later never looked for CVEs, so it cannot say "none".
+    Everything that comes from a scan goes through Jinja's autoescape; the only links built from scan data are the NVD page of a
+    well-formed CVE id (device_builder checks it) and a CWE page from cwe_data. -#}
+
+{% block page_title %}<div class="topbar-page-title">รายละเอียดอุปกรณ์</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">{{ dev.ip }}{% if dev.hostname %} · {{ dev.hostname }}{% endif %}</div>{% endblock %}
+{% block page_context %}{{ ('หน้า: รายละเอียดอุปกรณ์ ' ~ dev.ip) | tojson }}{% endblock %}
+
+{% block content %}
+<style>
+  .dv { --ink:#0f172a; --text:#334155; --muted:#64748b; --line:#e8edf3; color:var(--text); font-size:.85rem; }
+  .dv .back { display:inline-flex; align-items:center; gap:.3rem; color:var(--muted); text-decoration:none; font-size:.8rem; margin-bottom:.75rem; }
+  .dv .back:hover { color:var(--ink); }
+  .dv .card { margin-bottom:1rem; }
+  .dv .sec { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; padding:.8rem 1.1rem; border-bottom:1px solid var(--line); }
+  .dv .sec h2 { margin:0; font-size:.95rem; font-weight:600; color:var(--ink); display:flex; align-items:center; gap:.5rem; }
+  .dv .sec h2 .chip { width:26px; height:26px; border-radius:50%; background:#fff4d1; color:#e6a700; display:inline-flex; align-items:center; justify-content:center; font-size:15px; }
+  .dv .src { font-size:.76rem; color:var(--muted); }
+  .dv .src a { color:#475569; }
+  .dv .body { padding:.9rem 1.1rem 1rem; }
+
+  .dv .head { padding:1.1rem 1.25rem; display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:flex-start; }
+  .dv .ip { font:600 1.55rem/1.2 ui-monospace, Consolas, monospace; color:var(--ink); letter-spacing:-.01em; }
+  .dv .tags { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.45rem; }
+  .dv .tag { display:inline-flex; align-items:center; gap:.3rem; height:22px; padding:0 .6rem; border-radius:999px; background:#f1f5f9; border:1px solid #e2e8f0; color:#334155; font-size:.75rem; font-weight:500; }
+  .dv .risk { text-align:right; max-width:26rem; }
+  .dv .pill { display:inline-flex; align-items:center; gap:.4rem; height:26px; padding:0 .8rem 0 .65rem; border-radius:999px; background:#fff; border:1px solid #dbe2ea; color:var(--ink); font-weight:600; font-size:.8rem; }
+  .dv .pill i { width:9px; height:9px; border-radius:50%; background:var(--c); }
+  .dv .pill.high { --c:#d03b3b; } .dv .pill.med { --c:#ec835a; } .dv .pill.low { --c:#fab219; } .dv .pill.none { --c:#0ca30c; } .dv .pill.unknown { --c:#a8a7a0; }
+  .dv .risk .why { margin-top:.35rem; font-size:.76rem; color:var(--muted); }
+  .dv .facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:.1rem 1.25rem; padding:0 1.25rem 1.1rem; }
+  .dv .fact .k { font-size:.72rem; color:var(--muted); }
+  .dv .fact .v { font-weight:600; color:var(--ink); overflow-wrap:anywhere; }
+  .dv .fact .v.mono { font-family:ui-monospace, Consolas, monospace; font-weight:500; }
+  .dv .fact .v2 { font-size:.76rem; color:var(--muted); }
+  .dv .unk { color:var(--muted); font-weight:400; }
+
+  .dv .tbl-wrap { overflow-x:auto; }          /* a wide table scrolls inside its card instead of widening the page */
+  .dv table { width:100%; border-collapse:collapse; }
+  .dv th { font-size:.72rem; font-weight:600; color:var(--muted); text-align:left; padding:.3rem .6rem; border-bottom:1px solid var(--line); }
+  .dv td { padding:.45rem .6rem; border-bottom:1px solid #f1f4f8; vertical-align:top; }
+  .dv tr:last-child td { border-bottom:0; }
+  .dv .mono { font-family:ui-monospace, Consolas, monospace; }
+  .dv .muted { color:var(--muted); }
+
+  .dv .note { margin:.75rem 0 0; padding:.55rem .8rem; border-radius:8px; background:#f8fafc; border:1px solid var(--line); font-size:.78rem; color:#475569; }
+  .dv .note details.oth { margin-top:.5rem; }
+  .dv .note details.oth summary { cursor:pointer; color:#475569; font-size:.78rem; }
+  .dv .note.warn { background:#fffbe9; border-color:#ecdca4; color:#3d3a2c; }
+  .dv .empty { text-align:center; padding:1.4rem 1rem; color:var(--muted); }
+  .dv .empty b { display:block; color:var(--ink); margin-bottom:.25rem; font-size:.9rem; }
+  .dv .empty a { display:inline-block; margin-top:.6rem; padding:.3rem .9rem; border:1px solid #cbd5e1; border-radius:8px; color:#334155; text-decoration:none; }
+  .dv .empty a:hover { background:#f8fafc; }
+
+  .dv .svc { border:1px solid var(--line); border-radius:10px; margin-top:.7rem; overflow:hidden; }
+  .dv .svc:first-of-type { margin-top:0; }
+  .dv .svc-h { display:flex; justify-content:space-between; gap:.75rem; flex-wrap:wrap; padding:.5rem .8rem; background:#f8fafc; }
+  .dv .svc-h .nm { font-weight:600; color:var(--ink); }
+  .dv .svc-h .st { font-size:.76rem; color:var(--muted); }
+  .dv .svc-h .st.bad { color:#7a5a00; }
+  .dv .cv { padding:.55rem .8rem; border-top:1px solid #f1f4f8; }
+  .dv .cv-top { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; }
+  .dv .cv-id { font:600 .82rem ui-monospace, Consolas, monospace; color:var(--ink); text-decoration:none; }
+  .dv a.cv-id:hover { text-decoration:underline; }
+  .dv .sev { display:inline-flex; align-items:center; gap:.4rem; font-size:.78rem; }
+  .dv .sev::before { content:''; width:8px; height:8px; border-radius:50%; background:var(--d); }
+  .dv .sev.CRITICAL { --d:#d43f3a; } .dv .sev.HIGH { --d:#ee9336; } .dv .sev.MEDIUM { --d:#fdc431; } .dv .sev.LOW { --d:#3fae49; } .dv .sev.UNKNOWN { --d:#6c757d; }
+  .dv .score { font-size:.78rem; font-variant-numeric:tabular-nums; }
+  .dv .kev { font-size:.68rem; font-weight:600; padding:1px 8px; border-radius:999px; background:#fdf3d7; color:#7a5a12; border:1px solid #f0d58c; }
+  .dv .weak { font-size:.76rem; color:var(--muted); }
+  .dv .weak a { color:#475569; }
+  .dv .desc { margin:.25rem 0 0; font-size:.8rem; color:#475569; line-height:1.5; }
+  .dv .tagnow { display:inline-block; margin-left:.4rem; padding:0 .45rem; border-radius:4px; background:#eef2f7; color:#475569; font-size:.68rem; font-weight:600; }
+  .dv a.ip-link { text-decoration:none; }
+</style>
+
+<div class="dv">
+  <a class="back" href="{{ url_for('devices_page') }}"><i class="ti ti-arrow-left" aria-hidden="true"></i>อุปกรณ์ทั้งหมด</a>
+
+  <!-- ===== who it is ===== -->
+  <div class="card border-0 shadow-sm">
+    <div class="head">
+      <div>
+        <div class="ip">{{ dev.ip }}</div>
+        <div class="tags">
+          <span class="tag" title="{{ dev.type_reason }}"><i class="ti {{ dev.type_icon }}" aria-hidden="true"></i>{{ dev.type_label }}<span class="muted">· เดา</span></span>
+          <span class="tag">{{ 'อยู่ในเครือข่ายภายใน' if dev.scope == 'internal' else ('อยู่ภายนอก (Internet)' if dev.scope == 'external' else 'ไม่ทราบตำแหน่ง') }}</span>
+          {% if dev.vm %}<span class="tag">เครื่องเสมือน · {{ dev.vm }}</span>{% endif %}
+          {% if dev.local %}<span class="tag">เครื่องที่ใช้สแกน</span>{% endif %}
+        </div>
+      </div>
+      <div class="risk">
+        <span class="pill {{ dev.risk.key }}"><i></i>{{ dev.risk.label }}</span>
+        {% if dev.risk.reason %}<div class="why">{{ dev.risk.reason }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="facts">
+      <div class="fact"><div class="k">ชื่อโฮสต์</div><div class="v">{% if dev.hostname %}{{ dev.hostname }}{% else %}<span class="unk">ไม่ทราบ</span>{% endif %}</div></div>
+      <div class="fact"><div class="k">MAC / ผู้ผลิต</div>
+        <div class="v mono">{% if dev.mac %}{{ dev.mac }}{% else %}<span class="unk">ไม่มีข้อมูล</span>{% endif %}</div>
+        {% if dev.mac_vendor %}<div class="v2">{{ dev.mac_vendor }}</div>{% endif %}</div>
+      <div class="fact"><div class="k">ระบบปฏิบัติการ</div><div class="v">{% if dev.os %}{{ dev.os }}{% else %}<span class="unk">ไม่ทราบ</span>{% endif %}</div>{% if dev.os and dev.os_accuracy is not none %}<div class="v2">ความมั่นใจของ nmap {{ dev.os_accuracy }}%</div>{% endif %}</div>
+      <div class="fact"><div class="k">พบครั้งแรก</div><div class="v">{{ dev.first_seen or '—' }}</div></div>
+      <div class="fact"><div class="k">พบล่าสุด</div><div class="v">{{ dev.last_seen or '—' }}</div></div>
+      <div class="fact"><div class="k">พบในสแกน</div><div class="v">{{ dev.scan_count }} ครั้ง</div></div>
+    </div>
+  </div>
+
+  <!-- ===== open ports ===== -->
+  <div class="card border-0 shadow-sm">
+    <div class="sec">
+      <h2><span class="chip"><i class="ti ti-plug-connected" aria-hidden="true"></i></span>พอร์ตและบริการที่เปิด</h2>
+      {% if dev.ports %}
+      <span class="src">จาก Job #{{ dev.ports.source.seq }} · {{ dev.ports.source.type_label }} · {{ dev.ports.source.when }} ·
+        <a href="{{ url_for('scan_detail', scan_id=dev.ports.source.id, host=dev.ip) }}">ดูในผลสแกน</a></span>
+      {% endif %}
+    </div>
+    <div class="body">
+      {% if dev.ports and dev.ports.rows %}
+      <div class="tbl-wrap"><table>
+        <thead><tr><th style="width:8rem;">พอร์ต</th><th style="width:12rem;">บริการ</th><th>ผลิตภัณฑ์ / เวอร์ชัน</th></tr></thead>
+        <tbody>
+          {% for p in dev.ports.rows %}
+          <tr><td class="mono">{{ p.port }}/{{ p.protocol }}</td><td>{{ p.name or '—' }}</td><td>{% if p.product %}{{ p.product }}{% else %}<span class="muted">ไม่ทราบเวอร์ชัน</span>{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      {% elif dev.ports %}
+      <div class="empty"><b>ไม่พบพอร์ตที่เปิด</b>ในสแกนล่าสุดที่ตรวจพอร์ต</div>
+      {% else %}
+      <div class="empty"><b>ยังไม่มีข้อมูลพอร์ต</b>สแกนที่พบเครื่องนี้เป็นแบบ Discovery ซึ่งไม่ได้ตรวจพอร์ต</div>
+      {% endif %}
+      {% if dev.ports and dev.ports.others.total %}
+      {% set oth = dev.ports.others %}
+      <div class="note">
+        <b>{{ oth.total }} พอร์ตที่ไม่เปิด</b> (ไม่นับในรายการด้านบน):
+        {% for g in oth.groups %}{{ g.state }} {{ g.count }}{% if g.text %} <span class="muted" title="{{ g.reason }}">({{ g.text }})</span>{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+        <details class="oth">
+          <summary>ดูรายการพอร์ตที่ไม่เปิด</summary>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th style="width:8rem;">พอร์ต</th><th style="width:9rem;">สถานะ</th><th>เหตุผลที่ nmap ระบุ</th></tr></thead>
+            <tbody>
+              {% for r in oth.rows %}
+              <tr><td class="mono">{{ r.port }}/{{ r.protocol }}</td><td>{{ r.state }}</td><td>{% if r.text %}<span title="{{ r.reason }}">{{ r.text }}</span>{% else %}<span class="muted">ไม่ได้บันทึกไว้</span>{% endif %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table></div>
+          {% if oth.more %}<div class="muted" style="margin-top:.4rem;">และอีก {{ oth.more }} พอร์ต (แสดงสูงสุด {{ oth.rows | length }} รายการ)</div>{% endif %}
+        </details>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ===== CVEs ===== -->
+  <div class="card border-0 shadow-sm">
+    <div class="sec">
+      <h2><span class="chip"><i class="ti ti-shield-exclamation" aria-hidden="true"></i></span>ช่องโหว่ (CVE)</h2>
+      {% if dev.cves %}
+      <span class="src">จาก Job #{{ dev.cves.source.seq }} · {{ dev.cves.source.type_label }} · {{ dev.cves.source.when }} ·
+        <a href="{{ url_for('scan_detail', scan_id=dev.cves.source.id, host=dev.ip) }}">ดูในผลสแกน</a></span>
+      {% endif %}
+    </div>
+    <div class="body">
+      {% if not dev.cves %}
+      <div class="empty"><b>ยังไม่เคยตรวจ CVE ของเครื่องนี้</b>
+        สแกนแบบ Fast, Intense และ Discovery ไม่ได้ค้นหา CVE จึงบอกไม่ได้ว่ามีหรือไม่มี<br>
+        หากต้องการ ให้สั่ง Vulnerability Scan โดยใช้เป้าหมาย <span class="mono">{{ dev.ip }}</span><br>
+        <a href="{{ url_for('tasks_page') }}">ไปที่งานสแกน</a></div>
+      {% else %}
+      {% set c = dev.cves %}
+      <div style="margin-bottom:.7rem;">
+        พบ <b>{{ c.total }}</b> CVE · ประเมินได้ <b>{{ c.evaluated }}</b> จาก <b>{{ c.open_count }}</b> พอร์ตที่เปิดในสแกนนั้น
+      </div>
+      {% if c.unchecked_ports %}
+      <div class="note warn" style="margin:0 0 .8rem;">พอร์ตเหล่านี้เปิดอยู่ในสแกนล่าสุดของเครื่องนี้ แต่ยังไม่เคยถูกตรวจ CVE (เกิดขึ้นหลังสแกนข้างต้น):
+        {% for p in c.unchecked_ports %}<span class="mono">{{ p.port }}/{{ p.protocol }}</span>{% if p.name %} {{ p.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+      {% endif %}
+      {% for g in c.groups %}
+      <div class="svc">
+        <div class="svc-h">
+          <span class="nm"><span class="mono">{{ g.port }}/{{ g.protocol }}</span> {{ g.name or '—' }}{% if g.product %} <span class="muted" style="font-weight:400;">· {{ g.product }}</span>{% endif %}</span>
+          <span class="st {{ 'bad' if g.status != 'ok' }}">{{ g.status_text }}</span>
+        </div>
+        {% for i in g['items'] %}
+        <div class="cv">
+          <div class="cv-top">
+            {% if i.nvd_url %}<a class="cv-id" href="{{ i.nvd_url }}" target="_blank" rel="noopener noreferrer" title="เปิดหน้า {{ i.id }} บน NVD">{{ i.id }}</a>{% else %}<span class="cv-id">{{ i.id }}</span>{% endif %}
+            <span class="sev {{ i.severity or 'UNKNOWN' }}" {% if i.adjusted_note %}title="{{ i.adjusted_note }}"{% endif %}>{{ i.sev_word }}</span>
+            <span class="score">{% if i.score is not none %}CVSS {{ '%.1f' % i.score }}{% else %}<span class="muted">ไม่มีคะแนน CVSS</span>{% endif %}</span>
+            {% if i.kev %}<span class="kev" title="CISA ระบุว่ามีการโจมตีใช้ช่องโหว่นี้จริง (รายการ Known Exploited Vulnerabilities){% if i.kev_added %} · เพิ่มเมื่อ {{ i.kev_added }}{% endif %}">ถูกโจมตีจริง</span>{% endif %}
+            {% if i.cwe %}<span class="weak">{{ i.cwe.name }} · <a href="{{ i.cwe.url }}" target="_blank" rel="noopener noreferrer">{{ i.cwe.id }}</a></span>{% elif i.label %}<span class="weak">{{ i.label }}</span>{% endif %}
+            {% if i.nvd_url %}<span class="weak"><a href="{{ i.nvd_url }}" target="_blank" rel="noopener noreferrer" title="เปิดหน้า {{ i.id }} บน NVD">NVD</a></span>{% endif %}
+          </div>
+          <p class="desc">{% if i.description %}{{ i.description }}{% else %}<span class="muted">ไม่มีคำอธิบายในข้อมูลที่บันทึกไว้</span>{% endif %}</p>
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      <div class="note">CVE มาจากการจับคู่ชื่อและเวอร์ชันของบริการกับฐานข้อมูล NVD (สูงสุด 5 รายการต่อพอร์ต) ไม่ใช่ผลที่ยืนยันแล้ว ต้องตรวจยืนยันก่อน คำอธิบายที่บันทึกไว้อาจถูกตัดให้สั้นลง</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ===== history ===== -->
+  <div class="card border-0 shadow-sm">
+    <div class="sec">
+      <h2><span class="chip"><i class="ti ti-history" aria-hidden="true"></i></span>สแกนที่พบเครื่องนี้</h2>
+      <span class="src">{{ dev.scan_count }} ครั้ง ใหม่สุดอยู่บนสุด</span>
+    </div>
+    <div class="body">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>สแกน</th><th>วันที่</th><th>ประเภท</th><th>พอร์ตที่เปิด</th><th>CVE</th><th></th></tr></thead>
+        <tbody>
+          {% for h in dev.history %}
+          <tr>
+            <td><a href="{{ url_for('scan_detail', scan_id=h.id, host=dev.ip) }}">Job #{{ h.seq }}</a>{% if h.scan_name %} <span class="muted">· {{ h.scan_name }}</span>{% endif %}</td>
+            <td style="white-space:nowrap;">{{ h.when }}</td>
+            <td>{{ h.type_label }}{% if h.status and h.status != 'Completed' %} <span class="muted">({{ h.status }})</span>{% endif %}</td>
+            <td>{% if h.open_count is none %}<span class="muted">ไม่ได้ตรวจพอร์ต</span>{% else %}{{ h.open_count }}{% endif %}</td>
+            <td>{% if h.cve_count is none %}<span class="muted">ไม่ได้ตรวจ CVE</span>{% else %}{{ h.cve_count }}{% endif %}</td>
+            <td>{% if h.is_ports_source %}<span class="tagnow">ข้อมูลพอร์ตของหน้านี้</span>{% endif %}{% if h.is_cve_source %}<span class="tagnow">ข้อมูล CVE ของหน้านี้</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

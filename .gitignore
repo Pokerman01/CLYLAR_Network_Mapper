@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.class
+
+# Environment & secrets
+.env
+
+# Database
+instance/*.db
+
+
+# Voice lab recordings (the owner's own voice: local only)
+instance/voice_lab/
+
+# The shared secret of the local Whisper program (created on its first start)
+instance/whisper_worker.token
+
+# The Gemini API key typed on the Settings page
+instance/gemini_key
+instance/gemini_key.tmp
+instance/gemini_user_keys/
+
+# Everything the running app writes into instance/ (the database, keys, the Whisper program's pid / log / token, caches, recordings)
+instance/
+
+# Kept on this computer only, not part of the published project: the AI assistant's working files, and the internal plans, notes and design mock-ups
+# (docs/ publishes only the Whisper setup guide)
+CLAUDE.md
+.claude/
+docs/*
+!docs/whisper-setup.md
+
+# The automated self-checks (they are not needed to run the app)
+test_*.py
+
+# Local Python environments
+venv/
+.venv/

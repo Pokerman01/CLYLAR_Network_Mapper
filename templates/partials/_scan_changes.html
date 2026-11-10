@@ -1,0 +1,101 @@
+{# What changed since the previous scan of the same target and kind (scan_diff.compare_scans, picked by scan_changes() in app.py). Needs `changes`
+   (None when there is no comparable earlier scan) and `job`. Rules worth knowing when editing the words: a device missing from this scan is
+   "not found", never "gone"; a port is "no longer open", never "closed"; a CVE is listed as new / not found only when scan_diff could judge it.
+   Every value is escaped by Jinja. #}
+{% if changes %}
+{% set d = changes.diff %}
+<style>
+    .chg-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px 12px; margin-bottom: 1.5rem; font-size: .82rem; color: #334155; }
+    .chg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+    .chg-title { font-weight: 700; color: #0f172a; font-size: .9rem; }
+    .chg-title i { color: #64748b; margin-right: 6px; vertical-align: -1px; }
+    .chg-vs { color: #64748b; font-size: .76rem; }
+    .chg-vs a { color: inherit; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 3px; }
+    .chg-same { margin-top: 8px; color: #475569; }
+    .chg-sec { margin-top: 10px; }
+    .chg-sec-title { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+    .chg-sec-title b { color: #0f172a; font-weight: 700; }
+    .chg-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+    .chg-chip { background: #f1f5f9; border-radius: 999px; padding: 2px 10px; font-size: .78rem; color: #334155; }
+    .chg-chip a { color: inherit; text-decoration: none; }
+    .chg-chip a:hover { text-decoration: underline; }
+    .chg-chip small { color: #64748b; margin-left: 4px; }
+    .chg-row { padding: 2px 0; }
+    .chg-row .ip { font-weight: 600; margin-right: 8px; }
+    .chg-row .op { color: #334155; }
+    .chg-row .cl { color: #64748b; margin-left: 10px; }
+    .chg-sev { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+    .chg-sev.critical { background: #dc3545; } .chg-sev.high { background: #fd7e14; } .chg-sev.medium { background: #ffc107; } .chg-sev.low, .chg-sev.unknown { background: #9bc53d; }
+    .chg-kev { margin-left: 6px; padding: 0 7px; border-radius: 999px; background: #fdf3d7; color: #7a5a12; border: 1px solid #f0d58c; font-size: .68rem; font-weight: 600; }
+    .chg-note { margin-top: 8px; display: flex; gap: 8px; font-size: .76rem; color: #64748b; }
+    .chg-note i { flex: none; margin-top: 2px; }
+    .chg-note.warn { color: #92702a; }
+</style>
+<div class="chg-card" id="scanChanges">
+    <div class="chg-head">
+        <span class="chg-title"><i class="ti ti-git-compare" aria-hidden="true"></i>เปลี่ยนแปลงจากสแกนครั้งก่อน</span>
+        <span class="chg-vs">เทียบกับ <a href="{{ url_for('scan_detail', scan_id=changes.prev.id) }}">Job #{{ changes.prev.seq }}</a> · {{ changes.prev.when }}</span>
+    </div>
+
+    {% if not d.changed %}
+    <div class="chg-same"><i class="ti ti-circle-check" aria-hidden="true" style="color:#64748b;margin-right:4px;"></i>ไม่มีการเปลี่ยนแปลง
+        {%- if d.cve_compared %} (อุปกรณ์ พอร์ตที่เปิด และ CVE เหมือนเดิม){% else %} (อุปกรณ์{% if job.scan_type != 'discovery' %}และพอร์ตที่เปิด{% endif %}เหมือนเดิม){% endif %}</div>
+    {% endif %}
+
+    {% if d.new_devices %}
+    <div class="chg-sec">
+        <div class="chg-sec-title">อุปกรณ์ใหม่ <b>{{ d.counts.new_devices }}</b></div>
+        <div class="chg-chips">{% for x in d.new_devices %}<span class="chg-chip"><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a>{% if x.os or x.vendor %}<small>{{ x.os or x.vendor }}</small>{% endif %}</span>{% endfor %}</div>
+    </div>
+    {% endif %}
+
+    {% if d.missing_devices %}
+    <div class="chg-sec">
+        <div class="chg-sec-title">ไม่พบในสแกนนี้ <b>{{ d.counts.missing_devices }}</b></div>
+        <div class="chg-chips">{% for x in d.missing_devices %}<span class="chg-chip"><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a>{% if x.os or x.vendor %}<small>{{ x.os or x.vendor }}</small>{% endif %}</span>{% endfor %}</div>
+        <div class="chg-note"><i class="ti ti-info-circle" aria-hidden="true"></i><span>ไม่พบ ไม่ได้แปลว่าปิดเครื่อง — อุปกรณ์อาจบล็อก ping หรือปิดอยู่ชั่วคราว</span></div>
+    </div>
+    {% endif %}
+
+    {% if d.port_changes %}
+    <div class="chg-sec">
+        <div class="chg-sec-title">พอร์ตที่เปลี่ยน <b>{{ d.counts.ports_opened }}</b> เปิดเพิ่ม · <b>{{ d.counts.ports_closed }}</b> ไม่เปิดแล้ว</div>
+        {% for x in d.port_changes %}
+        <div class="chg-row"><a class="ip-link ip" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a>
+            {% if x.opened %}<span class="op">เปิดเพิ่ม: {{ x.opened | join(', ') }}</span>{% endif %}
+            {% if x.closed %}<span class="cl">ไม่เปิดแล้ว: {{ x.closed | join(', ') }}</span>{% endif %}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if d.new_cves %}
+    <div class="chg-sec">
+        <div class="chg-sec-title">CVE ใหม่ <b>{{ d.counts.new_cves }}</b></div>
+        {% for x in d.new_cves %}
+        <div class="chg-row"><span class="chg-sev {{ x.severity | lower }}" aria-hidden="true"></span>{{ x.severity | title }}{% if x.cvss is not none %} {{ x.cvss }}{% endif %}
+            <span class="ip" style="margin-left:8px;">{{ x.cve_id }}</span><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a><span class="cl" style="margin-left:6px;">{{ x.port }}</span>
+            {% if x.kev %}<span class="chg-kev" title="CISA ระบุว่ามีการโจมตีใช้ช่องโหว่นี้จริง">ถูกโจมตีจริง</span>{% endif %}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if d.fixed_cves %}
+    <div class="chg-sec">
+        <div class="chg-sec-title">CVE ที่ไม่พบแล้ว <b>{{ d.counts.fixed_cves }}</b></div>
+        {% for x in d.fixed_cves %}
+        <div class="chg-row"><span class="chg-sev {{ x.severity | lower }}" aria-hidden="true"></span>{{ x.severity | title }}
+            <span class="ip" style="margin-left:8px;">{{ x.cve_id }}</span><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a><span class="cl" style="margin-left:6px;">{{ x.port }} · {% if x.reason == 'port_closed' %}พอร์ตนี้ไม่เปิดแล้ว{% else %}ค้นหาแล้วไม่พบ{% endif %}</span></div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if d.cve_unjudged %}
+    <div class="chg-note"><i class="ti ti-info-circle" aria-hidden="true"></i><span>มี {{ d.cve_unjudged }} CVE ที่บอกไม่ได้ว่าใหม่หรือเก่า เพราะการค้นหา CVE ของสแกนครั้งก่อนหรือครั้งนี้ไม่สำเร็จ หรือไม่ได้บันทึกสถานะไว้</span></div>
+    {% endif %}
+    {% if 'admin_differs' in d.caveats %}
+    <div class="chg-note warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i><span>สองครั้งนี้รันด้วยสิทธิ์ต่างกัน (Administrator กับไม่ใช่) อุปกรณ์จึงอาจต่างกันโดยที่เครือข่ายไม่ได้เปลี่ยนจริง</span></div>
+    {% endif %}
+</div>
+{% elif job and job.status == 'Completed' and job.scan_type != 'xml_upload' and not focus_ip %}
+<div class="text-muted" id="scanChanges" style="font-size:.76rem;margin:-0.5rem 0 1.5rem 2px;"><i class="ti ti-git-compare me-1" aria-hidden="true"></i>ยังไม่มีสแกนครั้งก่อนที่เทียบได้ (ต้องเป็นเป้าหมายและชนิดสแกนเดียวกัน) สแกนซ้ำหรือตั้งเวลาไว้ แล้วการเปลี่ยนแปลงจะแสดงที่นี่</div>
+{% endif %}

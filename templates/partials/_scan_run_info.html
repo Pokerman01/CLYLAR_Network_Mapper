@@ -1,0 +1,40 @@
+{# What the scan said about its own run: how many addresses it checked and how many answered, the nmap version, and notes (no Administrator
+   rights, devices only this PC's ARP table knew ...). Needs `run` from describe_run() in app.py (the Tasks panel shows the same wording).
+   Draws nothing when the scan recorded nothing (a job from before this existed). Every value is escaped by Jinja. #}
+{% if run and (run.summary or run.notes) %}
+<style>
+    .run-info { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 18px; margin-bottom: 1.5rem; font-size: .82rem; color: #334155; }
+    .run-info .ri-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+    .run-info .ri-head > i { color: #64748b; font-size: 1.1rem; }
+    .run-info .ri-sum { font-weight: 600; color: #0f172a; }
+    .run-info .ri-meta { margin-left: auto; color: #64748b; font-size: .76rem; }
+    .run-info .ri-note { display: flex; gap: 8px; margin-top: 8px; font-size: .78rem; color: #64748b; }
+    .run-info .ri-note i { flex: none; margin-top: 2px; }
+    .run-info .ri-note.warn { color: #92702a; }
+    .run-info details { margin-top: 6px; font-size: .78rem; }
+    .run-info summary { cursor: pointer; color: #475569; width: fit-content; }
+    .run-info table { margin-top: 6px; border-collapse: collapse; }
+    .run-info td { padding: 2px 18px 2px 0; color: #334155; }
+    .run-info td.mono { font-family: monospace; }
+</style>
+<div class="run-info" id="runInfo">
+    <div class="ri-head">
+        <i class="ti ti-radar-2" aria-hidden="true"></i>
+        {% if run.summary %}<span class="ri-sum">{{ run.summary }}</span>{% endif %}
+        {% if run.nmap or run.elapsed is not none %}
+        <span class="ri-meta">{% if run.nmap %}Nmap {{ run.nmap }}{% endif %}{% if run.nmap and run.elapsed is not none %} · {% endif %}{% if run.elapsed is not none %}nmap ใช้เวลา {{ run.elapsed }} วินาที{% endif %}</span>
+        {% endif %}
+    </div>
+    {% for n in run.notes %}
+    <div class="ri-note {{ n.kind }}"><i class="ti {% if n.kind == 'warn' %}ti-alert-triangle{% else %}ti-info-circle{% endif %}" aria-hidden="true"></i><span>{{ n.text }}</span></div>
+    {% endfor %}
+    {% if run.arp_only %}
+    <details>
+        <summary>ดูอุปกรณ์ที่ตาราง ARP รู้จัก ({{ run.arp_only | length }}{% if run.arp_only_total and run.arp_only_total > run.arp_only | length %} จาก {{ run.arp_only_total }}{% endif %})</summary>
+        <table>
+            {% for r in run.arp_only %}<tr><td class="mono">{{ r.ip }}</td><td class="mono">{{ r.mac }}</td><td>{{ r.vendor or 'ไม่ทราบผู้ผลิต' }}</td></tr>{% endfor %}
+        </table>
+    </details>
+    {% endif %}
+</div>
+{% endif %}

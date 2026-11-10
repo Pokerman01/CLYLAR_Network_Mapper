@@ -1,0 +1,487 @@
+{% extends 'base.html' %}
+
+{% block page_title %}<div class="topbar-page-title">ตั้งค่า</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">ข้อมูลบัญชีผู้ใช้ของคุณ</div>{% endblock %}
+
+{% block content %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3">บัญชีผู้ใช้</h6>
+        <div class="d-flex align-items-center gap-3 mb-4">
+          <div style="width:52px;height:52px;border-radius:50%;background:#e2e5ea;display:flex;align-items:center;justify-content:center;font-size:22px;color:#8a8f98;">
+            <i class="ti ti-user"></i>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:1.05rem;color:#0f172a;">{{ current_user.username | title }}</div>
+            <div style="font-size:.8rem;color:#6b7280;">{{ current_user.role | title }}</div>
+          </div>
+        </div>
+        <table class="table table-sm mb-0" style="font-size:.85rem;">
+          <tbody>
+            <tr>
+              <td class="text-muted" style="width:40%;">Username</td>
+              <td class="fw-semibold">{{ current_user.username }}</td>
+            </tr>
+            <tr>
+              <td class="text-muted">Role</td>
+              <td class="fw-semibold">{{ current_user.role | title }}</td>
+            </tr>
+            <tr>
+              <td class="text-muted">สร้างเมื่อ</td>
+              <td class="fw-semibold">{{ current_user.created_at.strftime('%Y-%m-%d %H:%M') if current_user.created_at else '—' }}</td>
+            </tr>
+            {% if current_user.creator %}
+            <tr>
+              <td class="text-muted">สร้างโดย</td>
+              <td class="fw-semibold">{{ current_user.creator.username }}</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3">เปลี่ยนรหัสผ่าน</h6>
+        <p class="text-muted mb-3" style="font-size:.85rem;">
+          ติดต่อผู้ดูแลระบบ (Admin) เพื่อรีเซ็ตรหัสผ่านของคุณผ่านหน้า
+          {% if current_user.role in ('admin', 'superadmin') %}
+          <a href="{{ url_for('user_management') }}">จัดการผู้ใช้งาน</a>
+          {% else %}
+          จัดการผู้ใช้งาน
+          {% endif %}
+        </p>
+        <hr>
+        <h6 class="fw-bold mb-2 mt-4">เกี่ยวกับระบบ</h6>
+        <div class="text-muted" style="font-size:.85rem;">
+          CLYLAR Network Scanner · v1.0.0<br>
+          National Telecom Public Company Limited
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# The floating button = speed dial (bottom right of every page): each admin can hide it for themselves. Kept per user on the server
+   (AppSetting 'chat_button_hidden.<user id>'), so it holds in every browser and the page never shows it before hiding it. Compact on purpose:
+   one line with the switch, and the explanation folds away behind "รายละเอียด". #}
+{% if current_user.is_any_admin %}
+<style>
+  .fab-more { border: 0; background: none; padding: 0; color: #6b7280; font-size: .78rem; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+  .fab-more i { font-size: 14px; transition: transform .2s; }
+  .fab-more[aria-expanded="true"] i { transform: rotate(180deg); }
+  .fab-more:hover { color: #1e293b; }
+  .fab-more:focus-visible { outline: 2px solid #64748b; outline-offset: 2px; border-radius: 4px; }
+  .info-list { list-style: none; margin: 0; padding-left: 0; display: grid; gap: 6px; }
+  .info-list li { position: relative; padding-left: 14px; line-height: 1.65; }
+  .info-list li::before { content: ""; position: absolute; left: 2px; top: .72em; width: 4px; height: 4px; border-radius: 50%; background: #94a3b8; }
+  .info-list b { color: #475569; font-weight: 600; }
+  @media (prefers-reduced-motion: reduce) { .fab-more i { transition: none; } }
+</style>
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body px-4 py-3">
+        <div class="d-flex align-items-center justify-content-between gap-3">
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <h6 class="fw-bold mb-0">ปุ่มลอยและเมนูลัด</h6>
+            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#fabInfo" aria-expanded="false" aria-controls="fabInfo"><i class="ti ti-chevron-down" aria-hidden="true"></i>รายละเอียด</button>
+          </div>
+          <div class="form-check form-switch mb-0" style="font-size:1.1rem;">
+            <input class="form-check-input" type="checkbox" role="switch" id="fabSwitch" {% if not chat_button_hidden %}checked{% endif %}>
+            <label class="form-check-label" for="fabSwitch" id="fabSwitchLabel" role="status" style="font-size:.9rem;">{{ 'ซ่อนอยู่' if chat_button_hidden else 'แสดงอยู่' }}</label>
+          </div>
+        </div>
+        <div class="collapse" id="fabInfo">
+          <div class="text-muted pt-2" style="font-size:.82rem;max-width:640px;">
+            ปุ่มลอยที่มุมขวาล่างของทุกหน้า กดแล้วเลือกเปิดแชท สั่งด้วยเสียง หรือสแกนด่วนได้ ปิดได้หากไม่ต้องการให้บังหน้าจอ และกลับมาเปิดอีกครั้งได้ที่นี่เสมอ<br>
+            เมื่อซ่อนปุ่ม จะเปิดแชทและสั่งด้วยเสียงไม่ได้จนกว่าจะเปิดกลับ · ตั้งค่านี้ใช้กับบัญชีของคุณเท่านั้น
+          </div>
+        </div>
+        <div id="fabMsg" style="font-size:.8rem;color:#a16207;" role="alert"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const sw = document.getElementById('fabSwitch'), label = document.getElementById('fabSwitchLabel'), msg = document.getElementById('fabMsg');
+  sw.addEventListener('change', async function () {
+    const want = sw.checked;                       // true = show the button
+    sw.disabled = true;
+    msg.textContent = '';
+    msg.classList.remove('mt-2');
+    try {
+      const res = await fetch('/api/ui/chat-button', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: want }) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      sw.checked = !!data.visible;
+      label.textContent = data.visible ? 'แสดงอยู่' : 'ซ่อนอยู่';      // the label says it; only a failure needs a sentence
+      const btn = document.getElementById('chatbot-dial'), popup = document.getElementById('chatbot-popup');   // this page too, no reload
+      if (btn) {
+        btn.classList.toggle('is-hidden', !data.visible);
+        if (!data.visible && popup && popup.classList.contains('open') && typeof toggleChat === 'function') toggleChat();
+      }
+    } catch (e) {
+      sw.checked = !want;
+      msg.classList.add('mt-2');
+      msg.textContent = 'เปลี่ยนค่าไม่สำเร็จ ลองใหม่อีกครั้ง';
+    } finally {
+      sw.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}
+
+{# Speech-to-text for the voice commands: the local Whisper program (whisper_worker.py) when it runs, else the browser's own engine. The main switch
+   STARTS or STOPS that program (any admin: /api/voice/whisper/start and /stop; it is one program shared by all of them) and always shows what is really happening
+   (/api/voice/whisper/status); the choice "always use the browser's engine" is per browser (localStorage, read by base.html). #}
+{% if current_user.is_any_admin %}
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body px-4 py-3">
+        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <h6 class="fw-bold mb-0">ตัวถอดเสียงพูด (Whisper ในเครื่อง)</h6>
+            <span id="wsState" style="font-size:.85rem;color:#64748b;" role="status">กำลังตรวจสอบ…</span>
+            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#wsInfo" aria-expanded="false" aria-controls="wsInfo"><i class="ti ti-chevron-down"></i> รายละเอียด</button>
+          </div>
+          <div class="form-check form-switch mb-0" style="font-size:1.1rem;">
+            <input class="form-check-input" type="checkbox" role="switch" id="wsSwitch" disabled>
+            <label class="form-check-label" for="wsSwitch" id="wsSwitchLabel" style="font-size:.9rem;">ปิดอยู่</label>
+          </div>
+        </div>
+        <div class="collapse" id="wsInfo">
+          <ul class="info-list text-muted pt-2" style="font-size:.82rem;max-width:720px;">
+            <li><b>การทำงาน:</b> Whisper ถอดเสียงคำสั่งเป็นข้อความบนเครื่องนี้ ไม่ส่งเสียงออกนอกเครื่องและไม่เก็บเสียงไว้ ใช้เวลาประมาณ 1 ถึง 2 วินาทีต่อคำสั่งบนการ์ดจอ NVIDIA และนานกว่ามากบน CPU (ประมาณ 8 ถึง 17 วินาที)</li>
+            <li><b>สวิตช์ด้านขวา:</b> เปิดหรือปิดโปรแกรม Whisper การเปิดใช้เวลาโหลดโมเดลประมาณ 10 ถึง 20 วินาที เป็นโปรแกรมเดียวที่ผู้ดูแลระบบทุกคนใช้ร่วมกัน การปิดจึงมีผลกับทุกคน</li>
+            <li><b>เมื่อ Whisper ไม่ทำงาน:</b> ปุ่มไมโครโฟนจะใช้ตัวถอดเสียงของเบราว์เซอร์แทนโดยอัตโนมัติ</li>
+            <li><b>ตัวถอดเสียงของเบราว์เซอร์:</b> ส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ (Chrome ส่งไปยัง Google และ Edge ส่งไปยัง Microsoft) จึงต้องใช้อินเทอร์เน็ต และจากการทดสอบมักถอดตัวเลขที่อยู่ IP ผิดมากกว่า Whisper</li>
+            <li><b>หลังปิดหรือรีสตาร์ทเครื่อง:</b> Whisper จะไม่เริ่มทำงานเอง ต้องเปิดสวิตช์อีกครั้ง หรือดับเบิลคลิก <code>start_whisper_worker.bat</code> ในโฟลเดอร์โปรเจกต์ ส่วนการโหลดแอปใหม่ไม่ทำให้ Whisper หยุด</li>
+          </ul>
+          <div class="form-check mt-2" style="font-size:.85rem;">
+            <input class="form-check-input" type="checkbox" id="wsBrowserOnly">
+            <label class="form-check-label" for="wsBrowserOnly">ใช้ตัวถอดเสียงของเบราว์เซอร์เสมอ แม้ Whisper ทำงานอยู่ (มีผลเฉพาะเบราว์เซอร์นี้)</label>
+          </div>
+        </div>
+        <div id="wsMsg" style="font-size:.8rem;color:#a16207;" role="alert"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const KEY = 'clylar.voice.engine.{{ current_user.id }}';
+  const sw = document.getElementById('wsSwitch'), label = document.getElementById('wsSwitchLabel'), state = document.getElementById('wsState'),
+        msg = document.getElementById('wsMsg'), only = document.getElementById('wsBrowserOnly');
+  let timer = 0, startedAt = 0;
+  try { only.checked = localStorage.getItem(KEY) === 'browser'; } catch (e) { }
+  only.addEventListener('change', function () {
+    try { localStorage.setItem(KEY, only.checked ? 'browser' : 'auto'); } catch (e) { }
+  });
+
+  function show(st) {
+    sw.disabled = !st.installed || st.state === 'starting';
+    if (st.state === 'running') {
+      const modelName = st.model === 'thai-large' ? 'โมเดลภาษาไทย (large-v3)' : (st.model ? 'โมเดล ' + st.model : '');      // the folder name is not a name for people: the model in it is the Thai-tuned Whisper large-v3
+      state.textContent = 'พร้อมใช้งาน' + (modelName ? ' · ' + modelName : '') + ' · ' + (st.device === 'cuda' ? 'ใช้การ์ดจอ' : 'ใช้ CPU (ช้า)') + (st.last_seconds ? ' · ครั้งล่าสุด ' + st.last_seconds + ' วินาที' : '');
+      state.title = 'โมเดล: ' + (st.model || '-') + ' · อุปกรณ์: ' + (st.device || '-') + (st.compute ? ' · ' + st.compute : '');
+      state.style.color = '#166534'; sw.checked = true; label.textContent = 'เปิดอยู่';
+    } else if (st.state === 'starting') {
+      state.textContent = 'กำลังเริ่ม… โหลดโมเดลประมาณ 10 ถึง 20 วินาที';
+      state.style.color = '#64748b'; sw.checked = true; label.textContent = 'กำลังเริ่ม…';
+    } else {
+      state.textContent = st.installed ? 'ไม่ได้ทำงานอยู่ · ใช้ตัวถอดเสียงของเบราว์เซอร์' : 'ยังไม่ได้ติดตั้ง Whisper ในเครื่องนี้ (ไม่พบโฟลเดอร์ clylar-whisper-lab)';
+      state.style.color = '#92400e'; sw.checked = false; label.textContent = 'ปิดอยู่';
+      if (st.error && msg.textContent === '') msg.textContent = 'เริ่มไม่สำเร็จ: ' + st.error;
+    }
+  }
+
+  async function refresh() {                       // never throws; while it is starting, ask again every 2 s (for at most 90 s)
+    clearTimeout(timer);
+    let st = { state: 'stopped', installed: true };
+    try { const r = await fetch('/api/voice/whisper/status'); if (r.ok) st = await r.json(); else { state.textContent = 'ตรวจสอบไม่ได้'; return; } }
+    catch (e) { state.textContent = 'ตรวจสอบไม่ได้'; return; }
+    show(st);
+    if (st.state === 'starting') {
+      if (Date.now() - startedAt > 90000) { msg.textContent = 'โหลดนานผิดปกติ ดูสาเหตุในไฟล์ instance/whisper_worker.log'; return; }
+      timer = setTimeout(refresh, 2000);
+    }
+  }
+
+  sw.addEventListener('change', async function () {
+    const want = sw.checked;                       // true = start the program
+    sw.disabled = true; msg.textContent = '';
+    state.textContent = want ? 'กำลังเริ่ม…' : 'กำลังปิด…'; state.style.color = '#64748b';
+    startedAt = Date.now();
+    try {
+      const res = await fetch('/api/voice/whisper/' + (want ? 'start' : 'stop'), { method: 'POST' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error === 'not_installed' ? 'ไม่พบโปรแกรม Whisper ในเครื่องนี้' : res.status === 403 ? 'ไม่มีสิทธิ์ (ต้องเป็นแอดมิน)' : 'เริ่มไม่ได้ (' + (j.error || ('HTTP ' + res.status)) + ')');
+    } catch (e) {
+      msg.textContent = (e && e.message) || 'ไม่สำเร็จ';
+    }
+    await refresh();
+  });
+
+  refresh();
+})();
+</script>
+{% endif %}
+
+{# AI switch + usage counter: admins see it, only a superadmin can change the switch. The numbers come from the GeminiCall table
+   (what Google reports for every call), so they are the real usage, not an estimate. #}
+{% if ai is not none %}
+{# One key row (state, test, set, delete, and the form behind "set"). p is the id prefix: "my" = my own key, "key" = the shared key. #}
+{% macro key_block(p, title, hint, editable) %}
+<div class="mt-3 pt-3" style="border-top:1px solid #eef0f3;" id="{{ p }}Box">
+  <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <div style="font-size:.9rem;">
+      <span class="fw-semibold" title="{{ hint }}">{{ title }}</span>
+      <span id="{{ p }}State" class="ms-2 text-muted" style="font-size:.85rem;"></span>
+    </div>
+    {% if editable %}
+    <div class="d-flex gap-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}TestSavedBtn" hidden>ทดสอบคีย์ที่ใช้อยู่</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}EditBtn">ตั้งค่าคีย์</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}DelBtn" hidden>ลบคีย์</button>
+    </div>
+    {% endif %}
+  </div>
+  {% if editable %}
+  <form id="{{ p }}Form" class="mt-2" hidden autocomplete="off" style="max-width:560px;">
+    <label for="{{ p }}Input" class="text-muted" style="font-size:.8rem;">วางคีย์ API จาก Google AI Studio</label>
+    <input type="password" id="{{ p }}Input" class="form-control form-control-sm" autocomplete="new-password" spellcheck="false" maxlength="200" placeholder="คีย์ใหม่">
+    <div class="d-flex gap-2 mt-2 flex-wrap">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}TestBtn">ทดสอบ</button>
+      <button type="submit" class="btn btn-sm btn-dark" id="{{ p }}SaveBtn">บันทึก</button>
+      <button type="button" class="btn btn-sm btn-link text-muted" id="{{ p }}CancelBtn">ยกเลิก</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endmacro %}
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <h6 class="fw-bold mb-0">ผู้ช่วย AI (Gemini)</h6>
+            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#aiInfo" aria-expanded="false" aria-controls="aiInfo"><i class="ti ti-chevron-down" aria-hidden="true"></i> รายละเอียด</button>
+          </div>
+          <div class="form-check form-switch mb-0" style="font-size:1.15rem;">
+            <input class="form-check-input" type="checkbox" role="switch" id="aiSwitch"
+                   {% if ai.enabled %}checked{% endif %} {% if not can_change_ai %}disabled{% endif %}>
+            <label class="form-check-label" for="aiSwitch" id="aiSwitchLabel" style="font-size:.9rem;">{{ 'เปิดใช้งาน' if ai.enabled else 'ปิดอยู่' }}</label>
+          </div>
+        </div>
+        <div class="collapse" id="aiInfo">
+          <ul class="info-list text-muted pt-2" style="font-size:.82rem;max-width:720px;">
+            <li><b>เมื่อปิด:</b> ระบบไม่เรียก Gemini เลย แม้ตั้งคีย์ส่วนตัวไว้ จึงไม่ใช้โทเคน คำถามที่ระบบตอบเองไม่ได้จะไม่มีคำตอบจนกว่าจะเปิดใช้ AI</li>
+            <li><b>ที่ใช้ได้เสมอ:</b> คำสั่งที่ระบบเข้าใจเอง ทั้งคำสั่งเสียงและคำสั่งที่พิมพ์ในหน้าผู้ช่วย เช่น สั่งสแกน เปิดหน้า หรือถามจำนวนอุปกรณ์ พอร์ต และช่องโหว่</li>
+            <li><b>คีย์ที่ใช้:</b> ระบบใช้คีย์ API ของคุณก่อน (เฉพาะคำถามของบัญชีคุณ) หากไม่ได้ตั้ง จะใช้คีย์ของระบบที่ Superadmin ตั้งไว้และใช้ร่วมกัน หากยังไม่ได้ตั้งทั้งสองคีย์ จะใช้ค่า GOOGLE_API_KEY ในไฟล์ .env</li>
+            <li><b>ที่เก็บคีย์:</b> เก็บเป็นไฟล์บนเซิร์ฟเวอร์ในโฟลเดอร์ instance ไม่อยู่ในฐานข้อมูลหรือ git และจะไม่แสดงอีกหลังบันทึก</li>
+            <li><b>ข้อมูลที่ส่งออก:</b> คำถามที่ส่งให้ Gemini มีตัวเลขสรุปจากผลสแกน หากใช้คีย์ส่วนตัว ข้อมูลนี้จะส่งไปยังบัญชี Google ของเจ้าของคีย์ Superadmin จึงปิดการใช้คีย์ส่วนตัวได้</li>
+            <li><b>การนับโทเคน:</b> ตัวเลขในตารางคือโทเคนที่ Google รายงานกลับมาทุกครั้ง (รวมโทเคนที่โมเดลใช้คิด) ครั้งที่ล้มเหลวก่อนได้คำตอบจะไม่มีโทเคน ส่วนปุ่มทดสอบไม่ใช้โทเคนและไม่นับในตาราง</li>
+          </ul>
+        </div>
+        {% if not can_change_ai %}<div class="text-muted mt-2" style="font-size:.78rem;">เฉพาะ Superadmin เท่านั้นที่เปลี่ยนค่านี้ได้</div>{% endif %}
+        <div id="aiMsg" class="mt-2" style="font-size:.8rem;" role="status"></div>
+
+        {{ key_block('my', 'คีย์ API ของคุณ',
+     'ใช้กับคำถามที่คุณถามผู้ช่วยเท่านั้น และเรียก Gemini ผ่านบัญชี Google ของคุณเอง หากไม่ได้ตั้งค่า ระบบจะใช้คีย์ของระบบแทน', true) }}
+        {{ key_block('key', 'คีย์ของระบบ (ใช้ร่วมกัน)',
+     'ใช้กับผู้ดูแลระบบที่ไม่ได้ตั้งคีย์ของตนเอง ตั้งค่าได้เฉพาะ Superadmin' if not can_change_ai else 'ใช้กับผู้ดูแลระบบที่ไม่ได้ตั้งคีย์ของตนเอง หากไม่ได้ตั้งที่หน้านี้ ระบบจะใช้ค่า GOOGLE_API_KEY ในไฟล์ .env', can_change_ai) }}
+        {% if can_change_ai %}
+        <form id="modelForm" class="d-flex align-items-center gap-2 flex-wrap mt-3" autocomplete="off">
+          <label for="modelInput" class="text-muted mb-0" style="font-size:.85rem;">โมเดล (ใช้ร่วมกัน)</label>
+          <input type="text" id="modelInput" class="form-control form-control-sm" style="max-width:230px;" list="modelList" spellcheck="false" maxlength="60">
+          <datalist id="modelList"><option value="gemini-2.5-flash"><option value="gemini-2.5-flash-lite"><option value="gemini-2.5-pro"></datalist>
+          <button type="submit" class="btn btn-sm btn-outline-secondary" id="modelSaveBtn">บันทึกโมเดล</button>
+        </form>
+        <div class="form-check form-switch mt-3 mb-0" style="font-size:.9rem;">
+          <input class="form-check-input" type="checkbox" role="switch" id="personalSwitch">
+          <label class="form-check-label" for="personalSwitch" id="personalLabel">อนุญาตให้ผู้ดูแลระบบใช้คีย์ของตนเอง</label>
+        </div>
+        {% endif %}
+        <div class="mt-3">
+          <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#aiUsage" aria-expanded="false" aria-controls="aiUsage"><i class="ti ti-chevron-down" aria-hidden="true"></i> การใช้งานและสถิติ</button>
+        </div>
+        <div class="collapse" id="aiUsage">
+        <div class="table-responsive mt-2">
+          <table class="table table-sm mb-2" style="font-size:.85rem;max-width:560px;">
+            <thead>
+              <tr class="text-muted" style="font-size:.78rem;"><th class="fw-normal">การใช้งาน Gemini ทั้งระบบ</th><th class="fw-normal text-end">วันนี้</th><th class="fw-normal text-end">เดือนนี้</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>เรียกทั้งหมด (ครั้ง)</td><td class="text-end" data-k="today.calls">{{ ai.today.calls }}</td><td class="text-end" data-k="month.calls">{{ ai.month.calls }}</td></tr>
+              <tr><td class="text-muted ps-3">มาจากคำสั่งเสียง</td><td class="text-end text-muted" data-k="today.voice">{{ ai.today.voice }}</td><td class="text-end text-muted" data-k="month.voice">{{ ai.month.voice }}</td></tr>
+              <tr><td class="text-muted ps-3">ล้มเหลว</td><td class="text-end text-muted" data-k="today.failed">{{ ai.today.failed }}</td><td class="text-end text-muted" data-k="month.failed">{{ ai.month.failed }}</td></tr>
+              <tr><td>Token ที่ส่งไป (input)</td><td class="text-end" data-k="today.prompt_tokens">{{ '{:,}'.format(ai.today.prompt_tokens) }}</td><td class="text-end" data-k="month.prompt_tokens">{{ '{:,}'.format(ai.month.prompt_tokens) }}</td></tr>
+              <tr><td>Token ที่ได้กลับมา (output)</td><td class="text-end" data-k="today.output_tokens">{{ '{:,}'.format(ai.today.output_tokens) }}</td><td class="text-end" data-k="month.output_tokens">{{ '{:,}'.format(ai.month.output_tokens) }}</td></tr>
+              <tr class="fw-semibold"><td>Token รวม</td><td class="text-end" data-k="today.total_tokens">{{ '{:,}'.format(ai.today.total_tokens) }}</td><td class="text-end" data-k="month.total_tokens">{{ '{:,}'.format(ai.month.total_tokens) }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="text-muted mb-1" style="font-size:.82rem;">
+          การใช้งานของคุณเอง (ทุกคีย์): วันนี้ <span data-k="mine.today.calls">0</span> ครั้ง · เดือนนี้ <span data-k="mine.month.calls">0</span> ครั้ง ·
+          โทเคนเดือนนี้ <span data-k="mine.month.total_tokens">0</span>
+        </div>
+        <div class="text-muted" style="font-size:.78rem;">
+          โมเดล: <span data-k="model">{{ ai.model }}</span> · เรียกทั้งหมดตั้งแต่เริ่มนับ: <span data-k="total_calls">{{ ai.total_calls }}</span> ครั้ง ·
+          ครั้งล่าสุด: <span data-k="last">{{ ai.last or '—' }}</span>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const sw = document.getElementById('aiSwitch'), label = document.getElementById('aiSwitchLabel'), msg = document.getElementById('aiMsg');
+  const CAN_EDIT = {{ 'true' if can_change_ai else 'false' }};
+  const modelInput = document.getElementById('modelInput');
+  const note = (text, bad) => { msg.className = 'mt-2 ' + (bad ? 'text-danger' : 'text-muted'); msg.textContent = text; };
+  async function post(url, body) {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    let data = null; try { data = await res.json(); } catch (e) {}
+    return { ok: res.ok, data: data };
+  }
+  // One key row. render(summary, el) words its state; urls say where it saves, clears and tests.
+  function keyPanel(p, urls, render) {
+    const $ = id => document.getElementById(p + id);
+    const el = { state: $('State'), editBtn: $('EditBtn'), delBtn: $('DelBtn'), testSaved: $('TestSavedBtn') };
+    const form = $('Form'), input = $('Input');
+    const api = { render: s => render(s, el) };
+    if (!form) return api;                                  // read-only row (not editable by this person)
+    const closeForm = () => { form.hidden = true; input.value = ''; };
+    async function runTest(useTyped) {
+      note('กำลังทดสอบ...');
+      const r = await post(urls.test, { key: useTyped ? input.value.trim() : '', model: modelInput ? modelInput.value.trim() : '' });
+      note((r.data && r.data.message) || 'ทดสอบไม่สำเร็จ', !(r.data && r.data.ok));
+      return r.data && r.data.ok;
+    }
+    el.editBtn.addEventListener('click', function () { form.hidden = !form.hidden; if (!form.hidden) input.focus(); });
+    $('CancelBtn').addEventListener('click', closeForm);
+    form.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeForm(); el.editBtn.focus(); } });
+    el.testSaved.addEventListener('click', async function () { this.disabled = true; try { await runTest(false); } finally { this.disabled = false; } });
+    $('TestBtn').addEventListener('click', async function () {
+      if (!input.value.trim()) { note('กรุณาวางคีย์ก่อน', true); return; }
+      this.disabled = true; try { await runTest(true); } finally { this.disabled = false; }
+    });
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const btn = $('SaveBtn');
+      if (!input.value.trim()) { note('กรุณาวางคีย์ก่อน', true); return; }
+      btn.disabled = true;
+      try {
+        const r = await post(urls.save, { key: input.value.trim() });
+        if (!r.ok) { note((r.data && r.data.message) || 'บันทึกคีย์ไม่สำเร็จ', true); return; }
+        closeForm(); show(r.data);
+        const good = await runTest(false);
+        if (good) note('บันทึกคีย์แล้ว ' + msg.textContent);
+        else note('บันทึกคีย์แล้ว แต่' + msg.textContent, true);
+      } catch (err) { note('บันทึกคีย์ไม่สำเร็จ', true); } finally { btn.disabled = false; }
+    });
+    el.delBtn.addEventListener('click', async function () {
+      if (!confirm(urls.confirm)) return;
+      this.disabled = true;
+      try {
+        const r = await post(urls.clear);
+        if (!r.ok) throw new Error('HTTP');
+        show(r.data); note('ลบคีย์แล้ว');
+      } catch (err) { note('ลบคีย์ไม่สำเร็จ', true); } finally { this.disabled = false; }
+    });
+    return api;
+  }
+  const AMBER = '#92400e';
+  const panels = [
+    keyPanel('my', { save: '/api/ai/my-key', clear: '/api/ai/my-key/clear', test: '/api/ai/my-key/test',
+                     confirm: 'ลบคีย์ของคุณ ระบบจะกลับไปใช้คีย์ของระบบ (ถ้ามี)' }, function (s, el) {
+      let t, warn = false;
+      if (s.my_key_set) {
+        t = 'ตั้งค่าแล้ว · ลงท้ายด้วย ' + s.my_key_tail;
+        if (!s.personal_allowed) { t += ' · ถูกปิดการใช้งาน ขณะนี้ใช้คีย์ของระบบ'; warn = true; }
+      } else if (s.key_set) { t = 'ยังไม่ได้ตั้งค่า · ขณะนี้ใช้คีย์ของระบบ'; }
+      else { t = 'ยังไม่ได้ตั้งค่า · ผู้ช่วย AI จะใช้ไม่ได้จนกว่าจะตั้งค่า'; warn = true; }
+      el.state.textContent = t; el.state.style.color = warn ? AMBER : '';
+      if (el.editBtn) { el.editBtn.textContent = s.my_key_set ? 'เปลี่ยนคีย์' : 'ตั้งค่าคีย์'; el.editBtn.disabled = !s.personal_allowed; }
+      if (el.delBtn) el.delBtn.hidden = !s.my_key_set;
+      if (el.testSaved) el.testSaved.hidden = !s.key_in_use;
+    }),
+    keyPanel('key', { save: '/api/ai/key', clear: '/api/ai/key/clear', test: '/api/ai/key/test',
+                      confirm: 'ลบคีย์ของระบบที่ตั้งไว้ที่หน้านี้ ระบบจะกลับไปใช้ค่าในไฟล์ .env (ถ้ามี)' }, function (s, el) {
+      const src = { settings: 'ตั้งค่าไว้ที่หน้านี้', env: 'ใช้ค่าจากไฟล์ .env' }[s.key_source];
+      if (!s.key_set) { el.state.textContent = 'ยังไม่ได้ตั้งค่า'; el.state.style.color = AMBER; }
+      else { el.state.textContent = src + (s.key_tail ? ' · ลงท้ายด้วย ' + s.key_tail : ''); el.state.style.color = ''; }
+      if (el.editBtn) el.editBtn.textContent = s.key_set ? 'เปลี่ยนคีย์' : 'ตั้งค่าคีย์';
+      if (el.delBtn) el.delBtn.hidden = s.key_source !== 'settings';
+      if (el.testSaved) el.testSaved.hidden = !s.key_set;
+    })
+  ];
+  const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
+  const personalSwitch = document.getElementById('personalSwitch');
+  function show(summary) {
+    document.querySelectorAll('[data-k]').forEach(el => {
+      let v = get(summary, el.dataset.k);
+      if (typeof v === 'number' && /tokens$/.test(el.dataset.k)) v = v.toLocaleString('en-US');
+      el.textContent = (v === null || v === undefined || v === '') ? '—' : v;
+    });
+    sw.checked = !!summary.enabled;
+    label.textContent = summary.enabled ? 'เปิดใช้งาน' : 'ปิดอยู่';
+    panels.forEach(p => p.render(summary));
+    if (personalSwitch) personalSwitch.checked = !!summary.personal_allowed;
+    if (modelInput && document.activeElement !== modelInput) modelInput.value = summary.model || '';
+  }
+  show({{ ai|tojson }});
+  if (CAN_EDIT) {
+    document.getElementById('modelForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const btn = document.getElementById('modelSaveBtn'); btn.disabled = true;
+      try {
+        const r = await post('/api/ai/model', { model: modelInput.value.trim() });
+        if (!r.ok) { note((r.data && r.data.message) || 'บันทึกโมเดลไม่สำเร็จ', true); return; }
+        modelInput.blur(); show(r.data); note('บันทึกโมเดลแล้ว กด "ทดสอบคีย์ที่ใช้อยู่" เพื่อตรวจว่าโมเดลนี้ใช้ได้');
+      } catch (err) { note('บันทึกโมเดลไม่สำเร็จ', true); } finally { btn.disabled = false; }
+    });
+    personalSwitch.addEventListener('change', async function () {
+      const want = personalSwitch.checked; personalSwitch.disabled = true;
+      try {
+        const r = await post('/api/ai/personal', { allowed: want });
+        if (!r.ok) throw new Error('HTTP');
+        show(r.data); note(want ? 'อนุญาตให้ผู้ดูแลระบบใช้คีย์ของตนเองแล้ว' : 'ปิดการใช้คีย์ส่วนตัวแล้ว ทุกคนจะใช้คีย์ของระบบ');
+      } catch (err) { personalSwitch.checked = !want; note('เปลี่ยนค่าไม่สำเร็จ', true); } finally { personalSwitch.disabled = false; }
+    });
+  }
+  sw.addEventListener('change', async function () {
+    const want = sw.checked;
+    sw.disabled = true;
+    msg.textContent = '';
+    try {
+      const res = await fetch('/api/ai/enabled', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: want }) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      show(await res.json());
+      msg.className = 'mt-2 text-muted';
+      msg.textContent = want ? 'เปิดใช้ AI แล้ว' : 'ปิดการใช้ AI แล้ว ระบบจะไม่เรียก Gemini';
+    } catch (e) {
+      sw.checked = !want;
+      msg.className = 'mt-2 text-danger';
+      msg.textContent = 'เปลี่ยนค่าไม่สำเร็จ (ต้องเป็น Superadmin)';
+    } finally {
+      sw.disabled = {{ 'false' if can_change_ai else 'true' }};
+    }
+  });
+})();
+</script>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,1233 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script src="{{ url_for('static', filename='js/subnet-topology.js') }}"></script>
+
+<style>
+/* ─── Page Layout ─── */
+.topology-page {
+    display: flex;
+    gap: 0;
+    height: calc(100vh - 80px);
+    overflow: hidden;
+}
+
+/* ─── Left Panel: Filter ─── */
+.topo-filter-panel {
+    width: 260px;
+    min-width: 220px;
+    background: #fff;
+    border-right: 1px solid #e9ecef;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+.topo-filter-header {
+    padding: 18px 16px 12px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.topo-filter-header h6 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6c757d;
+    margin: 0 0 2px 0;
+    font-weight: 700;
+}
+.topo-filter-header p {
+    font-size: 0.72rem;
+    color: #adb5bd;
+    margin: 0;
+}
+.filter-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid #f4f4f4;
+}
+.filter-section-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0.07em;
+    color: #495057;
+    margin-bottom: 10px;
+}
+.filter-date-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+.filter-date-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-size: 0.8rem;
+    color: #343a40;
+    user-select: none;
+}
+.filter-date-item:hover { background: #f8f9fa; }
+.filter-date-item input[type=checkbox] { accent-color: #0d6efd; }
+.job-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 260px;
+    overflow-y: auto;
+}
+.job-chip {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 8px;
+    border-radius: 7px;
+    cursor: pointer;
+    border: none;
+    transition: background 0.12s;
+    font-size: 0.8rem;
+    background: transparent;
+    user-select: none;
+}
+.job-chip:hover { background: #f1f3f5; }
+.job-chip.selected { background: #eef3ff; }
+.job-chip-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+.job-chip:not(.selected) .job-chip-dot { opacity: 0.35; }
+.job-chip-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+    color: #343a40;
+}
+.job-chip:not(.selected) .job-chip-name { color: #868e96; }
+.job-chip-count {
+    font-size: 0.7rem;
+    background: transparent;
+    border-radius: 20px;
+    padding: 0 4px;
+    color: #adb5bd;
+    font-weight: 600;
+}
+.job-chip.selected .job-chip-count { color: #0d6efd; }
+.quick-filter-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.qf-btn {
+    font-size: 0.72rem;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1.5px solid #dee2e6;
+    background: #fff;
+    color: #495057;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+}
+.qf-btn:hover, .qf-btn.active { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+
+/* ─── Right Panel: Canvas ─── */
+.topo-canvas-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #f4f6f9;
+    overflow: hidden;
+}
+.topo-canvas-header {
+    padding: 14px 20px;
+    background: #1e2a3a;
+    border-bottom: 1px solid #2d3f55;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    justify-content: space-between;
+}
+.topo-canvas-header h5 {
+    font-weight: 700;
+    margin: 0;
+    font-size: 1rem;
+    color: #fff;
+    white-space: nowrap;
+}
+.topo-legend { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px;
+    padding: 3px 10px 3px 7px;
+}
+.legend-item span { font-size: .74rem; color: #e2e8f0; font-weight: 500; }
+
+/* Layout switch (Tree / Star) in the diagram header */
+.topo-layout {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+}
+.topo-layout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 11px 3px 9px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #cbd5e1;
+    font-size: .76rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.topo-layout-btn:hover { color: #fff; }
+.topo-layout-btn[aria-pressed="true"] { background: rgba(255,255,255,0.18); color: #fff; }
+.topo-layout-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.55); outline-offset: 1px; }
+
+/* Float on/off switch next to the layout buttons */
+.topo-float-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 10px 6px 11px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    color: #cbd5e1;
+    font-size: .76rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.topo-float-btn:hover { color: #fff; }
+.topo-float-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.55); outline-offset: 1px; }
+.topo-float-btn[aria-checked="true"] { color: #fff; }
+.topo-float-state {
+    position: relative;
+    width: 26px;
+    height: 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.22);
+    transition: background .15s;
+}
+.topo-float-state::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform .15s;
+}
+.topo-float-btn[aria-checked="true"] .topo-float-state { background: #4a9fd4; }
+.topo-float-btn[aria-checked="true"] .topo-float-state::after { transform: translateX(12px); }
+
+/* Canvas wrapper */
+.topo-canvas-wrapper {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+#topoCanvas {
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    cursor: default;
+}
+
+/* Stats bar */
+.topo-stats-bar {
+    position: absolute;
+    bottom: 18px;
+    left: 18px;
+    display: flex;
+    gap: 10px;
+    z-index: 10;
+}
+.stat-pill {
+    background: rgba(255,255,255,0.95);
+    border: 1px solid #e9ecef;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.73rem;
+    color: #495057;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.stat-pill span { color: #0d6efd; }
+
+/* Empty state */
+.topo-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #adb5bd;
+    pointer-events: none;
+}
+.topo-empty .icon { font-size: 3rem; margin-bottom: 10px; }
+.topo-empty p { font-size: 0.9rem; margin: 0; }
+
+/* ─── Node pop-ups (same style as scan_detail); any number can be open at once ─── */
+.node-popup {
+    position: absolute;
+    z-index: 20;
+    background: #fff;
+    border-radius: 14px;
+    min-width: 300px;
+    max-width: 380px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+    font-size: .82rem;
+    overflow: hidden;
+}
+.np-header {
+    background: #1e2a3a;
+    padding: 12px 14px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #2d3f55;
+    cursor: move;
+}
+.np-icon {
+    background: rgba(255,255,255,0.18);
+    border-radius: 8px;
+    padding: 4px 6px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.np-ip { font-weight: 700; font-size: .95rem; font-family: monospace; color: #ffffff; }
+.np-close {
+    margin-left: auto;
+    background: rgba(0,0,0,0.25);
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+.popup-tabs { display: flex; border-bottom: 1px solid #e5e8ec; background: #f6f7f9; }
+.popup-tab {
+    flex: 1;
+    padding: 9px 0;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    background: transparent;
+    color: #8793a3;
+    font-weight: 600;
+    font-size: .82rem;
+    cursor: pointer;
+}
+.popup-tab:hover { color: #475569; }
+/* the open tab is the white one that joins the card below it; the other one is the quiet one */
+.popup-tab.active { background: #fff; color: #334155; border-bottom-color: #94a3b8; }
+.np-detail { padding: 6px 16px 12px; }
+.np-detail table { width: 100%; border-collapse: collapse; }
+.np-detail td { padding: 7px 0; border-bottom: 1px solid #f1f3f5; vertical-align: top; }
+.np-detail tr:last-child td { border-bottom: none; }
+/* the label column is only as wide as its longest label, so the values get the rest of the card */
+.np-detail td:first-child { color: #8793a3; font-size: .78rem; padding-right: 14px; white-space: nowrap; width: 1%; }
+.np-detail td:last-child { font-size: .82rem; font-weight: 500; color: #1f2937; overflow-wrap: break-word; }
+.np-detail td.np-note { color: #64748b; font-weight: 400; }
+.np-port { display: none; max-height: 260px; overflow-y: auto; }
+.np-port table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+.np-port th { padding: 7px 12px; text-align: left; color: #555; font-weight: 600; border-bottom: 1px solid #e0e0e0; }
+.np-port td { padding: 6px 12px; border-bottom: 1px solid #f4f4f4; }
+.np-port td.np-version { color: #6c757d; font-size: .75rem; }
+.np-port td.np-none { text-align: center; color: #adb5bd; padding: 20px; }
+
+/* Diagram hint */
+#diagram-hint {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.55);
+    color: #adb5bd;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: .75rem;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+/* Scrollbar */
+.filter-date-list::-webkit-scrollbar,
+.job-list::-webkit-scrollbar { width: 4px; }
+.filter-date-list::-webkit-scrollbar-thumb,
+.job-list::-webkit-scrollbar-thumb { background: #dee2e6; border-radius: 4px; }
+
+/* Zoom controls */
+.topo-zoom-controls {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 10;
+    display: flex;
+    gap: 8px;
+}
+.topo-zoom-btn {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #495057;
+    font-weight: 500;
+    transition: all 0.15s;
+}
+.topo-zoom-btn:hover {
+    background: #f8f9fa;
+    color: #0d6efd;
+}
+</style>
+
+<div class="topology-page">
+
+    <!-- ══════════ LEFT: Filter Panel ══════════ -->
+    <div class="topo-filter-panel">
+        <div class="topo-filter-header">
+            <h6>Network Topology</h6>
+            <p>Filter การแสดงผล Diagram</p>
+        </div>
+
+        <!-- Quick filter -->
+        <div class="filter-section">
+            <div class="filter-section-title">Fast Results</div>
+            <div class="quick-filter-row">
+                <button class="qf-btn active" id="btnAll" onclick="quickFilter('all')">ทั้งหมด</button>
+                <button class="qf-btn" id="btnToday" onclick="quickFilter('today')">วันนี้</button>
+                <button class="qf-btn" id="btnWeek" onclick="quickFilter('week')">7 วัน</button>
+            </div>
+        </div>
+
+        <!-- Filter by date -->
+        <div class="filter-section">
+            <div class="filter-section-title">Filter by Date</div>
+            <div class="filter-date-list" id="dateFilterList"></div>
+        </div>
+
+        <!-- Filter by job -->
+        <div class="filter-section" style="flex:1;">
+            <div class="filter-section-title">Filter by Task</div>
+            <div class="job-list" id="jobFilterList"></div>
+        </div>
+
+        <!-- Reset -->
+        <div style="padding:14px 16px; border-top:1px solid #f0f0f0;">
+            <button class="btn btn-sm btn-outline-secondary w-100" onclick="resetFilters()">
+                ↺ Reset Filter
+            </button>
+        </div>
+    </div>
+
+    <!-- ══════════ RIGHT: Canvas Panel ══════════ -->
+    <div class="topo-canvas-panel">
+        <div class="topo-canvas-header">
+            <h5>Network Diagram</h5>
+            <div class="d-none align-items-center gap-2 ms-auto me-3"><label for="subnetPrefix" class="mb-0" style="font-size:.74rem;white-space:nowrap;color:#fff;">แยกตาม Subnet</label><select id="subnetPrefix" class="form-select form-select-sm" style="width:auto;min-width:150px;font-size:.78rem;" onchange="changeSubnetPrefix(this.value)"><option value="0">ไม่แยก Subnet</option><option value="24" selected>แยกตาม Subnet/24</option></select></div>
+            <div class="topo-layout ms-auto me-3" role="group" aria-label="รูปแบบการแสดงผล">
+                <button type="button" class="topo-layout-btn" data-layout="tree" aria-pressed="true" onclick="changeLayout('tree')"
+                        title="Tree: Internet &rarr; Router &rarr; อุปกรณ์ เรียงเป็นชั้น">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+                        <circle cx="8" cy="3" r="1.6" fill="currentColor"/>
+                        <path d="M8 4.6V8M3 8h10M3 8v2.4M8 8v2.4M13 8v2.4"/>
+                        <circle cx="3" cy="12" r="1.6" fill="currentColor"/><circle cx="8" cy="12" r="1.6" fill="currentColor"/><circle cx="13" cy="12" r="1.6" fill="currentColor"/>
+                    </svg>
+                    Tree
+                </button>
+                <button type="button" class="topo-layout-btn" data-layout="star" aria-pressed="false" onclick="changeLayout('star')"
+                        title="Star: Router อยู่ตรงกลาง อุปกรณ์เรียงเป็นวงรอบ Router">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+                        <path d="M8 8 8 2.6M8 8l4.7-2.7M8 8l4.7 2.7M8 8v5.4M8 8l-4.7 2.7M8 8 3.3 5.3"/>
+                        <circle cx="8" cy="8" r="1.6" fill="currentColor"/>
+                        <circle cx="8" cy="2.2" r="1.2" fill="currentColor"/><circle cx="13" cy="5" r="1.2" fill="currentColor"/><circle cx="13" cy="11" r="1.2" fill="currentColor"/>
+                        <circle cx="8" cy="13.8" r="1.2" fill="currentColor"/><circle cx="3" cy="11" r="1.2" fill="currentColor"/><circle cx="3" cy="5" r="1.2" fill="currentColor"/>
+                    </svg>
+                    Star
+                </button>
+            </div>
+            <button type="button" class="topo-float-btn me-3" id="floatToggle" role="switch" aria-checked="true" onclick="toggleFloat()"
+                    title="เปิด/ปิดการลอยเคลื่อนไหว (สปริง) · ปิดแล้วลากอุปกรณ์ได้อิสระเหมือนเดิม">
+                Float
+                <span class="topo-float-state" aria-hidden="true"></span>
+            </button>
+            <div class="topo-legend">
+                <div class="legend-item">
+                    <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#2ecc71"/></svg>
+                    <span>&lt; 3 Port</span>
+                </div>
+                <div class="legend-item">
+                    <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#f1c40f"/></svg>
+                    <span>3–6 Port</span>
+                </div>
+                <div class="legend-item">
+                    <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#e74c3c"/></svg>
+                    <span>&gt; 6 Port</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="topo-canvas-wrapper">
+
+            <!-- Zoom Controls -->
+            <div class="topo-zoom-controls">
+                <button class="topo-zoom-btn" onclick="resetZoom()" title="Reset Zoom">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 3h6v6"></path>
+                        <path d="M9 21H3v-6"></path>
+                        <path d="M21 3l-7 7"></path>
+                        <path d="M3 21l7-7"></path>
+                    </svg>
+                    Reset Zoom
+                </button>
+                <button class="topo-zoom-btn" onclick="resetLayoutPositions()" title="คืนตำแหน่งอุปกรณ์ทั้งหมดกลับไปที่เดิม (ใช้เมื่อลากจนจัดเรียงเละ)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                        <path d="M3 4v5h5"></path>
+                    </svg>
+                    Reset Position
+                </button>
+            </div>
+
+            <!-- vis-network canvas -->
+            <div id="topoCanvas" style="width:100%;height:100%;background:#ffffff;cursor:default;"></div>
+
+            <!-- hint overlay -->
+            <div id="diagram-hint">🖱️ คลิกที่ node อุปกรณ์ในกราฟเพื่อดูรายละเอียด</div>
+
+            <!-- device pop-ups are added here when a device is clicked (see openNodePopup) -->
+
+            <!-- Stats bar -->
+            <div class="topo-stats-bar">
+                <div class="stat-pill">Hosts: <span id="statHosts">0</span></div>
+                <div class="stat-pill">Jobs: <span id="statJobs">0</span></div>
+                <div class="stat-pill">Open Ports: <span id="statPorts">0</span></div>
+            </div>
+
+            <!-- Empty state -->
+            <div class="topo-empty" id="topoEmpty" style="display:none;">
+                <div class="icon"><i class="ti ti-search"></i></div>
+                <p>ไม่มีข้อมูลที่ตรงกับ Filter</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// ─── Raw scan data from Flask ───
+const ALL_SCANS = {{ scans_json | safe }};
+const SYSTEM_GATEWAY = {{ (system_gateway or {}) | tojson }};
+let subnetPrefix = 24;
+const LAYOUT_KEY = {{ ('clylar.topology.layout.' ~ current_user.id) | tojson }};
+let topologyLayout = 'tree';
+const FLOAT_KEY = {{ ('clylar.topology.float.' ~ current_user.id) | tojson }};
+let topologyFloat = true;          // the springs and the drift; off = the plain diagram where every device is dragged freely
+try { if (localStorage.getItem(FLOAT_KEY) === 'off') topologyFloat = false; } catch (e) { /* storage blocked: float stays on */ }
+try { if (localStorage.getItem(LAYOUT_KEY) === 'star') topologyLayout = 'star'; } catch (e) { /* storage blocked: start with the tree */ }
+let currentSubnets = [];
+
+// Which device is the router of a subnet is decided by SubnetTopology.detectGateway (static/js/subnet-topology.js), from evidence only.
+
+
+// ─── Color palette for jobs ───
+const JOB_COLORS = [
+    '#0d6efd','#198754','#dc3545','#fd7e14','#6f42c1',
+    '#20c997','#e83e8c','#17a2b8','#ffc107','#6c757d'
+];
+
+// ─── State ───
+let selectedDates = new Set();
+let selectedJobs  = new Set();
+let allDates      = [];
+let allJobs       = [];
+let visNetwork    = null;
+
+// ─── Device SVG icons (same as scan_detail) ───
+const CISCO_ICONS = {
+  pc: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70"><g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="12" y="6" width="56" height="38" rx="3.5" fill="#eaf5fc"/><path d="M35 44 L45 44 L47.5 53 L32.5 53 Z" fill="#d6ecf8" stroke-width="1.8"/><rect x="25" y="53" width="30" height="4.5" rx="2.25" fill="#d6ecf8" stroke-width="1.8"/></g><path d="M20 36 L33 14 M27 36 L40 14" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity=".75" fill="none"/><rect x="17" y="11" width="46" height="28" rx="1.5" fill="none" stroke="#4a9fd4" stroke-width="1.2" opacity=".55"/></svg>`,
+  windows: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70"><g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="12" y="6" width="56" height="38" rx="3.5" fill="#eaf5fc"/><path d="M35 44 L45 44 L47.5 53 L32.5 53 Z" fill="#d6ecf8" stroke-width="1.8"/><rect x="25" y="53" width="30" height="4.5" rx="2.25" fill="#d6ecf8" stroke-width="1.8"/></g><g fill="#4a9fd4" stroke="none"><rect x="30.5" y="15.5" width="9" height="9"/><rect x="30.5" y="25.5" width="9" height="9"/><rect x="40.5" y="15.5" width="9" height="9"/><rect x="40.5" y="25.5" width="9" height="9"/></g></svg>`,
+  linux: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g transform="translate(40,38) scale(0.72)" fill="none" stroke="#4a9fd4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="0" cy="18" rx="28" ry="36" fill="#d6ecf8" stroke="#4a9fd4"/>
+      <ellipse cx="0" cy="22" rx="17" ry="26" fill="#ffffff" stroke="#4a9fd4" stroke-width="1.3"/>
+      <ellipse cx="0" cy="-18" rx="22" ry="22" fill="#d6ecf8" stroke="#4a9fd4"/>
+      <ellipse cx="0" cy="-14" rx="13" ry="14" fill="#ffffff" stroke="#4a9fd4" stroke-width="1.3"/>
+      <circle cx="-8" cy="-22" r="3.5" fill="#4a9fd4" stroke="none"/>
+      <circle cx="-9" cy="-23" r="1" fill="#ffffff" stroke="none"/>
+      <circle cx="8" cy="-22" r="3.5" fill="#4a9fd4" stroke="none"/>
+      <circle cx="7" cy="-23" r="1" fill="#ffffff" stroke="none"/>
+      <path d="M-5 -8 Q0 -3 5 -8 Q3 -12 -3 -12 Z" fill="#f0a500" stroke="#c87800" stroke-width="1.2"/>
+      <path d="M-28 -6 Q-42 6 -28 28 Q-18 14 -18 -2 Z" fill="#d6ecf8" stroke="#4a9fd4"/>
+      <path d="M28 -6 Q42 6 28 28 Q18 14 18 -2 Z" fill="#d6ecf8" stroke="#4a9fd4"/>
+      <path d="M-16 52 Q-22 60 -28 57 Q-24 66 -14 64 Q-8 62 -6 54 Z" fill="#f0a500" stroke="#c87800" stroke-width="1.2"/>
+      <path d="M16 52 Q22 60 28 57 Q24 66 14 64 Q8 62 6 54 Z" fill="#f0a500" stroke="#c87800" stroke-width="1.2"/>
+    </g>
+  </svg>`,
+  mac: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="6" y="4" width="52" height="38" rx="4"/>
+      <rect x="11" y="9" width="42" height="28" rx="2" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.4"/>
+      <!-- Apple logo: the standard glyph (24-unit grid), scaled .85 and centred on the screen (32, 23) -->
+      <path transform="translate(32 23) scale(.85) translate(-12 -12)" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" fill="#4a9fd4" stroke="none"/>
+      <path d="M32 42 L32 50 Q28 52 36 52" stroke-width="2"/>
+      <ellipse cx="32" cy="52" rx="12" ry="3"/>
+    </g>
+  </svg>`,
+  router: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="32" cy="18" rx="22" ry="7"/>
+      <line x1="10" y1="18" x2="10" y2="36"/>
+      <line x1="54" y1="18" x2="54" y2="36"/>
+      <ellipse cx="32" cy="36" rx="22" ry="7" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.4"/>
+      <line x1="20" y1="18" x2="14" y2="4"/>
+      <line x1="44" y1="18" x2="50" y2="4"/>
+      <circle cx="14" cy="4" r="2" fill="#4a9fd4" stroke="none"/>
+      <circle cx="50" cy="4" r="2" fill="#4a9fd4" stroke="none"/>
+      <circle cx="24" cy="36" r="2" fill="#4a9fd4" stroke="none"/>
+      <circle cx="32" cy="36" r="2" fill="#4a9fd4" stroke="none"/>
+      <circle cx="40" cy="36" r="2" fill="#4a9fd4" stroke="none"/>
+    </g>
+  </svg>`,
+  switch: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="6" y="22" width="52" height="22" rx="3"/>
+      <rect x="12" y="28" width="6" height="10" rx="1" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.4"/>
+      <rect x="21" y="28" width="6" height="10" rx="1" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.4"/>
+      <rect x="30" y="28" width="6" height="10" rx="1" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.4"/>
+      <rect x="39" y="28" width="6" height="10" rx="1" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.4"/>
+      <circle cx="50" cy="30" r="1.5" fill="#4a9fd4" stroke="none"/>
+      <circle cx="50" cy="35" r="1.5" fill="#4a9fd4" stroke="none"/>
+      <circle cx="50" cy="40" r="1.5" fill="#4a9fd4" stroke="none"/>
+      <line x1="16" y1="22" x2="10" y2="10"/>
+      <line x1="48" y1="22" x2="54" y2="10"/>
+    </g>
+  </svg>`,
+  mobile: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="18" y="4" width="28" height="52" rx="5"/>
+      <rect x="22" y="10" width="20" height="34" rx="1.5" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.4"/>
+      <circle cx="32" cy="50" r="3"/>
+      <line x1="28" y1="7" x2="36" y2="7"/>
+    </g>
+  </svg>`,
+  printer: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8" y="24" width="48" height="26" rx="3"/>
+      <rect x="14" y="10" width="36" height="16" rx="2"/>
+      <rect x="16" y="38" width="32" height="18" rx="1.5" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.4"/>
+      <line x1="20" y1="43" x2="44" y2="43" stroke-width="1.2"/>
+      <line x1="20" y1="47" x2="44" y2="47" stroke-width="1.2"/>
+      <circle cx="46" cy="30" r="2" fill="#4a9fd4" stroke="none"/>
+    </g>
+  </svg>`,
+  camera: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 20 L20 14 L20 54 L8 48 Z"/>
+      <rect x="20" y="10" width="40" height="48" rx="4"/>
+      <circle cx="40" cy="34" r="12" fill="#d6ecf8" stroke="#4a9fd4" stroke-width="1.6"/>
+      <circle cx="40" cy="34" r="6" fill="#4a9fd4" stroke="none" opacity="0.35"/>
+      <circle cx="40" cy="34" r="2.5" fill="#4a9fd4" stroke="none"/>
+    </g>
+  </svg>`,
+  unknown: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4" y="4" width="52" height="38" rx="4" fill="#d6ecf8" stroke="#4a9fd4"/>
+      <rect x="10" y="10" width="40" height="26" rx="2" fill="#ffffff" stroke="#4a9fd4" stroke-width="1.4"/>
+      <path d="M26 28 Q26 24 30 24 Q34 24 34 20 Q34 14 28 14 Q22 14 22 20" fill="none" stroke="#4a9fd4" stroke-width="2.5"/>
+      <circle cx="28" cy="31" r="1.8" fill="#4a9fd4" stroke="none"/>
+      <line x1="30" y1="42" x2="30" y2="50"/>
+      <line x1="18" y1="50" x2="42" y2="50"/>
+      <rect x="8" y="54" width="44" height="7" rx="2" fill="#d6ecf8" stroke="#4a9fd4"/>
+    </g>
+  </svg>`,
+  vm: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4" y="4" width="52" height="38" rx="4" fill="#d6ecf8" stroke="#4a9fd4"/>
+      <rect x="10" y="10" width="40" height="26" rx="2" fill="#ffffff" stroke="#4a9fd4" stroke-width="1.4"/>
+      <text x="30" y="29" text-anchor="middle" font-family="monospace" font-size="15" font-weight="700" fill="#4a9fd4" stroke="none">VM</text>
+      <line x1="30" y1="42" x2="30" y2="50"/>
+      <line x1="18" y1="50" x2="42" y2="50"/>
+      <rect x="8" y="54" width="44" height="7" rx="2" fill="#d6ecf8" stroke="#4a9fd4"/>
+    </g>
+  </svg>`,
+  gateway: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">
+    <g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="32" cy="18" rx="22" ry="7"/>
+      <line x1="10" y1="18" x2="10" y2="36"/><line x1="54" y1="18" x2="54" y2="36"/>
+      <ellipse cx="32" cy="36" rx="22" ry="7" fill="#d6ecf8" stroke-width="1.4"/>
+      <line x1="20" y1="18" x2="14" y2="4"/><line x1="44" y1="18" x2="50" y2="4"/>
+      <circle cx="14" cy="4" r="2" fill="#4a9fd4" stroke="none"/><circle cx="50" cy="4" r="2" fill="#4a9fd4" stroke="none"/>
+      <circle cx="24" cy="36" r="2" fill="#4a9fd4" stroke="none"/><circle cx="32" cy="36" r="2" fill="#4a9fd4" stroke="none"/><circle cx="40" cy="36" r="2" fill="#4a9fd4" stroke="none"/>
+    </g>
+  </svg>`
+};
+
+// Convert SVG → base64 data URI
+const ICON_URI = {};
+function svgToDataUri(s) { return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(s))); }
+for (const [k,v] of Object.entries(CISCO_ICONS)) { ICON_URI[k] = svgToDataUri(v); }
+const CORE_NETWORK_ICON = svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70"><g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 44 Q10 44 10 38 Q10 30 18 30 Q18 22 26 20 Q34 14 44 20 Q52 18 56 26 Q64 26 64 36 Q64 44 56 44 Z" fill="#d6ecf8"/><path d="M28 56 Q32 50 40 50 Q48 50 52 56" stroke-width="2"/><path d="M32 62 Q36 58 40 58 Q44 58 48 62" stroke-width="2"/></g></svg>`);
+
+function osIconKey(osStr) {
+    if (!osStr) return 'unknown';     // no OS known: the "?" monitor, never a plain one (a plain monitor read as "a PC")
+    const s = osStr.toLowerCase();
+    if (s.includes('windows'))  return 'windows';
+    if (s.includes('android'))  return 'mobile';      // before linux: "Android 12 (Linux 5.4)"
+    if (s.includes('linux')||s.includes('ubuntu')||s.includes('debian')||s.includes('centos')||s.includes('kali')) return 'linux';
+    if (s.includes('mac')||s.includes('darwin')) return 'mac';
+    if (s.includes('switch'))   return 'switch';
+    if (s.includes('cisco')||s.includes('router')) return 'router';
+    if (s.includes('android')||s.includes('ios')||s.includes('iphone')||s.includes('mobile')) return 'mobile';
+    if (s.includes('printer'))  return 'printer';
+    if (s.includes('camera'))   return 'camera';
+    return 'unknown';
+}
+// A VM that runs nothing has no OS to go by, but its MAC (dev.vm, set by the server) says what it is
+function vmIconKey(device, key) { return device.vm && (key === 'unknown' || key === 'pc') ? 'vm' : key; }
+// The glyph in the pop-up header: a flat line icon in the header's own text colour (no emoji, which look different on every system).
+// These are fixed strings, no scan data goes into them, so they can be set with innerHTML.
+const GLYPH_OPEN = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+const GLYPHS = {
+    windows: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="8.4" height="8.4"/><rect x="12.6" y="3" width="8.4" height="8.4"/><rect x="3" y="12.6" width="8.4" height="8.4"/><rect x="12.6" y="12.6" width="8.4" height="8.4"/></svg>',
+    apple: '<svg width="22" height="22" viewBox="-2 -2 28 28" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>',
+    monitor: GLYPH_OPEN + '<rect x="3" y="4" width="18" height="12" rx="1.8"/><path d="M9.5 20h5M12 16v4"/></svg>',
+    linux: GLYPH_OPEN + '<rect x="3" y="4" width="18" height="16" rx="2.2"/><path d="M7.5 9.5l3 2.5-3 2.5M12.5 15h4"/></svg>',
+    laptop: GLYPH_OPEN + '<rect x="5" y="5" width="14" height="10" rx="1.6"/><path d="M3 19h18"/></svg>',
+    router: GLYPH_OPEN + '<rect x="3" y="12" width="18" height="7" rx="2"/><path d="M7.5 15.5h.01M11 15.5h.01M7 12L5.5 6M17 12l1.5-6"/></svg>',
+    phone: GLYPH_OPEN + '<rect x="7" y="3" width="10" height="18" rx="2.2"/><path d="M11 18h2"/></svg>',
+    printer: GLYPH_OPEN + '<path d="M7 9V4h10v5M7 17H5a1.5 1.5 0 0 1-1.5-1.5v-5A1.5 1.5 0 0 1 5 9h14a1.5 1.5 0 0 1 1.5 1.5v5A1.5 1.5 0 0 1 19 17h-2"/><rect x="7" y="14" width="10" height="6"/></svg>',
+    camera: GLYPH_OPEN + '<path d="M4 8h3l1.6-2.5h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.4"/></svg>',
+    segment: GLYPH_OPEN + '<circle cx="12" cy="12" r="2.2"/><path d="M12 9.8V5M12 14.2V19M9.8 12H5M14.2 12H19"/><circle cx="12" cy="4" r=".9"/><circle cx="12" cy="20" r=".9"/><circle cx="4" cy="12" r=".9"/><circle cx="20" cy="12" r=".9"/></svg>',
+    globe: GLYPH_OPEN + '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.7 3.8 5.7 3.8 9s-1.2 6.3-3.8 9c-2.6-2.7-3.8-5.7-3.8-9S8.2 5.7 12 3z"/></svg>'
+};
+function osGlyph(osStr) {
+    if (!osStr) return GLYPHS.monitor;
+    const s = osStr.toLowerCase();
+    if (s.includes('windows')) return GLYPHS.windows;
+    if (s.includes('android')) return GLYPHS.phone;
+    if (s.includes('linux')||s.includes('ubuntu')||s.includes('debian')||s.includes('centos')||s.includes('kali')) return GLYPHS.linux;
+    if (s.includes('mac')||s.includes('darwin')) return GLYPHS.apple;
+    if (s.includes('cisco')||s.includes('router')||s.includes('switch')) return GLYPHS.router;
+    if (s.includes('android')||s.includes('ios')||s.includes('iphone')) return GLYPHS.phone;
+    if (s.includes('printer')) return GLYPHS.printer;
+    if (s.includes('camera')) return GLYPHS.camera;
+    return GLYPHS.monitor;
+}
+function osHeaderColor(osStr) {
+    if (!osStr) return { bg:'#2c3e50', fg:'#ecf0f1' };
+    const s = osStr.toLowerCase();
+    if (s.includes('windows')) return { bg:'#0078d7', fg:'#ffffff' };
+    if (s.includes('android')) return { bg:'#3ddc84', fg:'#000000' };
+    if (s.includes('linux')||s.includes('ubuntu')) return { bg:'#e67e22', fg:'#ffffff' };
+    if (s.includes('mac')||s.includes('darwin')) return { bg:'#555555', fg:'#ffffff' };
+    if (s.includes('cisco')||s.includes('router')||s.includes('switch')) return { bg:'#007ecc', fg:'#ffffff' };
+    if (s.includes('android')) return { bg:'#3ddc84', fg:'#000000' };
+    return { bg:'#2c3e50', fg:'#ecf0f1' };
+}
+function portDotColor(portCount) {
+    if (portCount <= 2)   return '#2ecc71';
+    if (portCount <= 6)   return '#f1c40f';
+    return '#e74c3c';
+}
+
+// ─── Filter Logic ───
+function init() {
+    const dateSet = new Set();
+    const jobMap  = {};
+    ALL_SCANS.forEach(s => {
+        dateSet.add(s.date);
+        if (!jobMap[s.job_id]) {
+            jobMap[s.job_id] = { id: s.job_id, name: s.job_name || `Job #${s.job_id}`, scan_type: s.scan_type, count: 0 };
+        }
+        jobMap[s.job_id].count += s.hosts ? s.hosts.length : 0;
+    });
+    allDates = [...dateSet].sort().reverse();
+    allJobs  = Object.values(jobMap);
+    allDates.forEach(d => selectedDates.add(d));
+    allJobs.forEach(j => selectedJobs.add(j.id));
+    renderFilterPanels();
+    buildAndDraw();
+}
+
+function renderFilterPanels() {
+    document.getElementById('dateFilterList').innerHTML = allDates.map(d => `
+        <label class="filter-date-item">
+            <input type="checkbox" ${selectedDates.has(d) ? 'checked' : ''}
+                   onchange="toggleDate('${d}', this.checked)">
+            <span>${formatDate(d)}</span>
+        </label>
+    `).join('');
+    document.getElementById('jobFilterList').innerHTML = allJobs.map((j, i) => {
+        const color = JOB_COLORS[i % JOB_COLORS.length];
+        return `<div class="job-chip ${selectedJobs.has(j.id) ? 'selected' : ''}" onclick="toggleJob(${j.id}, this)">
+            <div class="job-chip-name" title="${escHtml(j.name)}">${escHtml(j.name)}</div>
+            <div class="job-chip-count">${j.count}</div>
+        </div>`;
+    }).join('');
+}
+
+function toggleDate(date, checked) {
+    if (checked) selectedDates.add(date); else selectedDates.delete(date);
+    buildAndDraw();
+}
+function toggleJob(id, el) {
+    if (selectedJobs.has(id)) { selectedJobs.delete(id); el.classList.remove('selected'); }
+    else { selectedJobs.add(id); el.classList.add('selected'); }
+    buildAndDraw();
+}
+function quickFilter(mode) {
+    document.querySelectorAll('.qf-btn').forEach(b => b.classList.remove('active'));
+    // the scan dates come from the server in Bangkok time (UTC+7), so "today" has to be a Bangkok date too: the browser's UTC date
+    // is still yesterday between 00:00 and 07:00 there
+    const bangkokDate = back => new Date(Date.now() + 7*3600000 - back*86400000).toISOString().slice(0,10);
+    const today = bangkokDate(0);
+    const week  = bangkokDate(7);
+    if (mode === 'all') {
+        allDates.forEach(d => selectedDates.add(d));
+        document.getElementById('btnAll').classList.add('active');
+    } else if (mode === 'today') {
+        selectedDates = new Set(allDates.filter(d => d === today));
+        document.getElementById('btnToday').classList.add('active');
+    } else if (mode === 'week') {
+        selectedDates = new Set(allDates.filter(d => d >= week));
+        document.getElementById('btnWeek').classList.add('active');
+    }
+    renderFilterPanels();
+    buildAndDraw();
+}
+function resetFilters() {
+    allDates.forEach(d => selectedDates.add(d));
+    allJobs.forEach(j => selectedJobs.add(j.id));
+    renderFilterPanels();
+    quickFilter('all');
+}
+
+// ─── Build vis-network graph ───
+// A discovery scan reports "up" where a full scan reports an OS, and a missing MAC is stored as "Unknown": neither is information
+const isUnknownOs  = s => !s || s === 'up' || s === 'Unknown';
+const isUnknownMac = s => !s || s === 'Unknown';
+// "open" means the port state is exactly open (a filtered port is behind a firewall); the same rule as the rest of the app
+const isOpenPort = p => String((p && p.state) || '').toLowerCase() === 'open';
+const openPortCount = d => (d.ports || []).filter(isOpenPort).length;
+const portSummary = d => {
+    const open = openPortCount(d), other = (d.ports || []).length - open;
+    return open + ' open' + (other ? ' · ' + other + ' not open' : '');
+};
+
+function buildGraphData() {
+    const filtered = ALL_SCANS.filter(s => selectedDates.has(s.date) && selectedJobs.has(s.job_id));
+    const hostMap = {};
+    // ALL_SCANS is newest first: for every field the newest scan that knows it wins, and an older scan only fills what is still missing
+    filtered.forEach(scan => {
+        (scan.hosts || []).forEach(h => {
+            if (!h.ip) return;
+            if (!hostMap[h.ip]) {
+                hostMap[h.ip] = { ip: h.ip, mac: '', os: '', hostname: '', ipv6: '', mac_vendor: '', discovery: {}, vm: '',
+                                  trace_hops: [], ports: [], jobs: new Set() };
+            }
+            const m = hostMap[h.ip];
+            if (isUnknownOs(m.os) && !isUnknownOs(h.os)) m.os = h.os;
+            if (isUnknownMac(m.mac) && !isUnknownMac(h.mac)) m.mac = h.mac;
+            if (!m.mac_vendor && h.mac_vendor) m.mac_vendor = h.mac_vendor;
+            if (!m.hostname && h.hostname) m.hostname = h.hostname;
+            if (!m.ipv6 && h.ipv6) m.ipv6 = h.ipv6;
+            if (!m.vm && h.vm) m.vm = h.vm;
+            if (!Object.keys(m.discovery).length && h.discovery) m.discovery = h.discovery;
+            if (!m.trace_hops.length && h.trace_hops && h.trace_hops.length) m.trace_hops = h.trace_hops;
+            m.jobs.add(scan.job_id);
+            const seen = new Set(m.ports.map(p => p.port + '/' + (p.protocol || 'tcp')));
+            (h.ports || []).forEach(p => {
+                const key = p.port + '/' + (p.protocol || 'tcp');
+                if (!seen.has(key)) { seen.add(key); m.ports.push(p); }
+            });
+        });
+    });
+    return { hosts: Object.values(hostMap), filtered };
+}
+
+function buildAndDraw() {
+    closePopup();
+    const { hosts, filtered } = buildGraphData();
+    const totalPorts = hosts.reduce((s, h) => s + openPortCount(h), 0);
+    document.getElementById('statHosts').textContent = hosts.length;
+    document.getElementById('statJobs').textContent  = filtered.length;
+    document.getElementById('statPorts').textContent = totalPorts;
+    document.getElementById('topoEmpty').style.display = hosts.length === 0 ? 'flex' : 'none';
+    document.getElementById('diagram-hint').style.display = hosts.length === 0 ? 'none' : 'block';
+
+    const nodesData = [], edgesData = [];
+
+    // The Internet is a symbol for "upstream", not a scanned device: it has no pop-up and never claims a router.
+    nodesData.push({
+        id: 0,
+        label: 'Internet',
+        image: CORE_NETWORK_ICON,
+        shape: 'image',
+        size: 40,
+        font: { color:'#212529', size:12, face:'monospace', bold:true, vadjust:6, multi:'html' },
+        title: 'Internet / upstream network (a symbol, not a scanned device)',
+        shadow: { enabled:true, color:'rgba(33,37,41,0.22)', size:12 },
+        fixed: true, x: 0, y: -330,
+        _device: null,
+        _isGateway: false
+    });
+
+    // Every scanned host gets a node. SubnetTopology.apply adds one hub per subnet (a router only when one was identified from
+    // evidence, otherwise the subnet itself) and the links; the only host that loses its own node is one that is itself the router.
+    hosts.forEach((device, i) => {
+        const nodeId = i + 1;
+        const openCount = openPortCount(device);
+        const iconKey  = vmIconKey(device, osIconKey(device.os));
+        const dotColor = portDotColor(openCount);
+        const sortedPorts = [...device.ports].sort((a, b) => a.port - b.port);
+        const isLoopback = device.ip === '127.0.0.1';
+
+        nodesData.push({
+            id: nodeId,
+            label: `<b>●</b> ${device.ip}`,
+            image: ICON_URI[iconKey],
+            shape: 'image',
+            size: 34,
+            font: {
+                color: isLoopback ? '#6c757d' : '#343a40',
+                size: 12,
+                face: 'monospace',
+                vadjust: 6,
+                multi: 'html',
+                bold: { color:dotColor, size:13, face:'monospace', mod:'bold' }
+            },
+            title: `คลิกเพื่อดูรายละเอียด: ${device.ip}${device.mac_vendor ? ' (' + device.mac_vendor + ')' : ''}`,
+            shadow: { enabled:true, color:'#00000018', size:8 },
+            _device: device,
+            _portCnt: openCount,
+            _sortedPorts: sortedPorts
+        });
+    });
+
+    currentSubnets = SubnetTopology.apply(nodesData, edgesData, hosts, subnetPrefix, {
+        layout: topologyLayout,
+        gatewayIcon: ICON_URI['gateway'],
+        gatewayForGroup: (subnetHosts, subnet) => SubnetTopology.detectGateway(subnetHosts, typeof SYSTEM_GATEWAY !== 'undefined' ? SYSTEM_GATEWAY : null, subnet)
+    });
+    const container = document.getElementById('topoCanvas');
+    if (visNetwork) { visNetwork.destroy(); visNetwork = null; }
+
+    if (hosts.length === 0) return;
+
+    visNetwork = new vis.Network(
+        container,
+        { nodes: new vis.DataSet(nodesData), edges: new vis.DataSet(edgesData) },
+        SubnetTopology.visOptions(subnetPrefix)
+    );
+    // float: the devices bob gently on springs in both the Tree and the Star layout (the Internet node stays put)
+    SubnetTopology.attachRegions(visNetwork, () => currentSubnets, { float: !!subnetPrefix && topologyFloat });
+    if (subnetPrefix) setTimeout(() => { if (visNetwork) SubnetTopology.fit(visNetwork, false); }, 0);
+
+    visNetwork.on('hoverNode', () => { container.style.cursor = 'pointer'; });
+    visNetwork.on('blurNode',  () => { container.style.cursor = 'default'; });
+
+    visNetwork.on('zoom', function() {
+        const minScale = 0.15;
+        const maxScale = 2.5;
+        const currentScale = visNetwork.getScale();
+        if (currentScale < minScale) {
+            visNetwork.moveTo({ scale: minScale });
+        } else if (currentScale > maxScale) {
+            visNetwork.moveTo({ scale: maxScale });
+        }
+    });
+
+    visNetwork.on('click', params => openNodePopup(params, nodesData));
+}
+
+// ─── Node pop-ups: any number of them can be open at once ───
+const openPopups = new Map();      // node id -> its pop-up element
+let popupFront = 20;               // z-index of the pop-up used last, so it sits on top
+const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// What a pop-up shows for a node: header colours and icon, title, detail rows and ports (ports: null = no Port tab).
+// null = nothing to show (the Internet, which is only a symbol).
+function describeNode(node, nodeId) {
+    const dev = node._device;
+    if (node._isSegment) {
+        const rows = [
+            ['Type:',    'Network segment (subnet), not a device'],
+            ['Subnet:',  node._subnet],
+            ['Devices:', String(node._count)],
+            ['Router:',  'None identified in the scan data'],
+            ['Internet link:', 'Not verified'],
+        ];
+        if (node._note) rows.push(['Note:', node._note]);
+        return { bg: '#475569', fg: '#ffffff', icon: GLYPHS.segment, title: node._subnet, rows, ports: null };
+    }
+    if (node._isGateway) {
+        // this computer's own routing-table details belong to that one router only, never to another subnet's router
+        const sys = (typeof SYSTEM_GATEWAY !== 'undefined' && SYSTEM_GATEWAY && SYSTEM_GATEWAY.ip && SYSTEM_GATEWAY.ip === node._gwIp) ? SYSTEM_GATEWAY : null;
+        const rows = [
+            // the localhost group's router is this computer's own gateway, not the gateway of 127.0.0.0/24 (its note says so)
+            ['Role:',            node._gwNote ? "Router (this computer's default gateway)" : 'Router (gateway of this subnet)'],
+            ['IP Address:',      node._gwIp],
+            ['Identified by:',   node._gwReason || '–'],
+            ['In scan results:', node._gwInScan ? 'Yes' : "No (known from this computer's routing table)"],
+        ];
+        if (node._gwNote) rows.push(['Note:', node._gwNote]);
+        if (dev) {
+            if (dev.hostname) rows.push(['Name:', dev.hostname]);
+            rows.push(['MAC:', dev.mac || 'Unknown']);
+            if (dev.mac_vendor) rows.push(['Vendor:', dev.mac_vendor]);
+            rows.push(['OS:', dev.os || '–'], ['Ports:', portSummary(dev)]);
+        } else if (sys) {
+            // not scanned: the MAC is what this computer's own ARP cache holds for its gateway, so the card says so
+            if (sys.mac) rows.push(['MAC:', sys.mac], ['MAC source:', "This computer's ARP cache (not from a scan)"]);
+            if (sys.mac_vendor) rows.push(['Vendor:', sys.mac_vendor]);
+        }
+        if (sys) {
+            if (sys.interface) rows.push(["This computer's IP:", sys.interface]);
+            if (sys.metric !== undefined && sys.metric < 9999) rows.push(['Route metric:', sys.metric]);
+        }
+        // a router that is not in the scan has no port data at all: no Port tab, rather than a tab saying "No open ports"
+        const ports = dev ? [...(dev.ports || [])].sort((a, b) => a.port - b.port) : null;
+        return { bg: '#1a6db5', fg: '#ffffff', icon: GLYPHS.router, title: node._gwIp, rows, ports };
+    }
+    if (!dev) return null;
+    const hc = osHeaderColor(dev.os || '');
+    const disc = dev.discovery || {};
+    const bonjour = ((disc.mdns || {}).services || []).join(', ');
+    const upnpInfo = disc.ssdp || {};
+    const upnp = [upnpInfo.manufacturer, upnpInfo.model].filter(Boolean).join(' ') || upnpInfo.server || '';
+    const rows = [
+        ['Name:',   dev.hostname || dev.ip],
+        ['IPv4:',   dev.ip],
+        ['IPv6:',   dev.ipv6 || 'Not Available'],
+        ['MAC:',    dev.mac || 'Unknown'],
+        ...(dev.mac_vendor ? [['Vendor:', dev.mac_vendor]] : []),
+        ...(dev.vm ? [['Type:', 'Virtual Machine (' + dev.vm + ')']] : []),
+        ['OS:',     dev.os || '–'],
+        ['Ports:',  portSummary(dev)],
+        ...(bonjour ? [['Bonjour:', bonjour]] : []),
+        ...(upnp ? [['UPnP:', upnp]] : []),
+    ];
+    return { bg: hc.bg, fg: hc.fg, icon: osGlyph(dev.os || ''), title: dev.ip, rows, ports: node._sortedPorts || [] };
+}
+
+// Names, services and versions come from the scanned hosts (or an uploaded nmap XML), so every value is escaped
+function popupRowsHtml(rows) {
+    return rows.map(([l, v]) => `<tr><td>${l}</td><td${l === 'Note:' ? ' class="np-note"' : ''}>${escHtml(v)}</td></tr>`).join('');
+}
+const PORT_REASON_TH = {{ PORT_REASON_TH | tojson }};   // Thai words for nmap's reason codes (scanner.PORT_REASON_TH)
+function popupPortsHtml(ports) {
+    if (!ports.length) return '<tr><td colspan="4" class="np-none">No open ports</td></tr>';
+    return ports.map(p => {
+        const stateColor = p.state === 'open' ? '#198754' : '#6c757d';
+        const version = (p.version_info && p.version_info !== 'Unknown Version') ? p.version_info : '–';
+        // nmap's reason for a state that is not open ("ไม่มีการตอบกลับ" for a filtered port), muted, the nmap word in the tooltip; scans from before it was kept have none
+        const why = (p.reason && p.state !== 'open') ? `<div style="font-weight:400;font-size:11px;color:#6b7280;" title="${escHtml(p.reason)}">${escHtml(PORT_REASON_TH[p.reason] || p.reason)}</div>` : '';
+        return `<tr><td><span class="badge bg-primary">${escHtml(p.port)}/${escHtml((p.protocol || 'tcp').toUpperCase())}</span></td>`
+             + `<td style="color:${stateColor};font-weight:600;">${escHtml(p.state || 'unknown')}${why}</td>`
+             + `<td>${escHtml(p.name || '–')}</td><td class="np-version">${escHtml(version)}</td></tr>`;
+    }).join('');
+}
+
+function raisePopup(el) { el.style.zIndex = ++popupFront; }
+function updateDiagramHint() {
+    const hint = document.getElementById('diagram-hint');
+    if (hint) hint.style.display = openPopups.size ? 'none' : (visNetwork && visNetwork.body.nodeIndices.length ? 'block' : 'none');
+}
+
+function openNodePopup(params, nodesData) {
+    if (!params.nodes.length) return;          // a click on empty space leaves the open pop-ups alone: each has its own close button
+    const nodeId = params.nodes[0];
+    const node = nodesData.find(n => n.id === nodeId);
+    if (!node) return;
+    const open = openPopups.get(nodeId);
+    if (open) { raisePopup(open); return; }    // already open: bring it to the front
+    const info = describeNode(node, nodeId);
+    if (!info) return;
+
+    const el = document.createElement('div');
+    el.className = 'node-popup';
+    el.dataset.node = String(nodeId);
+    el.innerHTML =
+        `<div class="np-header" style="background:${info.bg}">`
+      +   `<div class="np-icon" style="color:${info.fg}">${info.icon}</div>`
+      +   `<span class="np-ip" style="color:${info.fg}">${escHtml(info.title)}</span>`
+      +   `<button type="button" class="np-close" style="color:${info.fg}" aria-label="Close">✕</button>`
+      + `</div>`
+      + (info.ports ? `<div class="popup-tabs">`
+      +   `<button type="button" class="popup-tab active" data-tab="detail">Detail</button>`
+      +   `<button type="button" class="popup-tab" data-tab="port">Port</button>`
+      + `</div>` : '')
+      + `<div class="np-detail"><table><tbody>${popupRowsHtml(info.rows)}</tbody></table></div>`
+      + (info.ports ? `<div class="np-port"><table><thead><tr><th>Port</th><th>State</th><th>Service</th><th>Version</th></tr></thead><tbody>${popupPortsHtml(info.ports)}</tbody></table></div>` : '');
+
+    // beside the click, kept inside the diagram, and nudged so it never lands exactly on one that is already open
+    const area = document.getElementById('topoCanvas'), W = area.offsetWidth, H = area.offsetHeight, at = params.pointer.DOM;
+    let left = at.x + 16, top = at.y - 20;
+    if (left + 390 > W) left = at.x - 390;
+    if (top + 420 > H) top = H - 430;
+    const taken = (l, t) => [...openPopups.values()].some(p => Math.abs(parseFloat(p.style.left) - l) < 14 && Math.abs(parseFloat(p.style.top) - t) < 14);
+    for (let i = 0; i < 8 && taken(left, top); i++) { left += 26; top += 26; }
+    el.style.left = Math.max(4, Math.min(left, W - 310)) + 'px';
+    el.style.top  = Math.max(10, top) + 'px';
+
+    document.querySelector('.topo-canvas-wrapper').appendChild(el);
+    openPopups.set(nodeId, el);
+    raisePopup(el);
+    updateDiagramHint();
+}
+
+function closeNodePopup(el) {
+    const id = Number(el.dataset.node);
+    el.remove();
+    openPopups.delete(id);
+    if (visNetwork && visNetwork.getSelectedNodes().includes(id)) visNetwork.unselectAll();
+    updateDiagramHint();
+}
+
+// Closes every pop-up (the diagram is being rebuilt, so its node ids are about to change)
+function closePopup() {
+    openPopups.forEach(el => el.remove());
+    openPopups.clear();
+    if (visNetwork) visNetwork.unselectAll();
+    updateDiagramHint();
+}
+
+// Close button, tabs, bring-to-front and dragging by the header: one set of listeners for all pop-ups
+(function enablePopups() {
+    let moving = null, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    document.addEventListener('mousedown', function (e) {
+        const popup = e.target.closest && e.target.closest('.node-popup');
+        if (!popup) return;
+        raisePopup(popup);
+        const header = e.target.closest('.np-header');
+        if (!header || e.target.closest('button')) return;       // not on the close button
+        moving = popup;
+        startX = e.clientX; startY = e.clientY;
+        startLeft = parseFloat(popup.style.left) || 0; startTop = parseFloat(popup.style.top) || 0;
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', function (e) {
+        if (!moving) return;
+        const parent = moving.offsetParent;
+        const maxLeft = parent ? parent.clientWidth - moving.offsetWidth : Infinity;
+        const maxTop = parent ? parent.clientHeight - moving.offsetHeight : Infinity;
+        moving.style.left = Math.max(0, Math.min(startLeft + (e.clientX - startX), maxLeft)) + 'px';
+        moving.style.top  = Math.max(0, Math.min(startTop + (e.clientY - startY), maxTop)) + 'px';
+    });
+    document.addEventListener('mouseup', function () {
+        if (moving) { moving = null; document.body.style.userSelect = ''; }
+    });
+    document.addEventListener('click', function (e) {
+        const popup = e.target.closest && e.target.closest('.node-popup');
+        if (!popup) return;
+        if (e.target.closest('.np-close')) { closeNodePopup(popup); return; }
+        const tab = e.target.closest('.popup-tab');
+        if (tab) {
+            const detail = tab.dataset.tab === 'detail';
+            popup.querySelector('.np-detail').style.display = detail ? 'block' : 'none';
+            popup.querySelector('.np-port').style.display = detail ? 'none' : 'block';
+            popup.querySelectorAll('.popup-tab').forEach(t => t.classList.toggle('active', t === tab));
+        }
+    });
+    // Esc closes the pop-up that was used last
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape' || !openPopups.size) return;
+        const top = [...openPopups.values()].sort((a, b) => (+b.style.zIndex || 0) - (+a.style.zIndex || 0))[0];
+        closeNodePopup(top);
+    });
+})();
+
+function formatDate(d) {
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('th-TH', { year:'numeric', month:'short', day:'numeric' });
+}
+
+function resetZoom() {
+    if (visNetwork) {
+        SubnetTopology.fit(visNetwork, true);
+    }
+}
+
+// Puts every router and device back where the layout first drew it (after dragging things around). Only the positions: the zoom
+// and pan stay as they are (that is Reset Zoom's job) and an open detail pop-up stays open.
+function resetLayoutPositions() {
+    if (visNetwork && visNetwork.__resetLayout) visNetwork.__resetLayout();
+}
+
+function changeSubnetPrefix(value) {
+    subnetPrefix = parseInt(value, 10) || 0;
+    buildAndDraw();
+}
+
+// Tree (Internet > router > devices in rows) or Star (each router in the middle, its devices on a ring). The choice is remembered per user.
+function syncLayoutButtons() {
+    document.querySelectorAll('.topo-layout-btn').forEach(btn => {
+        btn.setAttribute('aria-pressed', btn.dataset.layout === topologyLayout ? 'true' : 'false');
+    });
+}
+function changeLayout(value) {
+    const next = value === 'star' ? 'star' : 'tree';
+    if (next === topologyLayout) return;
+    topologyLayout = next;
+    try { localStorage.setItem(LAYOUT_KEY, topologyLayout); } catch (e) { /* storage blocked: the choice just isn't remembered */ }
+    syncLayoutButtons();
+    buildAndDraw();
+}
+
+// Float on: devices bob on springs and bounce back when let go. Off: the plain diagram, a dragged router carries its devices and
+// every device stays wherever it is dropped. The choice is remembered per user and rebuilds the diagram.
+function syncFloatToggle() {
+    const btn = document.getElementById('floatToggle');
+    if (btn) btn.setAttribute('aria-checked', topologyFloat ? 'true' : 'false');
+}
+function toggleFloat() {
+    topologyFloat = !topologyFloat;
+    try { localStorage.setItem(FLOAT_KEY, topologyFloat ? 'on' : 'off'); } catch (e) { /* storage blocked: the choice just isn't remembered */ }
+    syncFloatToggle();
+    buildAndDraw();
+}
+
+// ─── Go ───
+syncLayoutButtons();
+syncFloatToggle();
+init();
+</script>
+
+{% endblock %}

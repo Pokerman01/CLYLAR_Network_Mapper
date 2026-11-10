@@ -1,0 +1,18 @@
+{# Switch for the Discovery-only mDNS / SSDP lookup, with an (i) hover card like the other rows. Needs `prefix` ('ns' / 'rescan'). #}
+<div class="adv-switch scan-adv-mc">
+    <div class="adv-switch-text">
+        <div class="d-flex align-items-center gap-1">
+            <label class="adv-label" for="{{ prefix }}_mc_input">ชื่ออุปกรณ์จาก mDNS / SSDP</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายชื่ออุปกรณ์จาก mDNS / SSDP">
+                <i class="ti ti-info-circle"></i>
+                <div class="scan-adv-info-card">
+                    <div class="text-secondary" style="font-size:0.77rem;">ระหว่างสแกน ระบบส่งคำถาม mDNS (Bonjour) และ SSDP (UPnP) แล้วฟังคำตอบ อุปกรณ์ที่รองรับจะแจ้งชื่อและรุ่นของตัวเอง ได้ผลเฉพาะเครือข่ายที่คอมพิวเตอร์ที่รันระบบเชื่อมต่ออยู่</div>
+                </div>
+            </span>
+        </div>
+        <div class="adv-help">ขอชื่อและรุ่นจากอุปกรณ์ในเครือข่ายเดียวกับคอมพิวเตอร์ที่รันระบบ</div>
+    </div>
+    <div class="form-check form-switch m-0 p-0">
+        <input class="form-check-input" type="checkbox" role="switch" name="multicast" value="1" id="{{ prefix }}_mc_input">
+    </div>
+</div>

@@ -1,0 +1,587 @@
+{% extends 'base.html' %}
+
+{% block page_title %}<div class="topbar-page-title">ช่องโหว่</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">ช่องโหว่ (CVE) ที่พบจากการสแกนช่องโหว่ทั้งหมด</div>{% endblock %}
+
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+{% for category, message in messages %}
+<div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+  {{ message }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endfor %}
+{% endif %}
+{% endwith %}
+
+<!-- Severity summary chips: each one also filters the table -->
+{% if cves %}<p class="small text-muted mb-2">คลิกการ์ดเพื่อกรองตามระดับความรุนแรง</p>{% endif %}
+<div class="row g-3 mb-4">
+  {# label, icon colour, tint, ring (the tick badge; deeper than the icon colour so the white tick stays readable), edge (the thin selected outline: the ring colour at half strength on the tint) #}
+  {% set sev_meta = [
+    ('CRITICAL', '#d43f3a', '#fbe4e3', '#d43f3a', '#e8928e', 'วิกฤต'),
+    ('HIGH', '#ee9336', '#fcebd9', '#d06a05', '#e6aa6f', 'สูง'),
+    ('MEDIUM', '#fdc431', '#fff4d1', '#bf8003', '#dfba6a', 'ปานกลาง'),
+    ('LOW', '#3fae49', '#e3f4e5', '#2f9e3a', '#89c990', 'ต่ำ'),
+  ] %}
+  {% set sev_total = (severity_counts.get('CRITICAL', 0) + severity_counts.get('HIGH', 0) + severity_counts.get('MEDIUM', 0) + severity_counts.get('LOW', 0)) %}
+  {% for label, color, bg, ring, edge, th_name in sev_meta %}
+  {% set sev_n = severity_counts.get(label, 0) %}
+  {% set sev_pct = ((sev_n * 100 / sev_total) | round | int) if sev_total else 0 %}
+  <div class="col-6 col-md-3">
+    {% if cves %}
+    <button type="button" class="card sev-card border-0 shadow-sm h-100 w-100" data-tf-chip="sev" data-value="{{ label }}" data-tf-label="ระดับ" data-display="{{ label|title }}" aria-pressed="false"
+            title="คลิกเพื่อกรองเฉพาะระดับ{{ th_name }}" style="--sev-bg:{{ bg }};--sev-ring:{{ ring }};--sev-edge:{{ edge }};">
+      <span class="sev-check" aria-hidden="true"><i class="ti ti-check"></i></span>
+    {% else %}
+    <div class="card border-0 shadow-sm h-100" style="--sev-bg:{{ bg }};">
+    {% endif %}
+      <span class="card-body d-flex align-items-center gap-3 px-3 py-3">
+        <span class="sev-icon">
+          <i class="ti ti-shield-exclamation" style="color:{{ color }};"></i>
+        </span>
+        <span class="d-block sev-body">
+          <span class="d-block sev-name">{{ th_name }}</span>
+          <span class="d-block sev-count">{{ sev_n }}<small class="sev-unit">รายการ</small></span>
+          <span class="sev-share" style="--sev-c:{{ color }};" title="{{ sev_n }} จาก {{ sev_total }} CVE">
+            <span class="sev-track"><i style="width:{{ sev_pct }}%"></i></span>
+            <span class="sev-pct">{{ sev_pct }}%<span class="sev-pct-w"> ของทั้งหมด</span></span>
+          </span>
+        </span>
+      </span>
+    {% if cves %}</button>{% else %}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{# ===== OVERVIEW: how well the vulnerability scans covered the open services, and where the CVEs are =====
+   Numbers come from _vuln_overview() in app.py (overview). It is one folded card: closed it is one line (the number of open ports, the three counts and the
+   device with most CVEs), open it shows four panels (coverage, devices, services, CVSS bands). Closed by default; the choice is kept per user in this browser (localStorage). Not drawn when
+   no vulnerability scan has looked at an open service. Coverage uses a blue ramp and a hatch (never red or green: "could not be evaluated" is not a
+   finding), and the severity colours appear only as the small dots. #}
+{# The open card's coverage picture: a half-circle gauge of the same three states (found / none / could not be evaluated), "evaluated / all" in the middle.
+   One arc per non-empty state on a path of length 100 (pathLength), so an arc's length is its share of the services; a thin gap is left between two arcs (not after the
+   last one, which ends flush), and a tiny share still gets a visible stub (min 1.5, pulled back from the end if it is the last). Colours come from the card's own variables, the hatch is the same one as the
+   bar's and the legend's. The words are in the legend and in the aria-label. #}
+{% macro ov_gauge() %}
+{%- set tot = overview.found + overview.none + overview.not_evaluated %}
+{%- set parts = [('f', overview.found), ('n', overview.none), ('u', overview.not_evaluated)] %}
+{%- set nz = parts | selectattr('1') | list | length %}
+{%- set at = namespace(v=0, i=0) %}
+<span class="cov-gauge" role="img" aria-label="ประเมินได้ {{ overview.found + overview.none }} จาก {{ tot }} พอร์ต: พบช่องโหว่ {{ overview.found }}, ไม่พบ {{ overview.none }}, ประเมินไม่ได้ {{ overview.not_evaluated }}"><svg viewBox="0 0 120 76" aria-hidden="true" focusable="false"><defs><pattern id="cov-hx" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" style="fill:var(--unk-b)"/><rect width="3" height="6" style="fill:var(--unk-a)"/></pattern></defs>
+{%- for kind, n in parts %}{% if n %}{% set share = n * 100 / tot %}{% set gap = 1 if at.i < nz - 1 else 0 %}{% set d = [share - gap, 1.5] | max %}{% set off = ([at.v, 100 - d] | min) if (share - gap) < 1.5 else at.v %}<path class="g-{{ kind }}" d="M10 62 A50 50 0 0 1 110 62" pathLength="100" stroke-dasharray="{{ d | round(2) }} 200" stroke-dashoffset="-{{ off | round(2) }}"/>{% set at.v = at.v + ([share, 1.5 + gap] | max) %}{% set at.i = at.i + 1 %}{% endif %}{% endfor %}
+<text x="60" y="53">{{ overview.found + overview.none }}/{{ tot }}</text></svg><span class="cap">ประเมินได้</span></span>
+{% endmacro %}
+{% macro ov_sev(sev) %}{% set m = {'CRITICAL': ('crit', 'Critical'), 'HIGH': ('high', 'High'), 'MEDIUM': ('med', 'Medium'), 'LOW': ('low', 'Low')}.get(sev, ('unk', 'Unknown')) %}<span class="ov-sev {{ m[0] }}">{{ m[1] }}</span>{% endmacro %}
+{% if overview and overview.services %}
+{% set ov_note = 'ค้นหาจาก NVD ตามชื่อและเวอร์ชันของบริการบนแต่ละพอร์ต (สูงสุด 5 รายการต่อพอร์ต) ไม่ใช่รายการที่ยืนยันแล้ว' %}
+{% set ov_why = overview.not_evaluated_reasons %}
+<div class="ov-wrap">
+  <section class="ov card border-0 shadow-sm" id="ov-root" aria-label="ภาพรวมช่องโหว่">
+    <div class="ov-head">
+      <div class="ov-toggle">
+        <button type="button" class="ov-hit" id="ov-fold" aria-expanded="false" aria-controls="ov-body" aria-label="ภาพรวมช่องโหว่ แสดงหรือซ่อนรายละเอียด"></button>
+        <span class="ov-chip" aria-hidden="true"><i class="ti ti-chart-bar"></i></span>
+        <span class="ov-title">ภาพรวมช่องโหว่</span>
+        <span class="ov-sum"><span class="sm"><span class="sm-tot"><span class="sm-lead">จาก</span><span class="sm-n">{{ overview.found + overview.none + overview.not_evaluated }}</span><span class="sm-lead">พอร์ตที่เปิด</span></span><span class="sm-it sm-hit"><span class="sm-n">{{ overview.found }}</span><span class="sm-w"><i class="ov-sw f" aria-hidden="true"></i>พบช่องโหว่</span></span><span class="sm-it sm-none"><span class="sm-n">{{ overview.none }}</span><span class="sm-w"><i class="ov-sw n" aria-hidden="true"></i>ไม่พบ</span></span><span class="sm-it sm-unk"><span class="sm-n">{{ overview.not_evaluated }}</span><span class="sm-w"><i class="ov-sw u" aria-hidden="true"></i>ประเมินไม่ได้</span></span></span><span class="ov-sep" aria-hidden="true"></span><span class="ov-f2">{% if overview.top_devices %}เครื่องที่มี CVE มากสุด <a class="ip-link f2-ip" href="{{ url_for('device_detail', ip=overview.top_devices[0].ip) }}" title="ดูรายละเอียดอุปกรณ์ {{ overview.top_devices[0].ip }}">{{ overview.top_devices[0].ip }}</a> ({{ overview.top_devices[0].count }} CVE){% else %}ยังไม่พบ CVE{% endif %}</span></span>
+        <span class="ov-act"><span class="t-closed">ดูรายละเอียด</span><span class="t-open">ซ่อน</span><i class="ti ti-chevron-down" aria-hidden="true"></i></span>
+      </div>
+      <span class="ov-info-wrap"><button type="button" class="ov-info" aria-label="{{ ov_note }}"><i class="ti ti-info-circle" aria-hidden="true"></i><span class="ov-tip" aria-hidden="true">{{ ov_note }}</span></button></span>
+    </div>
+    <div class="ov-body" id="ov-body"><div class="ov-in" inert>
+      <div class="ov-grid">
+        <section class="ov-panel" aria-labelledby="ov-h1">
+          <div class="ov-ph"><h3 id="ov-h1">ความครอบคลุมการตรวจ</h3><span>{{ overview.services }} พอร์ตที่เปิดอยู่</span></div>
+          <div class="cov-row">
+          {{ ov_gauge() }}
+          <ul class="cov-legend">
+            <li><i class="ov-sw f"></i><span>พบช่องโหว่</span><b>{{ overview.found }}</b><span class="tail"></span></li>
+            <li><i class="ov-sw n"></i><span>ไม่พบ</span><b>{{ overview.none }}</b><span class="tail"></span></li>
+            <li><i class="ov-sw u"></i><span>ประเมินไม่ได้</span><b>{{ overview.not_evaluated }}</b><span class="tail">{% if overview.not_evaluated %}<button type="button" class="ov-why" id="ov-why-btn" aria-expanded="false" aria-controls="ov-why">สาเหตุ<i class="ti ti-chevron-down" aria-hidden="true"></i></button>{% endif %}</span></li>
+          </ul>
+          </div>
+          {% if overview.not_evaluated %}
+          <ul class="why-list" id="ov-why" hidden aria-label="สาเหตุที่ประเมินไม่ได้">
+            <li class="{{ 'zero' if not ov_why.failed }}"><span>ค้นหาใน NVD ไม่สำเร็จ</span><b>{{ ov_why.failed }}</b></li>
+            <li class="{{ 'zero' if not ov_why.no_product }}"><span>nmap ระบุผลิตภัณฑ์ไม่ได้ จึงไม่มีคำค้น</span><b>{{ ov_why.no_product }}</b></li>
+            <li class="{{ 'zero' if not ov_why.legacy }}"><span>สแกนรุ่นเก่า ไม่ได้บันทึกสถานะไว้</span><b>{{ ov_why.legacy }}</b></li>
+            {% if ov_why.legacy and not overview.status_recorded %}<li class="note">สแกนที่มีอยู่ทั้งหมดเป็นรุ่นเก่า ยังไม่ได้บันทึกว่าค้นหาใน NVD แล้วไม่พบ — รัน Vulnerability Scan ใหม่เพื่อให้ได้ตัวเลขครบ</li>{% endif %}
+          </ul>
+          {% endif %}
+        </section>
+        <section class="ov-panel" aria-labelledby="ov-h2">
+          <div class="ov-ph"><h3 id="ov-h2">เครื่องที่พบ CVE มากสุด</h3><span>เรียงตามจำนวน CVE</span></div>
+          {% if overview.top_devices %}
+          <ul class="ov-rows">
+            {% for d in overview.top_devices %}<li class="r-dev"><a class="nm ip-link" href="{{ url_for('device_detail', ip=d.ip) }}" title="ดูรายละเอียดอุปกรณ์ {{ d.ip }}">{{ d.ip }}</a><span class="num key">{{ d.count }} CVE</span>{{ ov_sev(d.worst) }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}<p class="ov-empty">ยังไม่พบ CVE บนเครื่องใด</p>{% endif %}
+        </section>
+        <section class="ov-panel" aria-labelledby="ov-h3">
+          <div class="ov-ph"><h3 id="ov-h3">บริการและเวอร์ชันที่พบ CVE</h3><span>เรียงตามจำนวนเครื่อง</span></div>
+          {% if overview.top_services %}
+          <ul class="ov-rows">
+            {% for s in overview.top_services %}<li class="r-svc"><span class="nm" title="{{ s.product }}">{{ s.product }}</span><button type="button" class="num key dev-toggle" aria-expanded="false" aria-controls="svc-devs-{{ loop.index }}" title="ดูว่าเครื่องไหนมีบริการนี้">{{ s.devices }} เครื่อง<i class="ti ti-chevron-down" aria-hidden="true"></i></button><span class="num">{{ s.cves }} CVE</span>{{ ov_sev(s.worst) }}<div class="svc-devs" id="svc-devs-{{ loop.index }}" hidden><span>เครื่องที่พบ</span>{% for d in s.device_list %}<a class="svc-chip" href="{{ url_for('device_detail', ip=d.ip) }}" title="ดูรายละเอียดอุปกรณ์ {{ d.ip }}">{{ d.ip }}{% if s.devices > 1 %}<span class="svc-n"> · {{ d.cves }} CVE</span>{% endif %}</a>{% endfor %}{% if s.devices > s.device_list | length %}<span>และอีก {{ s.devices - (s.device_list | length) }} เครื่อง</span>{% endif %}</div></li>
+            {% endfor %}
+          </ul>
+          {% else %}<p class="ov-empty">ยังไม่พบ CVE บนบริการใด</p>{% endif %}
+        </section>
+        <section class="ov-panel" aria-labelledby="ov-h4">
+          <div class="ov-ph"><h3 id="ov-h4">การกระจายคะแนน CVSS</h3><span>{{ overview.cve_total }} CVE</span></div>
+          {% if overview.cve_total %}
+          {% set band_th = {'0-3.9': '0 – 3.9', '4-6.9': '4.0 – 6.9', '7-8.9': '7.0 – 8.9', '9-10': '9.0 – 10'} %}
+          {% set band_max = [5, overview.bands | map(attribute='count') | max] | max %}
+          <ul class="band-rows">
+            {% for b in overview.bands | reverse %}<li><span class="bl">{{ band_th[b.label] }}</span><span class="bt">{% if b.count %}<i style="width:{{ (b.count / band_max * 100) | round(1) }}%"></i>{% endif %}</span><b class="{{ 'zero' if not b.count }}">{{ b.count }}</b></li>
+            {% endfor %}
+          </ul>
+          {% if overview.unscored %}<p class="ov-hint">{{ overview.unscored }} CVE ไม่มีคะแนน CVSS จึงไม่นับในแท่ง</p>{% endif %}
+          {% else %}<p class="ov-empty">ไม่มี CVE ให้แสดงคะแนน</p>{% endif %}
+        </section>
+      </div>
+    </div></div>
+  </section>
+</div>
+<script>
+  /* Runs right after the card is parsed, so a saved "open" state is applied before first paint (no animation on that first draw). */
+  (function () {
+    var root = document.getElementById('ov-root');
+    if (!root) return;
+    var key = {{ ('clylar.vulns.overview.open.' ~ current_user.id) | tojson }};
+    var fold = document.getElementById('ov-fold'), inner = root.querySelector('.ov-in');
+    function setOpen(open, persist) {
+      root.classList.toggle('is-open', open);
+      fold.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) inner.removeAttribute('inert'); else inner.setAttribute('inert', '');
+      if (persist) { try { localStorage.setItem(key, open ? '1' : '0'); } catch (e) {} }
+    }
+    var stored = null;
+    try { stored = localStorage.getItem(key); } catch (e) {}
+    root.classList.add('no-anim');
+    setOpen(stored === '1', false);
+    fold.addEventListener('click', function () { setOpen(!root.classList.contains('is-open'), true); });
+    root.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('.dev-toggle');
+      if (!b) return;
+      var on = b.getAttribute('aria-expanded') !== 'true';
+      b.setAttribute('aria-expanded', on ? 'true' : 'false');
+      document.getElementById(b.getAttribute('aria-controls')).hidden = !on;
+    });
+    var why = document.getElementById('ov-why-btn');
+    if (why) why.addEventListener('click', function () {
+      var on = why.getAttribute('aria-expanded') !== 'true';
+      why.setAttribute('aria-expanded', on ? 'true' : 'false');
+      document.getElementById('ov-why').hidden = !on;
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && document.activeElement && document.activeElement.classList.contains('ov-info')) document.activeElement.blur();
+    });
+    requestAnimationFrame(function () { requestAnimationFrame(function () { root.classList.remove('no-anim'); }); });
+  })();
+</script>
+{% endif %}
+
+{% if kev_count %}
+<div class="kev-line" id="kevLine"><i class="ti ti-alert-triangle" aria-hidden="true"></i>
+  <span>{{ kev_count }} CVE อยู่ในรายการ Known Exploited ของ CISA — มีการโจมตีใช้ช่องโหว่เหล่านี้จริง ควรจัดการก่อน</span>
+  <button type="button" id="kevShow">แสดงเฉพาะรายการนี้</button></div>
+<script>
+  document.getElementById('kevShow').addEventListener('click', function () {
+    var s = document.getElementById('kevSelect'); if (!s) return; s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true }));
+    var t = document.querySelector('[data-tf-body]'); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+</script>
+{% endif %}
+<style>
+  .kev-tag { display: inline-block; margin-top: 3px; font-size: .68rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: #fdf3d7; color: #7a5a12; border: 1px solid #f0d58c; }
+  .kev-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 1rem; padding: 9px 16px; border-radius: 10px; background: #fff9e8; border: 1px solid #f0e2b6; color: #7a5a12; font-size: .82rem; }
+  .kev-line i { font-size: 1.05rem; }
+  .kev-line button { margin-left: auto; border: 1px solid #e3cf93; background: #fff; color: #7a5a12; border-radius: 999px; padding: 2px 12px; font-size: .76rem; font-weight: 600; }
+  .kev-line button:hover { background: #fdf3d7; }
+</style>
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    {% if cves %}
+
+    <!-- Filter bar -->
+    <div class="tf-toolbar d-flex flex-wrap align-items-center gap-2 px-4 py-3 border-bottom">
+      <div class="tf-search">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input type="search" class="form-control form-control-sm" data-tf-search placeholder="ค้นหา CVE, โฮสต์, CWE, บริการ…" aria-label="ค้นหาช่องโหว่" autocomplete="off">
+      </div>
+      <select class="form-select form-select-sm" data-tf-select="host" data-tf-label="โฮสต์" aria-label="กรองตามโฮสต์">
+        <option value="">ทุกโฮสต์</option>
+        {% for ip, n in host_options %}<option value="{{ ip }}">{{ ip }} ({{ n }})</option>{% endfor %}
+      </select>
+      <select class="form-select form-select-sm" data-tf-select="cwe" data-tf-label="CWE" aria-label="กรองตาม CWE">
+        <option value="">ทุก CWE</option>
+        {% for o in cwe_options %}<option value="{{ o.id }}">{{ o.id }}{% if o.label %} · {{ o.label }}{% endif %} ({{ o.count }})</option>{% endfor %}
+      </select>
+      {% if kev_count %}
+      <select class="form-select form-select-sm" data-tf-select="kev" data-tf-label="การโจมตี" aria-label="กรองตามรายการ Known Exploited ของ CISA" id="kevSelect">
+        <option value="">ทุกการโจมตี</option>
+        <option value="1" data-display="ถูกโจมตีจริง (CISA)">ถูกโจมตีจริง ({{ kev_count }})</option>
+      </select>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-tf-clear hidden><i class="ti ti-filter-off me-1" aria-hidden="true"></i>ล้างตัวกรอง</button>
+      <span class="ms-auto text-muted small" data-tf-count data-tf-unit="รายการ" role="status" aria-live="polite">แสดง {{ total_cves }} จาก {{ total_cves }} รายการ</span>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table align-middle mb-0" style="font-size:.85rem;" data-resizable>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th class="ps-4 py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="cveid" title="เรียงตาม CVE ID">CVE ID<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="severity" data-tf-type="num" data-tf-first="desc" title="เรียงตามระดับความรุนแรง">Severity<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="cvss" data-tf-type="num" data-tf-first="desc" title="เรียงตามคะแนน CVSS">CVSS<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;width:28%;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="cwe" title="เรียงตามเลข CWE">CWE<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="host" title="เรียงตามโฮสต์">Host<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="service" title="เรียงตามพอร์ต">Service<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="found" data-tf-first="desc" title="เรียงตามวันที่พบ">Found<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="pe-4 py-3 text-muted" style="font-weight:600;font-size:.78rem;"></th>
+          </tr>
+        </thead>
+        <tbody data-tf-body>
+          {% set sev_th = {'CRITICAL': 'วิกฤต', 'HIGH': 'สูง', 'MEDIUM': 'ปานกลาง', 'LOW': 'ต่ำ'} %}
+          {% set sev_rank = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1} %}
+          {% for c in cves %}
+          <tr data-tf-row
+              data-q="{{ ([c.cve_id, c.severity, sev_th.get(c.severity, ''), c.cvss_score, c.ip, c.port, c.service, c.found_at, c.cwe_name] + ([c.cwe.id, c.cwe.name, c.cwe.compact] if c.cwe else [])) | select | map('string') | join('|') | lower }}"
+              data-f-sev="{{ c.severity }}" data-f-host="{{ c.ip }}" data-f-cwe="{{ c.cwe.id if c.cwe else '' }}" data-f-kev="{{ '1' if c.kev else '' }}"
+              data-s-cveid="{{ c.cve_id }}" data-s-severity="{{ sev_rank.get(c.severity, 0) }}" data-s-cvss="{{ '' if c.cvss_score is none else c.cvss_score }}"
+              data-s-cwe="{{ c.cwe.id if c.cwe else '' }}" data-s-host="{{ c.ip }}" data-s-service="{{ c.port }}/{{ c.service }}{{ ' (' ~ c.protocol | upper ~ ')' if c.protocol and c.protocol != 'tcp' else '' }}" data-s-found="{{ c.found_at }}"
+              style="border-top:1px solid #f1f3f5;">
+            <td class="ps-4 py-3 fw-semibold" style="color:#0f172a;">{{ c.cve_id }}{% if c.kev %}<div><span class="kev-tag" title="CISA ระบุว่ามีการโจมตีใช้ช่องโหว่นี้จริง (รายการ Known Exploited Vulnerabilities){% if c.kev_added %} · เพิ่มเมื่อ {{ c.kev_added }}{% endif %}">ถูกโจมตีจริง</span></div>{% endif %}</td>
+            <td class="py-3">
+              <span class="badge sev-{{ c.severity|lower }}">{{ c.severity }}</span>{% if c.severity_note %}<span class="sev-note" tabindex="0" role="img" aria-label="{{ c.severity_note }}" title="{{ c.severity_note }}"><i class="ti ti-info-circle" aria-hidden="true"></i></span>{% endif %}
+            </td>
+            <td class="py-3">{{ c.cvss_score if c.cvss_score is not none else '—' }}</td>
+            <td class="py-3">
+              {% set w = c.cwe %}
+              {% if w %}
+              <div class="cwe-box">
+                <div class="cwe-head dropdown">
+                  {#- The ID opens a small menu: the NVD page of this CVE (names the CWE as NIST lists it) or the CWE's own page at MITRE.
+                      NVD-CWE-Other / NVD-CWE-noinfo have no MITRE page, so their second choice is NVD's category list.
+                      "fixed" lets the menu escape the scrolling table wrapper. #}
+                  <button type="button" class="cwe-id" data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}' aria-haspopup="true" aria-expanded="false"
+                          aria-label="{{ w.id }} — เลือกเว็บไซต์ที่จะเปิดดู" title="เลือกเว็บไซต์ที่จะเปิดดู {{ w.id }}">{{ w.id }}<i class="ti ti-chevron-down" aria-hidden="true"></i></button>
+                  <div class="dropdown-menu cwe-menu">
+                    <div class="cwe-menu-head">เปิดดูข้อมูล {{ w.id }} ที่</div>
+                    <a class="dropdown-item cwe-menu-item" href="https://nvd.nist.gov/vuln/detail/{{ c.cve_id }}" target="_blank" rel="noopener">
+                      <span><span class="cwe-menu-site">NVD (NIST)</span><span class="cwe-menu-desc">หน้า {{ c.cve_id }} · ชื่อ CWE ตามที่ NIST ระบุ</span></span>
+                      <i class="ti ti-external-link" aria-hidden="true"></i><span class="visually-hidden">(เปิดในแท็บใหม่)</span>
+                    </a>
+                    <a class="dropdown-item cwe-menu-item" href="{{ w.url }}" target="_blank" rel="noopener">
+                      {%- if w.id.startswith('CWE-') %}
+                      <span><span class="cwe-menu-site">MITRE</span><span class="cwe-menu-desc">นิยามของ {{ w.id }} · คำอธิบายและตัวอย่าง</span></span>
+                      {%- else %}
+                      <span><span class="cwe-menu-site">NVD (NIST)</span><span class="cwe-menu-desc">รายการหมวดหมู่ CWE ที่ NVD ใช้</span></span>
+                      {%- endif %}
+                      <i class="ti ti-external-link" aria-hidden="true"></i><span class="visually-hidden">(เปิดในแท็บใหม่)</span>
+                    </a>
+                  </div>
+                </div>
+                {% if w.name %}
+                <div class="cwe-name">
+                  {%- if w.more -%}
+                  <span class="cwe-compact">{{ w.compact }}</span><span class="cwe-full">{{ w.name }}</span><button type="button" class="cwe-more" onclick="toggleCwe(this)" aria-expanded="false" aria-label="แสดงชื่อ CWE แบบเต็ม" title="แสดงชื่อแบบเต็ม"><i class="ti ti-dots"></i></button>
+                  {%- elif w.note -%}
+                  <span class="cwe-note" title="{{ w.note }}" tabindex="0">{{ w.name }}</span>
+                  {%- else -%}
+                  {{ w.name }}
+                  {%- endif -%}
+                </div>
+                {% endif %}
+              </div>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="py-3"><a class="ip-link" href="{{ url_for('device_detail', ip=c.ip) }}" title="ดูรายละเอียดอุปกรณ์">{{ c.ip }}</a></td>
+            <td class="py-3 text-muted">{{ c.port }}/{{ c.service }}{{ ' (' ~ c.protocol | upper ~ ')' if c.protocol and c.protocol != 'tcp' else '' }}</td>
+            <td class="py-3 text-muted">{{ c.found_at }}</td>
+            <td class="pe-4 py-3 text-end">
+              <a href="{{ url_for('scan_detail', scan_id=c.job_id) }}" class="btn btn-sm btn-outline-secondary">ดู Scan</a>
+            </td>
+          </tr>
+          {% endfor %}
+          <tr data-tf-empty hidden>
+            <td colspan="8" class="text-center text-muted py-5">
+              <i class="ti ti-filter-off" style="font-size:2rem;color:#cbd5e1;" aria-hidden="true"></i>
+              <p class="mt-2 mb-1">ไม่พบช่องโหว่ที่ตรงกับตัวกรอง</p>
+              <p class="small mb-1" data-tf-empty-detail></p>
+              <p class="small mb-3">ลองพิมพ์ให้สั้นลง หรือล้างตัวกรองบางอย่างออก</p>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-tf-clear>ล้างตัวกรอง</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="ti ti-shield-check" style="font-size:2.5rem;color:#cbd5e1;"></i>
+      {#- "none" is the number of services a scan really asked NVD about and got nothing for; with that, "run a scan" would be wrong (see the Overview above) #}
+      <p class="mt-2 mb-0">{% if overview and overview.none %}ไม่พบ CVE จากพอร์ตที่ตรวจแล้ว{% else %}ยังไม่พบช่องโหว่ — รัน Vulnerability Scan เพื่อตรวจ CVE{% endif %}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+  .sev-critical { background:#d43f3a; color:#fff; }
+  .sev-high { background:#ee9336; color:#fff; }
+  .sev-medium { background:#fdc431; color:#212529; }
+  .sev-low { background:#3fae49; color:#fff; }
+  .sev-unknown { background:#6c757d; color:#fff; }
+
+  /* Severity cards double as filter toggles. Selected = pale tint + a thin soft outline in the severity colour + a tick badge.
+     The outline is a pseudo-element, so the keyboard focus outline stays free for the focus indicator. */
+  .sev-card { font:inherit; color:inherit; text-align:left; cursor:pointer; background:#fff;
+              transition:box-shadow .15s, background-color .15s; }
+  .sev-card:hover { box-shadow:0 .35rem .9rem rgba(15, 23, 42, .1) !important; }
+  .sev-card:focus-visible { outline:2px solid #64748b; outline-offset:2px; }
+  .sev-card::after { content:''; position:absolute; inset:0; border:1px solid transparent; border-radius:inherit; pointer-events:none;
+                     transition:border-color .15s; }
+  .sev-card.is-active { background:var(--sev-bg); }
+  .sev-card.is-active::after { border-color:var(--sev-edge); }
+  .sev-icon { width:48px; height:48px; border-radius:50%; background:var(--sev-bg); display:flex; align-items:center; justify-content:center;
+              flex-shrink:0; transition:background-color .15s; }
+  .sev-icon i { font-size:24px; }
+  .sev-name { white-space:nowrap; font-size:1rem; font-weight:600; color:#475569; line-height:1.35; }       /* #475569: still 4.5:1 on the pale tint of a selected card */
+  .sev-count { font-size:1.875rem; font-weight:700; color:#0f172a; line-height:1.15; }
+  .sev-unit { margin-left:.5rem; font-size:.875rem; font-weight:400; color:#64748b; }   /* a margin, not a flex gap: .d-block on the parent is !important and wins over display:flex */
+  .sev-body { min-width:0; flex:1; }
+  .sev-share { display:flex; align-items:center; gap:10px; margin-top:8px; }
+  .sev-track { flex:1; height:5px; border-radius:3px; background:#e8ecf1; overflow:hidden; }       /* one soft track; the fill is the level's own colour */
+  .sev-track i { display:block; height:100%; border-radius:3px; background:var(--sev-c); }
+  .sev-pct { font-size:.75rem; color:#556274; white-space:nowrap; text-align:right; }
+  .sev-card { container-type:inline-size; }
+  @container (max-width: 230px) { .sev-unit, .sev-pct-w { display:none; } }   /* a narrow card keeps the number, the bar and the % only */
+  .sev-card.is-active .sev-icon { background:#fff; }                  /* the icon would vanish into the tint otherwise */
+  .sev-check { position:absolute; top:10px; right:10px; width:22px; height:22px; border-radius:50%; background:var(--sev-ring); color:#fff;
+               display:flex; align-items:center; justify-content:center; font-size:14px; line-height:1; pointer-events:none;
+               opacity:0; transform:scale(.6); transition:opacity .15s, transform .15s; }
+  .sev-card.is-active .sev-check { opacity:1; transform:none; }
+
+  /* CWE cell: the ID is a menu button (NVD or MITRE) + a compact name; "..." reveals the full official name */
+  .cwe-head { display:flex; align-items:center; gap:.35rem; }
+  .cwe-id { display:inline-flex; align-items:center; gap:.15rem; padding:0; border:0; background:none; cursor:pointer; line-height:1.4;
+            font-family:var(--bs-font-monospace); font-size:.72rem; font-weight:600; color:#64748b; }
+  .cwe-id i { font-size:.7rem; opacity:.7; }
+  .cwe-id:hover, .cwe-id[aria-expanded="true"] { color:#0f172a; }
+  .cwe-id:focus-visible { outline:2px solid #64748b; outline-offset:2px; border-radius:3px; }
+  .cwe-menu { min-width:16.5rem; padding:.35rem; border:1px solid #e2e8f0; border-radius:10px; font-size:.8rem;
+              box-shadow:0 .5rem 1.25rem rgba(15, 23, 42, .12); }
+  .cwe-menu-head { padding:.25rem .55rem .35rem; font-size:.68rem; font-weight:600; color:#94a3b8; }
+  .cwe-menu-item { display:flex; align-items:center; gap:.6rem; padding:.45rem .55rem; border-radius:7px; color:#0f172a; white-space:normal; }
+  .cwe-menu-item:hover, .cwe-menu-item:focus, .cwe-menu-item:active { background:#f1f5f9; color:#0f172a; }
+  .cwe-menu-item > i { margin-left:auto; flex-shrink:0; font-size:.9rem; color:#94a3b8; }
+  .cwe-menu-site { display:block; font-weight:600; }
+  .cwe-menu-desc { display:block; font-size:.72rem; line-height:1.35; color:#64748b; }
+  .cwe-name { color:#475569; line-height:1.4; overflow-wrap:break-word; }   /* not "anywhere": that shrinks the column's minimum to one letter, so a dragged column split words ("Numeri c Errors") */
+  .cwe-note { cursor:help; text-decoration:underline dotted #94a3b8; text-underline-offset:3px; }
+  .cwe-full { display:none; }
+  .cwe-box.is-open .cwe-full { display:inline; }
+  .cwe-box.is-open .cwe-compact { display:none; }
+  .cwe-more {
+    display:inline-flex; align-items:center; justify-content:center; width:24px; height:16px; margin-left:.4rem; padding:0;
+    vertical-align:middle; border:1px solid #cbd5e1; border-radius:8px; background:#f1f5f9; color:#64748b;
+    line-height:1; cursor:pointer; transition:background .15s, color .15s;
+  }
+  .cwe-more:hover { background:#e2e8f0; color:#0f172a; }
+  .cwe-more:focus-visible { outline:2px solid #64748b; outline-offset:1px; }
+  .cwe-more i { font-size:14px; }
+</style>
+
+<style>
+  /* ---- Overview (folded card above the table) ---- */
+  .ov-wrap { container-type:inline-size; margin-bottom:1.5rem; }
+  /* type: three sizes only (14px card title, 13px what you read, 12px captions and notes) and two weights (400, 600). Before, six sizes within 2.4px
+     of each other (11.2 to 13.6px) read as an accident, not a hierarchy, and Thai at 11px was cramped. */
+  .ov { --ink:#0f172a; --text:#334155; --muted:#64748b; --line:#e8edf3;
+        --found:#5b86c6; --none:#c9d8ee; --none-edge:#7f9bc6; --unk-a:#d5dce6; --unk-b:#eef1f5; --unk-edge:#8796ad; --bar:var(--nt-gold);
+        font-size:.8125rem; line-height:1.5; color:var(--text); }
+  .ov [hidden] { display:none !important; }
+  .ov b { font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .ov .muted { color:var(--muted); }
+  .ov h3 { margin:0; }
+  .ov button { font:inherit; color:inherit; }
+  .ov :focus-visible { outline:2px solid #64748b; outline-offset:2px; border-radius:6px; }
+
+  /* the gold icon chip of the dashboard cards (cream #fff4d1 + #e6a700) */
+  .ov-chip { width:28px; height:28px; border-radius:50%; background:#fff4d1; color:#e6a700; display:inline-flex; align-items:center; justify-content:center; flex:none; font-size:17px; }
+
+  /* coverage: three states. A blue ramp plus a hatch for "could not be evaluated"; no red, no green. The swatches are used by the legend and the closed header's counts. */
+  .ov-sw.f { background:var(--found); }
+  .ov-sw.n { background:var(--none); box-shadow:inset 0 0 0 1px var(--none-edge); }
+  .ov-sw.u { background:repeating-linear-gradient(135deg, var(--unk-a) 0 3px, var(--unk-b) 3px 6px); box-shadow:inset 0 0 0 1px var(--unk-edge); }
+  .ov-sw { display:inline-block; width:11px; height:11px; border-radius:3px; flex:none; }
+  /* the gauge and the legend sit side by side; when the panel is too narrow for both, the legend drops under the gauge */
+  .cov-row { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem 1.4rem; margin-top:.2rem; }
+  .cov-gauge { position:relative; display:inline-block; width:120px; max-width:100%; aspect-ratio:120 / 76; flex:none; }
+  .cov-gauge svg { display:block; width:100%; height:100%; }
+  .cov-gauge path { fill:none; stroke-width:13; }
+  .cov-gauge .g-f { stroke:var(--found); }
+  .cov-gauge .g-n { stroke:var(--none); }
+  .cov-gauge .g-u { stroke:url(#cov-hx); }
+  .cov-gauge text { font-size:19px; font-weight:600; fill:var(--ink); text-anchor:middle; font-family:inherit; font-variant-numeric:tabular-nums; }
+  .cov-gauge .cap { position:absolute; left:0; right:0; bottom:0; text-align:center; font-size:.75rem; line-height:1; color:var(--muted); }
+  .cov-legend { list-style:none; margin:0; padding:0; max-width:22rem; flex:1 1 14rem; min-width:0; }
+  .cov-legend li { display:grid; grid-template-columns:11px minmax(0, 1fr) 2.2rem 4.4rem; align-items:center; gap:.55rem; min-height:24px; }
+  .cov-legend b { text-align:right; }
+  .cov-legend .tail { display:flex; justify-content:flex-end; }
+  .ov-why { display:inline-flex; align-items:center; gap:.1rem; height:20px; padding:0 .35rem 0 .55rem; border:1px solid #d3dbe6; border-radius:999px; background:#f8fafc; color:#475569; font-size:.75rem; cursor:pointer; white-space:nowrap; }
+  .ov-why i { font-size:.85rem; transition:transform .15s; }
+  .ov-why[aria-expanded=true] i { transform:rotate(180deg); }
+  .ov-why:hover { background:#eef2f7; }
+  .why-list { list-style:none; margin:.3rem 0 .1rem; padding:.4rem .65rem; background:#f8fafc; border-radius:8px; max-width:22rem; }
+  .why-list li { display:flex; justify-content:space-between; gap:1rem; font-size:.75rem; color:#475569; line-height:1.5; padding:1px 0; }
+  .why-list li.zero, .why-list li.zero b { color:var(--muted); }
+  /* the old-scan note is the last line of the box: the one place that explains the numbers above it */
+  .why-list li.note { display:block; border-top:1px solid #e3e9f1; margin-top:.35rem; padding-top:.4rem; color:var(--muted); }
+  .ov-hint { margin:.55rem 0 0; font-size:.75rem; color:var(--muted); max-width:22rem; }
+
+  /* small lists */
+  .ov-ph { display:flex; align-items:baseline; justify-content:space-between; gap:.1rem .75rem; flex-wrap:wrap; margin-bottom:.5rem; }
+  .ov-ph h3 { font-size:.8125rem; font-weight:600; color:var(--ink); }
+  .ov-ph > span { font-size:.75rem; color:var(--muted); }
+  .ov-rows { list-style:none; margin:0; padding:0; }
+  .ov-rows li { display:grid; align-items:center; gap:.5rem; min-height:32px; border-top:1px solid #f1f4f8; }
+  .ov-rows li:first-child { border-top:0; }
+  .r-dev { grid-template-columns:minmax(0, 1fr) 4.2rem 72px; }
+  .r-svc { grid-template-columns:minmax(0, 1fr) 5.2rem 3.4rem 72px; }          /* the device count is a button with a chevron, so it needs a little more room */
+  .ov-rows .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
+  /* in a row only the name and the figure the list is sorted by are dark; the rest is quiet */
+  .ov-rows .num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; color:var(--muted); }
+  .ov-rows .num.key { color:var(--ink); font-weight:600; }
+  /* "N เครื่อง" opens a strip under its row with the devices that have the service (each a link to the device page) */
+  .dev-toggle { display:inline-flex; align-items:center; justify-content:flex-end; gap:.15rem; padding:0; border:0; background:none; font:inherit; font-weight:600; cursor:pointer; }
+  .dev-toggle i { font-size:14px; transition:transform .15s; }
+  .dev-toggle:hover, .dev-toggle[aria-expanded="true"] { color:#2563eb; }
+  .dev-toggle[aria-expanded="true"] i { transform:rotate(180deg); }
+  .dev-toggle:focus-visible { outline:2px solid #64748b; outline-offset:2px; border-radius:4px; }
+  .svc-devs { grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:.375rem .5rem; background:#f8fafc; border-radius:8px; padding:6px 10px; margin:0 0 8px; color:var(--muted); font-size:.75rem; }
+  .svc-devs[hidden] { display:none; }
+  .svc-devs:not([hidden]) { animation:svc-in .15s ease-out; }
+  @keyframes svc-in { from { opacity:0; transform:translateY(-3px); } }
+  .svc-chip { color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; border-radius:999px; padding:1px 10px; font-size:.8125rem; text-decoration:none; white-space:nowrap; }
+  .svc-chip:hover { background:#dbeafe; }
+  .svc-chip .svc-n { color:var(--muted); }
+  @media (prefers-reduced-motion: reduce) { .svc-devs:not([hidden]) { animation:none; } .dev-toggle i { transition:none; } }
+  .ov-empty { margin:0; padding:.2rem 0; color:var(--muted); font-size:.75rem; }
+  /* severity: a dot in the severity colour and the word in neutral text (tinted pills repeated down a column read as a red stripe) */
+  .ov-sev { display:inline-flex; align-items:center; gap:.45rem; font-size:.75rem; color:var(--text); white-space:nowrap; justify-self:start; }
+  .ov-sev::before { content:''; width:8px; height:8px; border-radius:50%; background:var(--d); flex:none; }
+  .ov-sev.crit { --d:#d43f3a; }
+  .ov-sev.high { --d:#ee9336; }
+  .ov-sev.med { --d:#fdc431; }
+  .ov-sev.low { --d:#3fae49; }
+  .ov-sev.unk { --d:#6c757d; }
+
+  /* CVSS in four bands: one brand-gold colour for every band (the owner asked for NT yellow instead of grey; the bars show how many, not how severe,
+     so the severity colours stay on the cards and chips) */
+  .band-rows { list-style:none; margin:0; padding:0; }
+  .band-rows li { display:grid; grid-template-columns:4.6rem minmax(0, 1fr) 2rem; align-items:center; gap:.6rem; min-height:24px; }
+  .band-rows .bl { white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .band-rows .bt { height:8px; border-radius:4px; background:#f1f5f9; overflow:hidden; }
+  .band-rows .bt i { display:block; height:100%; background:var(--bar); border-radius:4px; }
+  .band-rows b { text-align:right; }
+  .band-rows b.zero { color:var(--muted); }
+
+  /* the (i): hover or keyboard focus shows the note */
+  .ov-info-wrap { position:relative; display:inline-flex; flex:none; }
+  .ov-info { position:relative; width:28px; height:28px; padding:0; border:0; border-radius:50%; background:none; color:var(--muted); display:inline-flex; align-items:center; justify-content:center; font-size:17px; cursor:help; }
+  .ov-info:hover, .ov-info:focus { background:#eef1f5; }
+  .ov-tip { position:absolute; top:calc(100% + 6px); right:-4px; z-index:20; width:max-content; max-width:min(330px, 76vw); padding:.5rem .7rem; background:#fff; border:1px solid #dbe2ea; border-radius:10px; box-shadow:0 8px 20px rgba(15, 23, 42, .12); font-size:.75rem; font-weight:400; color:var(--text); text-align:left; line-height:1.5; opacity:0; visibility:hidden; transition:opacity .12s; pointer-events:none; }
+  .ov-info:hover .ov-tip, .ov-info:focus .ov-tip { opacity:1; visibility:visible; }
+
+  /* the fold: a grid-rows animation; the closed body is inert and hidden */
+  .ov-body { display:grid; grid-template-rows:0fr; transition:grid-template-rows .22s ease; }
+  .ov.is-open .ov-body { grid-template-rows:1fr; }
+  .ov-in { min-height:0; overflow:hidden; }
+  .ov:not(.is-open) .ov-in { visibility:hidden; transition:visibility 0s .22s; }
+  .ov .t-open { display:none; }
+  .ov.is-open .t-open { display:inline; }
+  .ov.is-open .t-closed { display:none; }
+  .ov.no-anim, .ov.no-anim * { transition:none !important; }
+  @media (prefers-reduced-motion:reduce) { .ov, .ov * { transition:none !important; } }
+
+  /* header: one line closed; open, just the title and the fold button. The (i) with the caveat stays in both states. */
+  .ov-head { display:flex; align-items:center; padding-right:.5rem; }
+  .ov-toggle { position:relative; flex:1 1 auto; min-width:0; display:grid; grid-template-columns:auto auto minmax(0, 1fr) auto; grid-template-areas:"chip title sum act"; align-items:center; column-gap:.75rem; padding:.55rem .75rem .55rem 1rem; border-radius:.375rem; text-align:left; cursor:pointer; }
+  .ov-toggle:hover { background:#f8fafc; }
+  /* the real button covers the whole header; the one link inside it (the device's IP) is lifted above it */
+  .ov-hit { position:absolute; inset:0; z-index:1; padding:0; background:none; border:0; border-radius:.375rem; cursor:pointer; }
+  .ov-toggle .ov-chip { grid-area:chip; }
+  .ov-title { grid-area:title; font-weight:600; font-size:.875rem; color:var(--ink); white-space:nowrap; }
+  .ov-sum { grid-area:sum; min-width:0; overflow:hidden; white-space:nowrap; color:var(--text); padding-left:.9rem; border-left:1px solid #dbe2ea; line-height:1.3; display:flex; align-items:center; }
+  .ov-sep { flex:none; width:1px; height:2.2rem; background:#e3e8ef; margin:0 1.1rem; }
+  .ov-f2 { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:.8125rem; line-height:1.7; color:var(--muted); }
+  .ov-f2 a.f2-ip { position:relative; z-index:2; color:var(--ink); font-weight:600; }
+  /* the underline on hover: ink-coloured and 1.5px so it can be seen (the app-wide a.ip-link one is a pale 1px grey line), and the line height leaves it room inside this box, which clips */
+  .ov-f2 a.f2-ip:hover { text-decoration:underline; text-decoration-color:currentColor; text-decoration-thickness:1.5px; text-underline-offset:3px; }
+  /* the counts (2026-11-08, the owner's pick "C" of docs/design-options/vuln-overview-strip): a lead-in "จาก N พอร์ตที่เปิด" and three equal soft tiles, so
+     the three numbers visibly add up to it and each state has a place of its own. The finding is the blue tint, "none" a quiet grey, "not evaluated" the
+     same hatch as everywhere else on the card (never red or green: not being able to check is not a finding). */
+  .sm { display:inline-flex; align-items:center; flex:none; gap:.6rem; }
+  .sm > span { display:block; }
+  .sm-n { display:block; font-size:1.1875rem; line-height:1.15; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .sm-w { display:block; font-size:.75rem; line-height:1.3; color:#475569; }
+  .sm-w .ov-sw { width:10px; height:10px; margin-right:.35rem; vertical-align:-1px; }
+  .sm-tot { margin-right:.1rem; }
+  .sm-lead { display:block; font-size:.75rem; line-height:1.3; color:#475569; }
+  .sm-tot .sm-n { font-size:1.25rem; }
+  .sm-it { min-width:6.5rem; border-radius:10px; padding:.3rem .8rem; background:#f6f8fb; box-shadow:inset 0 0 0 1px #e8edf3; }
+  .sm-hit { background:#eef3fb; box-shadow:inset 0 0 0 1px #d3e0f4; }
+  .sm-unk { background:repeating-linear-gradient(135deg, #f3f5f8 0 4px, #fafbfc 4px 8px); }
+  .ov-act { grid-area:act; display:inline-flex; align-items:center; gap:.3rem; color:var(--muted); font-size:.75rem; white-space:nowrap; }
+  .ov-act i { font-size:18px; transition:transform .2s; }
+  .ov.is-open .ov-act i { transform:rotate(180deg); }
+  .ov.is-open .ov-sum { display:none; }
+
+  /* four panels: one column when narrow; two (2 x 2) when each is wide enough for a product name next to its counts; on a wide screen see the block below */
+  .ov-grid { display:grid; grid-template-columns:1fr; gap:1px; background:var(--line); border-top:1px solid var(--line); }
+  .ov-grid > .ov-panel { background:#fff; padding:.75rem 1.1rem .85rem; min-width:0; }
+  @container (min-width:840px) { .ov-grid { grid-template-columns:1fr 1fr; } }
+  /* wide (card 1320px or more): the owner's pick "B", calmed. Coverage becomes a full-width band (a bar wants to be wide: title, bar, counts on one
+     line, the "why" box under the bar) and the other three panels share the row in equal columns. No vertical rules here: they stretched the uneven
+     list heights into view, so the columns get air instead. The count columns of the lists keep fixed widths so the numbers stay in line from row to row. */
+  @container (min-width:1320px) {
+    .ov-grid { grid-template-columns:repeat(3, minmax(0, 1fr)); gap:0; background:#fff; }
+    .ov-grid > .ov-panel { padding:.95rem 1.6rem 1.1rem; }
+    .ov-grid > .ov-panel:nth-child(1) { grid-column:1 / -1; display:grid; grid-template-columns:auto auto minmax(20px, 1fr) auto; align-items:center; column-gap:1.8rem; row-gap:.5rem; padding:.85rem 1.6rem; border-bottom:1px solid var(--line); }
+    .ov-panel:nth-child(1) .ov-ph { grid-column:2; grid-row:1; display:block; margin:0; }
+    .ov-panel:nth-child(1) .ov-ph > span { display:block; line-height:1.3; }
+    .ov-panel:nth-child(1) .cov-row { display:contents; }
+    .ov-panel:nth-child(1) .cov-gauge { grid-column:1; grid-row:1; }
+    .ov-panel:nth-child(1) .cov-legend { grid-column:4; grid-row:1; max-width:none; display:flex; gap:1.6rem; }
+    .ov-panel:nth-child(1) .cov-legend li { display:flex; align-items:center; gap:.45rem; min-height:0; white-space:nowrap; }
+    .ov-panel:nth-child(1) .why-list { grid-column:2 / -1; grid-row:2; max-width:30rem; margin:0; }
+  }
+  @container (max-width:900px) { .ov-f2, .ov-sep { display:none; } }
+  /* below about 760px the counts no longer fit beside the title: two lines (title, then the counts), and the counts wrap rather than get cut off */
+  @container (max-width:760px) {
+    .ov-toggle { grid-template-columns:auto minmax(0, 1fr) auto; grid-template-areas:"chip title act" "chip sum act"; row-gap:.1rem; padding-right:.5rem; }
+    .ov-sum { border-left:0; padding-left:0; white-space:normal; }
+    .sm { flex:0 1 auto; flex-wrap:wrap; row-gap:.4rem; }
+    .ov-act .t-closed, .ov-act .t-open { display:none !important; }
+  }
+</style>
+
+<script>
+  function toggleCwe(btn) {
+    const box = btn.closest('.cwe-box');
+    const open = box.classList.toggle('is-open');
+    const label = open ? 'แสดงชื่อแบบย่อ' : 'แสดงชื่อ CWE แบบเต็ม';
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    btn.querySelector('i').className = 'ti ' + (open ? 'ti-chevron-up' : 'ti-dots');
+  }
+</script>
+
+{% if cves %}{% include 'partials/_table_filter.html' %}{% include 'partials/_resizable_columns.html' %}{% endif %}
+
+{% endblock %}

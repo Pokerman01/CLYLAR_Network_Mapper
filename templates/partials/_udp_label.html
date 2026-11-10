@@ -1,0 +1,21 @@
+{# Switch for the UDP option (a second nmap run: the 12 common UDP ports, only on the devices the first run found online), with an (i) hover card. Needs `prefix`
+   ('ns' / 'rescan' / 'dd'). Shown for Intense and Vulnerability scans only (hidden for the other types by updateScanAdvancedForType() in base.html; the whole Advanced
+   panel is hidden for Custom). The checkbox keeps its name (udp) and id (<prefix>_udp_input). It excludes nothing: the server refuses it only without Administrator
+   rights / Npcap or on more than 64 addresses, and says so in a notice. #}
+<div class="adv-switch scan-adv-mc">
+    <div class="adv-switch-text">
+        <div class="d-flex align-items-center gap-1">
+            <label class="adv-label" for="{{ prefix }}_udp_input">สแกนพอร์ต UDP ที่พบบ่อยเพิ่มเติม</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายการสแกนพอร์ต UDP">
+                <i class="ti ti-info-circle"></i>
+                <div class="scan-adv-info-card">
+                    <div class="text-secondary" style="font-size:0.77rem;">หลังสแกนรอบแรกเสร็จ ระบบสแกน UDP เป็นรอบที่ 2 กับอุปกรณ์ IPv4 ที่รอบแรกพบว่าออนไลน์ ใน 12 พอร์ตที่พบบ่อย: 53, 67, 69, 123, 137, 161, 500, 520, 623, 1434, 1900, 5060 (เช่น DNS, SNMP, NTP, SIP) ผลพอร์ต TCP ไม่เปลี่ยน พอร์ต UDP ที่ไม่ตอบกลับจะแสดงเป็น open|filtered หมายถึงไม่ทราบว่าเปิดหรือถูกกรอง ไม่ใช่พอร์ตที่เปิด และพอร์ตส่วนใหญ่มักแสดงแบบนี้ Vulnerability Scan ค้นหา CVE เฉพาะพอร์ต UDP ที่เปิด ต้องรันระบบด้วยสิทธิ์ Administrator หรือ root และมี Npcap รับเป้าหมายได้ไม่เกิน 64 ที่อยู่ (นับทั้งช่วงที่ระบุ ไม่ใช่เฉพาะอุปกรณ์ที่ออนไลน์) ใช้เวลานานขึ้นมาก ระบบหยุดงานที่ใช้เวลาเกิน 6 ชั่วโมงรวมทั้ง 2 รอบ (8 ชั่วโมงเมื่อเปิดสแกนแบบนุ่มนวล)</div>
+                </div>
+            </span>
+        </div>
+        <div class="adv-help">ตรวจ 12 พอร์ต UDP ของอุปกรณ์ที่พบ ใช้เวลานานขึ้น</div>
+    </div>
+    <div class="form-check form-switch m-0 p-0">
+        <input class="form-check-input" type="checkbox" role="switch" name="udp" value="1" id="{{ prefix }}_udp_input">
+    </div>
+</div>

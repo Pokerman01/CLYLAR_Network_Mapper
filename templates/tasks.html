@@ -1,0 +1,2191 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-1">
+    <div>
+        <h2 class="mb-1">Tasks</h2>
+        <p class="text-muted mb-0">จัดการการสแกนและตั้งเวลาอัตโนมัติ</p>
+    </div>
+    {% if current_user.role in ('admin', 'superadmin') %}
+    <button class="btn btn-primary px-4 fw-semibold" id="newScanTopBtn" data-bs-toggle="modal"
+        data-bs-target="#newScanModal">
+        ＋ New Scan
+    </button>
+    {% endif %}
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+{% for category, message in messages %}
+<div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show mt-3"
+    role="alert">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endfor %}
+{% endif %}
+{% endwith %}
+
+<!-- ===== TAB SWITCHER ===== -->
+<div class="mt-3 mb-1">
+    <div class="d-inline-flex rounded-3 p-1" style="background:#f0f0f0; gap:4px;">
+        <button id="tabScanMgmt" onclick="switchTaskTab('scan')"
+            class="btn btn-sm fw-semibold rounded-2 px-4 py-2 task-tab-btn active-tab"
+            style="font-size:.875rem; transition:all .18s;">
+            Scan Management
+        </button>
+        <button id="tabNetTools" onclick="switchTaskTab('net')"
+            class="btn btn-sm fw-semibold rounded-2 px-4 py-2 task-tab-btn"
+            style="font-size:.875rem; transition:all .18s;">
+            Upload
+        </button>
+    </div>
+</div>
+<hr class="mt-2 mb-3">
+
+<style>
+    .task-tab-btn {
+        background: transparent;
+        color: #555;
+        border: none;
+    }
+
+    .task-tab-btn.active-tab {
+        background: #fff;
+        color: #111;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+    }
+
+    .btn-outline-dark-soft {
+        border-color: #adb5bd;
+        color: #555;
+        background: transparent;
+    }
+
+    .btn-outline-dark-soft:hover {
+        border-color: #888;
+        color: #333;
+        background: #e9ecef;
+    }
+    /* ===== Clean Custom Dropdown with Info Tooltips ===== */
+    .clylar-custom-select {
+        position: relative;
+        user-select: none;
+    }
+    .clylar-select-trigger {
+        width: 100%;
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        padding: 0.375rem 0.75rem;
+        font-size: 1rem;
+        color: #212529;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        outline: none;
+        transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    }
+    .clylar-select-trigger:focus,
+    .clylar-custom-select.is-open .clylar-select-trigger {
+        border-color: #86b7fe;
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    }
+    .clylar-select-chevron {
+        font-size: 0.85rem;
+        color: #6c757d;
+        transition: transform 0.2s ease;
+    }
+    .clylar-custom-select.is-open .clylar-select-chevron {
+        transform: rotate(180deg);
+    }
+    .clylar-select-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+        z-index: 1070;
+        padding: 4px 0;
+        display: none;
+        list-style: none;
+        margin: 0;
+    }
+    .clylar-custom-select.is-open .clylar-select-menu {
+        display: block;
+    }
+    .clylar-option-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 7px 12px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        color: #1e293b;
+        transition: background-color 0.12s ease;
+        position: relative;
+    }
+    .clylar-option-row:hover {
+        background-color: #f1f5f9;
+    }
+    .clylar-option-row.is-selected {
+        background-color: #f8fafc;
+        font-weight: 600;
+        color: #0f172a;
+    }
+    .clylar-option-row.is-selected::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background-color: #0d6efd;
+        border-radius: 0 2px 2px 0;
+    }
+    .clylar-option-info-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        color: #94a3b8;
+        background: transparent;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        position: relative;
+        transition: color 0.15s ease, background-color 0.15s ease;
+    }
+    .clylar-option-info-btn:hover {
+        color: #1e293b;
+        background-color: #e2e8f0;
+    }
+    .clylar-item-tooltip {
+        position: absolute;
+        top: 50%;
+        left: calc(100% + 10px);
+        transform: translateY(-50%);
+        width: 250px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 9px 12px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.04);
+        font-size: 0.8rem;
+        line-height: 1.4;
+        color: #334155;
+        z-index: 1080;
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.15s ease, visibility 0.15s ease;
+        text-align: left;
+    }
+    .clylar-item-tooltip::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: -5px;
+        margin-top: -4px;
+        width: 8px;
+        height: 8px;
+        background: #ffffff;
+        border-left: 1px solid #e2e8f0;
+        border-bottom: 1px solid #e2e8f0;
+        transform: rotate(45deg);
+    }
+    .clylar-option-info-btn:hover .clylar-item-tooltip {
+        opacity: 1;
+        visibility: visible;
+    }
+    /* Schedule time: a text box (type the exact time) plus a clock button that opens the browser's own picker, which sits invisibly under the box */
+    .sched-time-wrap { position: relative; }
+    #schedTimeNative { position: absolute; left: 0; bottom: 0; width: 100%; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
+    #schedTimeInput.is-bad { border-color: #e6aa6f !important; background: #fffaf2; }
+    #schedTimeHelp { font-size: .75rem; color: #475569; margin-top: .25rem; }
+    #schedTimeHelp.is-bad { color: #92400e; }
+    /* Target box of the New Scan dialog: the saved-target list (filter, groups, size tags, save row). Soft colours only: no red except the delete icon. */
+    .ip-toggle { position: absolute; top: 0; right: 0; height: 100%; width: 40px; border: 0; background: transparent; color: #64748b; border-radius: 0 .5rem .5rem 0; }
+    .ip-toggle:hover { color: #334155; background: #f1f5f9; }
+    .ip-toggle i { display: inline-block; transition: transform .15s; }
+    .ip-toggle[aria-expanded="true"] i { transform: rotate(180deg); }
+    .ip-pop { position: absolute; top: 100%; left: 0; right: 0; z-index: 9999; display: none; background: #fff; border: 1px solid #dee2e6; border-radius: 0 0 8px 8px; margin-top: 2px; overflow: hidden; }
+    .ip-scroll { max-height: 220px; overflow-y: auto; }
+    .ip-group { padding: 6px 10px 3px; font-size: 12px; font-weight: 600; color: #64748b; background: #f8fafc; border-bottom: 1px solid #eef2f7; }
+    .ip-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #f1f5f9; }
+    .ip-opt.is-active { background: #eef3fb; }
+    .ip-main { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
+    .ip-target { font-family: monospace; font-size: .9em; color: #1e293b; }
+    .ip-label { color: #64748b; font-size: 12px; }
+    .ip-hit { font-weight: 700; color: #0f172a; }
+    .ip-tag { font-size: 11px; line-height: 1.5; padding: 0 7px; border-radius: 9px; background: #f1f5f9; color: #475569; white-space: nowrap; }
+    .ip-tag.is-big { background: #fef3c7; color: #92400e; }
+    .ip-del { border: 0; background: transparent; color: #dc3545; padding: 0 2px; flex: none; }
+    .ip-empty { padding: 10px; font-size: 13px; color: #64748b; }
+    /* The two hint texts of the New Scan dialog: lighter than Bootstrap's placeholder (a hint should not read like a value) */
+    #ns_scan_name::placeholder, #taskTargetInput::placeholder { color: #aab3be; opacity: 1; }
+    /* Progress of a waiting or running scan, under the job's name and target (the Status column is only 10% wide in this fixed-layout table, so
+       the text would spill into its neighbour there): quiet slate text and a thin soft bar (no yellow, no red) */
+    .job-prog { margin-top: 5px; max-width: 280px; font-size: 12px; line-height: 1.4; color: #475569; overflow-wrap: anywhere; }
+    .job-prog .jp-bar { height: 4px; margin-top: 3px; background: #e8edf3; border-radius: 2px; overflow: hidden; }
+    .job-prog .jp-bar[hidden] { display: none; }
+    .job-prog .jp-bar > span { display: block; height: 100%; width: 0; background: #8fb0e6; border-radius: 2px; transition: width .6s ease; }
+    @media (prefers-reduced-motion: reduce) { .job-prog .jp-bar > span { transition: none; } }
+    /* New Scan dialog: the header button that shows the command, and the command box (same look as the command box of the details panel) */
+    /* the switch: text first, the switch after it (Bootstrap's .form-switch puts it before and pads the label, so both are reset) */
+    .ns-cmd-switch { display: inline-flex; flex-direction: row-reverse; align-items: center; gap: 8px; flex: none; margin: 0; padding: 0; min-height: 0; }
+    .ns-cmd-switch .form-check-input { float: none; margin: 0; width: 2.2em; height: 1.2em; font-size: 14px; cursor: pointer; }
+    .ns-cmd-switch .form-check-label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; line-height: 1.5; color: #475569; cursor: pointer; user-select: none; }
+    .ns-cmd-switch .form-check-label i { font-size: 15px; }
+    .ns-cmd[hidden], .ns-cmd-warn[hidden] { display: none; }
+    .ns-cmd-head { font-size: 12px; font-weight: 600; color: #64748b; }
+    .ns-cmd .jd-cmd { margin-top: 4px; }
+    .ns-cmd.is-bad .jd-cmd { background: #fffaf2; border-color: #e6aa6f; }
+    .ns-cmd-warn { margin-top: 6px; font-size: 12px; color: #92400e; }
+    .ns-cmd-steps { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: #475569; }
+    .ns-cmd-steps:empty { display: none; }
+    .ns-cmd-note { margin-top: 6px; font-size: 12px; color: #64748b; }
+</style>
+
+<!-- ===== TAB: SCAN MANAGEMENT ===== -->
+<div id="paneScanMgmt">
+
+    <style>
+#jobsTable { table-layout: fixed; }
+#jobsTable td, #jobsTable th { vertical-align: middle; }
+#jobsTable td { padding-top: 0.6rem; padding-bottom: 0.6rem; }
+#jobsTable td:first-child, #jobsTable th:first-child { padding-left: 1.25rem; }
+#jobsTable td:last-child, #jobsTable th:last-child { padding-right: 1.25rem; }
+#jobsTable td:first-child { font-variant-numeric: tabular-nums; }
+#jobsTable tbody tr { border-bottom: 1px solid #eef0f2; }
+#jobsTable tbody tr:hover { background-color: rgba(0, 0, 0, 0.02); }
+#jobsTable .job-name-cell { line-height: 1.3; }
+#jobsTable .job-name-title { margin-bottom: 2px; }
+
+/* ===== Job / schedule details panel ===== */
+.job-toggle, .sched-toggle {
+    border: 0; background: none; padding: 0 4px; margin-right: 2px; line-height: 1; color: #94a3b8; cursor: pointer; border-radius: 6px;
+}
+.job-toggle:hover, .sched-toggle:hover { color: #475569; background: #eef1f5; }
+.job-toggle:focus-visible, .sched-toggle:focus-visible, .jd-copy:focus-visible { outline: 2px solid #94a3b8; outline-offset: 1px; }
+.job-toggle i, .sched-toggle i { display: inline-block; transition: transform .15s; }
+.job-toggle[aria-expanded="true"] i, .sched-toggle[aria-expanded="true"] i { transform: rotate(90deg); }
+.job-details-row, .sched-details-row { --bs-table-bg: #f8fafc; --bs-table-hover-bg: #f8fafc; }
+.job-details-row > td, .sched-details-row > td { background: #f8fafc; padding: 14px 24px 18px 84px; border-top: 0; }
+.sched-details-row > td { padding-left: 52px; }
+.jd-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px 28px; }
+.jd-grid.two { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+@media (max-width: 991px) { .jd-grid, .jd-grid.two { grid-template-columns: 1fr; } .job-details-row > td, .sched-details-row > td { padding-left: 24px; } }
+.jd-title { margin-bottom: 6px; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #94a3b8; }
+.jd-list { margin: 0; }
+.jd-row { display: flex; gap: 10px; padding: 3px 0; font-size: .8rem; }
+.jd-row dt { flex: none; width: 108px; font-weight: 500; color: #64748b; }
+.jd-row dd { min-width: 0; margin: 0; color: #0f172a; overflow-wrap: anywhere; }
+.jd-sub { margin-top: 2px; font-size: .74rem; color: #64748b; }
+.jd-cmd { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; font: 12px/1.5 monospace; color: #334155; }
+.jd-cmd code { flex: 1; min-width: 0; color: inherit; overflow-wrap: anywhere; white-space: pre-wrap; }
+.jd-copy { flex: none; border: 0; background: none; padding: 2px 5px; color: #94a3b8; cursor: pointer; border-radius: 6px; }
+.jd-copy:hover { color: #475569; background: #eef1f5; }
+.jd-notes { margin: 8px 0 0; padding-left: 16px; font-size: .75rem; color: #64748b; }
+.jd-notes li { margin-bottom: 2px; }
+.jd-run-note { display: flex; gap: 8px; margin-top: 8px; font-size: .75rem; color: #64748b; }
+.jd-run-note i { flex: none; margin-top: 2px; }
+.jd-run-note.warn { color: #92702a; }
+</style>
+
+<!-- ===== TASK LIST ===== -->
+    <div class="card border-0 shadow-sm mt-3">
+        <div class="card-header bg-transparent d-flex align-items-center justify-content-between py-3">
+            <div class="d-flex align-items-center gap-2">
+                <span class="fw-bold">All Scan Jobs</span>
+                <span id="jobCountBadge" class="badge bg-secondary" style="font-size:.7rem;">—</span>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+                    <option value="all">All Status</option>
+                    <option value="Queued">Queued</option>
+                    <option value="Running">🔄 Running</option>
+                    <option value="Completed">Completed</option>
+                </select>
+                <div id="liveIndicator" class="d-flex align-items-center gap-1 text-success small">
+
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="jobsTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width:84px">#</th>
+                            <th style="width:30%">Name / Target</th>
+                            <th style="width:15%">Type</th>
+                            <th style="width:13%">Triggered By</th>
+                            <th style="width:15%">Date &amp; Time</th>
+                            <th style="width:10%">Status</th>
+                            <th style="width:110px">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="jobsBody">
+                        <tr id="loadingRow">
+                            <td colspan="7" class="text-center text-muted py-5">
+                                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                                Loading…
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="emptyState" class="text-center text-muted py-5 d-none">
+                <div class="mb-2"><i class="ti ti-inbox" style="font-size: 2.2rem; opacity: 0.5;"></i></div>
+                <p class="mt-2 mb-1 fw-semibold">ยังไม่มีการสแกน</p>
+                <small>คลิก <strong>New Scan</strong> เพื่อเริ่มสแกน</small>
+            </div>
+            <div id="paginationBar"
+                class="d-none d-flex align-items-center justify-content-between px-3 py-2 border-top"
+                style="background:#f8f9fa;">
+                <span id="paginationInfo" class="text-muted small"></span>
+                <div class="d-flex align-items-center gap-1">
+                    <button id="btnPrevPage" class="btn btn-sm btn-outline-secondary" onclick="changePage(-1)"
+                        disabled>&#8249; ก่อนหน้า</button>
+                    <span id="pageIndicator" class="small px-2 text-muted"></span>
+                    <button id="btnNextPage" class="btn btn-sm btn-outline-secondary" onclick="changePage(1)">ถัดไป
+                        &#8250;</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SCHEDULED SCAN LIST ===== -->
+    {% if current_user.role in ('admin', 'superadmin') %}
+    <div class="card border-0 shadow-sm mt-4">
+        <div class="card-header bg-transparent d-flex align-items-center justify-content-between py-3">
+            <div class="d-flex align-items-center gap-2">
+                <span class="fw-bold">Scheduled Scans</span>
+                {% if schedules %}<span class="badge bg-secondary" style="font-size:.7rem;">{{ schedules|length
+                    }}</span>{% endif %}
+            </div>
+        </div>
+        <div class="card-body p-0">
+            {% if schedules %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Name</th>
+                            <th>Target</th>
+                            <th>Type</th>
+                            <th>Repeat</th>
+                            <th>Time (ICT)</th>
+                            <th>Next Run</th>
+                            <th>Last Run</th>
+                            <th>Active</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in schedules %}
+                        <tr id="schedule-row-{{ s.id }}">
+                            <td class="fw-bold"><button type="button" class="sched-toggle" data-id="{{ s.id }}" aria-expanded="false" aria-label="ดูรายละเอียดของตารางนี้" title="รายละเอียด"><i class="ti ti-chevron-right"></i></button>{{ s.name }}</td>
+                            <td>
+                                <code>{{ s.target }}</code>
+                                {% set cnt = target_scan_counts.get(s.target, 0) %}
+                                {% if cnt > 0 %}
+                                <span class="badge bg-secondary ms-1" style="font-size:.65rem;opacity:.75;"
+                                    title="สแกน target นี้ไปแล้ว {{ cnt }} ครั้ง">×{{ cnt }}</span>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge bg-secondary">{{ s.scan_type | scan_label }}</span></td>
+                            <td>
+                                {% if s.repeat == 'daily' %}<span class="badge bg-info text-dark">Daily</span>
+                                {% elif s.repeat == 'weekly' %}<span class="badge bg-warning text-dark">Weekly</span>
+                                {% else %}<span class="badge bg-primary">Monthly</span>{% endif %}
+                            </td>
+                            <td>{{ '%02d:%02d' % (s.cron_hour, s.cron_minute) }}</td>
+                            <td class="next-run-{{ s.id }} text-muted small">{{ s.next_run.strftime('%Y-%m-%d %H:%M') if
+                                s.next_run else '-' }}</td>
+                            <td class="text-muted small">{{ s.last_run.strftime('%Y-%m-%d %H:%M') if s.last_run else
+                                'Never' }}</td>
+                            <td>
+                                <div class="form-check form-switch" style="min-width:60px">
+                                    <input class="form-check-input toggle-switch" type="checkbox" id="toggle-{{ s.id }}"
+                                        data-id="{{ s.id }}" {{ 'checked' if s.is_active else '' }}>
+                                </div>
+                            </td>
+                            <td>
+                                <form method="POST" action="/schedules/{{ s.id }}/delete" class="d-inline"
+                                    onsubmit="return confirm('Delete this schedule?')">
+                                    <button class="btn btn-sm btn-outline-danger" title="Delete">
+                                        <i class="ti ti-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        <tr class="sched-details-row d-none" id="schedule-details-{{ s.id }}"><td colspan="9"></td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center text-muted py-5">
+                <div class="mb-2"><i class="ti ti-calendar-time" style="font-size: 2.2rem; opacity: 0.5;"></i></div>
+                <p class="mt-2 mb-1 fw-semibold">ยังไม่มี Scheduled Scan</p>
+                <small>คลิก <strong>New Scan → Schedule</strong> เพื่อตั้งเวลาสแกนอัตโนมัติ</small>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+</div><!-- /paneScanMgmt -->
+
+<!-- ===== TAB: NETWORK TOOLS ===== -->
+<div id="paneNetTools" style="display:none;">
+
+    <!-- ========== XML UPLOAD CARD ========== -->
+    {% if current_user.role in ('admin', 'superadmin') %}
+    <div class="card border-0 shadow-sm mt-2" id="xmlUploadCard">
+        <div class="card-header bg-transparent py-3">
+            <div class="d-flex align-items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"
+                    class="text-secondary">
+                    <path
+                        d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                    <path
+                        d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z" />
+                </svg>
+                <span class="fw-bold">Import Nmap XML</span>
+                <span class="badge bg-secondary" style="font-size:.7rem;">Upload</span>
+            </div>
+        </div>
+        <div class="card-body p-4">
+            <form method="POST" action="/upload-xml" enctype="multipart/form-data" id="xmlUploadForm">
+                <!-- Scan Name -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-dark mb-1">Scan Name <span
+                            class="text-muted fw-normal">(optional)</span></label>
+                    <input type="text" name="xml_scan_name" class="form-control rounded-3"
+                        placeholder="e.g. Office Network Scan" style="border-color:#dee2e6; max-width:420px;">
+                </div>
+
+                <!-- Drop Zone -->
+                <div id="xmlDropZone" class="rounded-3 d-flex flex-column align-items-center justify-content-center"
+                    style="border: 2px dashed #dee2e6; padding: 2.5rem 1rem; cursor: pointer;
+                        transition: border-color .2s, background .2s; max-width: 420px; min-height: 160px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="#adb5bd" viewBox="0 0 16 16"
+                        id="xmlDropIcon">
+                        <path
+                            d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                        <path
+                            d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z" />
+                    </svg>
+                    <div class="mt-2 text-muted" style="font-size:.9rem;" id="xmlDropText">
+                        Drop Nmap XML file here<br>
+                        <span style="font-size:.8rem;">or <span class="text-primary" style="cursor:pointer;"
+                                onclick="document.getElementById('xmlFileInput').click()">click to browse</span></span>
+                    </div>
+                    <input type="file" name="nmap_xml" id="xmlFileInput" accept=".xml" class="d-none">
+                </div>
+
+                <!-- File Chip (hidden until file selected) -->
+                <div id="xmlFileChip" class="d-none mt-3 d-flex align-items-center gap-2" style="max-width: 420px;">
+                    <div class="d-flex align-items-center gap-2 border rounded-3 px-3 py-2 flex-grow-1"
+                        style="background:#f8f9fa; border-color:#dee2e6!important;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#6c757d"
+                            viewBox="0 0 16 16">
+                            <path
+                                d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z" />
+                        </svg>
+                        <span id="xmlFileName" class="small text-muted text-truncate"
+                            style="max-width:260px;">result.xml</span>
+                    </div>
+                    <button type="button" id="xmlClearBtn" class="btn btn-sm px-3 rounded-3 fw-semibold"
+                        style="background:#e74c3c;color:#fff;border:none;">Clear</button>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="d-flex align-items-center gap-2 mt-3" style="max-width:420px;">
+                    <button type="submit" id="xmlOpenBtn"
+                        class="btn btn-outline-secondary rounded-3 px-4 fw-semibold flex-grow-1"
+                        style="border-color:#dee2e6; color:#555;">
+                        Open
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const dropZone = document.getElementById('xmlDropZone');
+            const fileInput = document.getElementById('xmlFileInput');
+            const dropText = document.getElementById('xmlDropText');
+            const fileChip = document.getElementById('xmlFileChip');
+            const fileNameEl = document.getElementById('xmlFileName');
+            const clearBtn = document.getElementById('xmlClearBtn');
+            const openBtn = document.getElementById('xmlOpenBtn');
+
+            function setFile(file) {
+                if (!file || !file.name.toLowerCase().endsWith('.xml')) {
+                    alert('กรุณาเลือกไฟล์ .xml เท่านั้น');
+                    fileInput.value = '';
+                    return;
+                }
+                fileNameEl.textContent = file.name;
+                fileChip.classList.remove('d-none');
+                dropText.innerHTML = '<span class="text-success fw-semibold">File selected ✓</span>';
+                dropZone.style.borderColor = '#198754';
+                dropZone.style.background = '#f6fff8';
+                openBtn.textContent = 'Import';
+                openBtn.classList.remove('btn-outline-secondary');
+                openBtn.classList.add('btn-primary');
+            }
+
+            function clearFile() {
+                fileInput.value = '';
+                fileChip.classList.add('d-none');
+                fileNameEl.textContent = '';
+                dropText.innerHTML = 'Drop Nmap XML file here<br><span style="font-size:.8rem;">or <span class="text-primary" style="cursor:pointer;" onclick="document.getElementById(\'xmlFileInput\').click()">click to browse</span></span>';
+                dropZone.style.borderColor = '#dee2e6';
+                dropZone.style.background = '';
+                openBtn.textContent = 'Open';
+                openBtn.classList.add('btn-outline-secondary');
+                openBtn.classList.remove('btn-primary');
+            }
+
+            dropZone.addEventListener('click', function (e) {
+                if (e.target === clearBtn || clearBtn.contains(e.target)) return;
+                fileInput.click();
+            });
+
+            fileInput.addEventListener('change', function () {
+                if (this.files[0]) setFile(this.files[0]);
+            });
+
+            dropZone.addEventListener('dragover', function (e) {
+                e.preventDefault();
+                this.style.borderColor = '#0d6efd';
+                this.style.background = '#f0f5ff';
+            });
+
+            dropZone.addEventListener('dragleave', function () {
+                this.style.borderColor = fileInput.files[0] ? '#198754' : '#dee2e6';
+                this.style.background = fileInput.files[0] ? '#f6fff8' : '';
+            });
+
+            dropZone.addEventListener('drop', function (e) {
+                e.preventDefault();
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                    // Transfer to real input via DataTransfer
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    fileInput.files = dt.files;
+                    setFile(file);
+                }
+                this.style.borderColor = '#198754';
+                this.style.background = '#f6fff8';
+            });
+
+            clearBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                clearFile();
+            });
+
+            // Validate before submit
+            document.getElementById('xmlUploadForm').addEventListener('submit', function (e) {
+                if (!fileInput.files[0]) {
+                    e.preventDefault();
+                    alert('กรุณาเลือกไฟล์ XML ก่อน');
+                }
+            });
+        })();
+    </script>
+    {% endif %}
+
+</div><!-- /paneNetTools -->
+
+<script>
+    // Keep this name page-specific: base.html also has a switchTab() for the chatbot.
+    function switchTaskTab(tab) {
+        const isScan = tab === 'scan';
+        document.getElementById('paneScanMgmt').style.display = isScan ? '' : 'none';
+        document.getElementById('paneNetTools').style.display = isScan ? 'none' : '';
+        document.getElementById('newScanTopBtn') && (document.getElementById('newScanTopBtn').style.display = isScan ? '' : 'none');
+        document.getElementById('tabScanMgmt').classList.toggle('active-tab', isScan);
+        document.getElementById('tabNetTools').classList.toggle('active-tab', !isScan);
+        // persist in sessionStorage
+        sessionStorage.setItem('taskTab', tab);
+    }
+    // restore tab on load
+    document.addEventListener('DOMContentLoaded', function () {
+        const saved = sessionStorage.getItem('taskTab') || 'scan';
+        switchTaskTab(saved);
+    });
+    // if redirected here after xml upload, switch to net tab
+    if (window.location.hash === '#network') { switchTaskTab('net'); }
+</script>
+
+<!-- ========== NEW SCAN MODAL (Figma Design) ========== -->
+{% if current_user.role in ('admin', 'superadmin') %}
+<div class="modal fade" id="newScanModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+            <div class="modal-body p-4">
+                <div class="d-flex align-items-start justify-content-between gap-2 mb-4">
+                    <h5 class="fw-bold mb-0" style="font-size:1.15rem;">Create New Scan</h5>
+                    <div class="form-check form-switch ns-cmd-switch" title="แสดงหรือซ่อนคำสั่ง nmap ที่จะใช้">
+                        <input class="form-check-input" type="checkbox" role="switch" id="nsCmdToggle" aria-controls="nsCmdBox">
+                        <label class="form-check-label" for="nsCmdToggle"><i class="ti ti-terminal-2" aria-hidden="true"></i>แสดงคำสั่ง</label>
+                    </div>
+                </div>
+
+                <!-- ===== SCAN FORM (immediate scan) ===== -->
+                <form method="POST" action="/" id="newScanForm">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-dark mb-1">ชื่องานสแกน</label>
+                        <input type="text" name="scan_name" id="ns_scan_name" class="form-control rounded-3"
+                            placeholder="เช่น ทดสอบ 1" style="border-color:#dee2e6;">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-dark mb-1">เป้าหมาย (ที่อยู่ IP)</label>
+                        <div class="position-relative" id="taskIpWrap">
+                            <input type="text" name="target" id="taskTargetInput" class="form-control rounded-3 pe-5"
+                                placeholder="เช่น 192.168.1.0/24" autocomplete="off" style="border-color:#dee2e6;"
+                                role="combobox" aria-expanded="false" aria-controls="taskIpList" aria-autocomplete="list" aria-haspopup="listbox">
+                            <button type="button" id="taskIpToggle" class="ip-toggle" tabindex="-1" aria-expanded="false" aria-controls="taskIpList"
+                                aria-label="แสดงรายการเป้าหมายที่บันทึกไว้" title="แสดงรายการเป้าหมายที่บันทึกไว้"><i class="ti ti-chevron-down" aria-hidden="true"></i></button>
+                            <div id="taskIpDropdown" class="ip-pop shadow">
+                                <div id="taskIpList" class="ip-scroll" role="listbox" aria-label="เป้าหมายที่บันทึกไว้"></div>
+                            </div>
+                            <span id="taskIpLive" class="visually-hidden" aria-live="polite"></span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-dark mb-1">Scan Profile</label>
+                        <div class="clylar-custom-select" id="ns_custom_select">
+                            <input type="hidden" name="scan_type" id="ns_scan_type" value="fast_scan">
+                            <button type="button" class="clylar-select-trigger" id="ns_select_trigger" aria-haspopup="listbox" aria-expanded="false">
+                                <span class="clylar-selected-text fw-normal" id="ns_selected_label">Fast Scan</span>
+                                <i class="ti ti-chevron-down clylar-select-chevron"></i>
+                            </button>
+                            <ul class="clylar-select-menu" role="listbox">
+                                <li class="clylar-option-row is-selected" data-value="fast_scan" data-label="Fast Scan" role="option" aria-selected="true">
+                                    <span class="clylar-option-name">Fast Scan</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Fast Scan Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Fast Scan (สแกนแบบเร็ว)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">สแกนพอร์ตยอดนิยม 100 พอร์ตแรก พร้อมตรวจจับเวอร์ชั่นของบริการและระบบปฏิบัติการ (OS) เหมาะสำหรับตรวจหาพอร์ตที่เปิดอยู่อย่างเร่งด่วน</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;"><span class="text-nowrap">nmap -F -sV</span> <span class="text-nowrap">--version-intensity 7</span> <span class="text-nowrap">-O</span></div>
+                                        </div>
+                                    </span>
+                                </li>
+                                <li class="clylar-option-row" data-value="intense" data-label="Intense Scan" role="option" aria-selected="false">
+                                    <span class="clylar-option-name">Intense Scan</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Intense Scan Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Intense Scan (สแกนแบบละเอียด)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">สแกนครบวงจรพร้อมตรวจจับระบบปฏิบัติการ (OS), เวอร์ชั่นของบริการ, รันสคริปต์ และ Traceroute</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;">nmap -T4 -A -v</div>
+                                        </div>
+                                    </span>
+                                </li>
+                                <li class="clylar-option-row" data-value="discovery" data-label="Discovery (Ping Scan)" role="option" aria-selected="false">
+                                    <span class="clylar-option-name">Discovery (Ping Scan)</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Discovery Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Discovery (สแกนค้นหาโฮสต์)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">ตรวจหาเครื่องที่ออนไลน์อยู่ในเครือข่ายโดยไม่สแกนพอร์ต เหมาะสำหรับการสำรวจผังเครือข่าย</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;">nmap -sn</div>
+                                        </div>
+                                    </span>
+                                </li>
+                                <li class="clylar-option-row" data-value="custom" data-label="Custom (nmap args)" role="option" aria-selected="false">
+                                    <span class="clylar-option-name">Custom (nmap args)</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Custom Args Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Custom (กำหนดคำสั่งเอง)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">กำหนดพารามิเตอร์และคำสั่ง Nmap เพิ่มเติมได้เองตามต้องการ เพื่อให้เหมาะกับเป้าหมาย</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;">nmap [custom_args]</div>
+                                        </div>
+                                    </span>
+                                </li>
+                                <li class="clylar-option-row" data-value="vuln_scan" data-label="Vulnerability Scan" role="option" aria-selected="false">
+                                    <span class="clylar-option-name">Vulnerability Scan</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Vulnerability Scan Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Vulnerability Scan (สแกนช่องโหว่)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">สแกนครบวงจร (OS และเวอร์ชั่นของบริการ) แล้วนำเวอร์ชั่นที่พบไปค้นหาช่องโหว่ (CVE) จากฐานข้อมูล NVD ต้องเชื่อมต่ออินเทอร์เน็ต</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;"><span class="text-nowrap">nmap -T4 -A -v</span> + NVD CVE lookup</div>
+                                        </div>
+                                    </span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Custom Args (hidden by default) -->
+                    <div class="mb-3 d-none" id="customArgWrapper">
+                        <label class="form-label fw-semibold small text-dark mb-1">Custom nmap arguments</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-dark text-success font-monospace"
+                                style="font-size:.82rem;">nmap</span>
+                            <input type="text" name="custom_args" id="customArgsInput"
+                                class="form-control font-monospace" placeholder="-p 22,80,443 -sV " autocomplete="off">
+                        </div>
+                        <div class="form-text">target จะถูกต่อท้ายให้อัตโนมัติ</div>
+                        <div id="customArgsError" class="mt-2 d-none">
+                            <div class="alert alert-danger py-2 px-3 mb-0 d-flex align-items-start gap-2"
+                                style="font-size:.85rem;border-radius:8px;">
+                                <span style="font-size:1rem;">🚫</span>
+                                <div>
+                                    <strong>ไม่อนุญาต:</strong>
+                                    <span id="customArgsErrorMsg"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Advanced options: the shared partial (Timing, -Pn, mDNS / SSDP, Version Intensity) -->
+                    {% with prefix='ns', with_mc=true %}{% include 'partials/_scan_advanced.html' %}{% endwith %}
+
+                    <!-- The command the form would run with its current choices (like Zenmap's Command line); shown from the header button -->
+                    <div id="nsCmdBox" class="ns-cmd mb-3" hidden>
+                        <div class="ns-cmd-head">คำสั่งที่จะใช้</div>
+                        <div class="jd-cmd"><code id="nsCmdText"></code><button type="button" class="jd-copy" id="nsCmdCopy" title="คัดลอกคำสั่ง" aria-label="คัดลอกคำสั่ง nmap"><i class="ti ti-copy"></i></button></div>
+                        <div id="nsCmdWarn" class="ns-cmd-warn" hidden></div>
+                        <ul id="nsCmdSteps" class="ns-cmd-steps"></ul>
+                        <div id="nsCmdNote" class="ns-cmd-note"></div>
+                    </div>
+
+                    <!-- ===== SCHEDULE SETTINGS (expandable) ===== -->
+                    <div id="scheduleSettingsPanel" class="d-none mb-3">
+                        <div class="p-3 rounded-3" style="background:#f8f9fa;border:1px solid #e9ecef;">
+                            <div class="fw-semibold small mb-3 pb-2" style="border-bottom:1px solid #dee2e6;">Schedule
+                                Settings</div>
+                            <div class="row g-3">
+                                <div class="col-7">
+                                    <label class="form-label fw-semibold small text-dark mb-1">Repeat</label>
+                                    <select name="repeat" class="form-select form-select-sm rounded-3" id="repeatSelect"
+                                        style="border-color:#dee2e6;">
+                                        <option value="daily">Daily</option>
+                                        <option value="weekly">Weekly</option>
+                                        <option value="monthly">Monthly</option>
+                                    </select>
+                                </div>
+                                <div class="col-5">
+                                    <label class="form-label fw-semibold small text-dark mb-1" for="schedTimeInput">Time</label>
+                                    <div class="sched-time-wrap">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" name="time" class="form-control rounded-start-3" id="schedTimeInput" value="02:00"
+                                                inputmode="numeric" autocomplete="off" maxlength="12" placeholder="14:30"
+                                                aria-describedby="schedTimeHelp" style="border-color:#dee2e6;">
+                                            <button type="button" class="btn btn-outline-secondary rounded-end-3" id="schedTimePick"
+                                                aria-label="เลือกเวลาจากนาฬิกา" title="เลือกเวลาจากนาฬิกา" style="border-color:#dee2e6;color:#555;">
+                                                <i class="ti ti-clock" aria-hidden="true"></i>
+                                            </button>
+                                        </div>
+                                        <input type="time" id="schedTimeNative" tabindex="-1" aria-hidden="true">
+                                    </div>
+                                    <div id="schedTimeHelp">ใช้ 24 ชม. เช่น 14:30</div>
+                                </div>
+                                <div class="col-12 d-none" id="weeklyOptions">
+                                    <label class="form-label fw-semibold small text-dark mb-1">Day of Week</label>
+                                    <select name="day_of_week" class="form-select form-select-sm rounded-3"
+                                        style="border-color:#dee2e6;">
+                                        <option value="0">Monday</option>
+                                        <option value="1">Tuesday</option>
+                                        <option value="2">Wednesday</option>
+                                        <option value="3">Thursday</option>
+                                        <option value="4">Friday</option>
+                                        <option value="5">Saturday</option>
+                                        <option value="6">Sunday</option>
+                                    </select>
+                                </div>
+                                <div class="col-12 d-none" id="monthlyOptions">
+                                    <label class="form-label fw-semibold small text-dark mb-1">Day of Month
+                                        (1–31)</label>
+                                    <input type="number" name="day_of_month"
+                                        class="form-control form-control-sm rounded-3" min="1" max="31" value="1"
+                                        style="border-color:#dee2e6;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ===== ACTION BUTTONS ===== -->
+                    <div class="d-flex align-items-center justify-content-between mt-3">
+                        <!-- Left: Schedule toggle button -->
+                        <button type="button" id="toggleScheduleBtn"
+                            class="btn btn-outline-secondary btn-sm rounded-3 d-flex align-items-center gap-2"
+                            style="font-size:.85rem;border-color:#dee2e6;color:#555;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
+                                viewBox="0 0 16 16">
+                                <path
+                                    d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
+                                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
+                            </svg>
+                            Schedule
+                        </button>
+
+                        <!-- Right: Cancel + action -->
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-3 px-3"
+                                data-bs-dismiss="modal" style="border-color:#dee2e6;color:#555;">
+                                Cancel
+                            </button>
+                            <button type="submit" id="mainActionBtn"
+                                class="btn btn-primary btn-sm rounded-3 px-4 fw-semibold">
+                                Scan
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Hidden field to signal schedule mode -->
+                    <input type="hidden" name="_mode" id="formMode" value="scan">
+                </form>
+
+                <!-- Save Schedule submits to /schedules/create separately -->
+                <form method="POST" action="/schedules/create" id="saveScheduleForm" class="d-none">
+                    <input type="hidden" name="name" id="sf_name">
+                    <input type="hidden" name="target" id="sf_target">
+                    <input type="hidden" name="scan_type" id="sf_scan_type">
+                    <input type="hidden" name="repeat" id="sf_repeat">
+                    <input type="hidden" name="time" id="sf_time">
+                    <input type="hidden" name="day_of_week" id="sf_day_of_week">
+                    <input type="hidden" name="day_of_month" id="sf_day_of_month">
+                    <input type="hidden" name="custom_args" id="sf_custom_args">
+                    <input type="hidden" name="timing" id="sf_timing">
+                    <input type="hidden" name="version_intensity" id="sf_version_intensity">
+                    <input type="hidden" name="skip_ping" id="sf_skip_ping">
+                    <input type="hidden" name="all_ports" id="sf_all_ports">
+                    <input type="hidden" name="no_dns" id="sf_no_dns">
+                    <input type="hidden" name="host_probes" id="sf_host_probes">
+                    <input type="hidden" name="gentle" id="sf_gentle">
+                    <input type="hidden" name="udp" id="sf_udp">
+                </form>
+
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+
+<script>
+    // ===== LIVE JOB TABLE =====
+    let currentFilter = 'all';
+    let allJobs = [];
+    let pollTimer = null;
+    let currentPage = 1;
+    const PAGE_SIZE = 5;
+
+    const jobsBody = document.getElementById('jobsBody');
+    const emptyState = document.getElementById('emptyState');
+    const countBadge = document.getElementById('jobCountBadge');
+    const paginationBar = document.getElementById('paginationBar');
+    const paginationInfo = document.getElementById('paginationInfo');
+    const pageIndicator = document.getElementById('pageIndicator');
+    const btnPrev = document.getElementById('btnPrevPage');
+    const btnNext = document.getElementById('btnNextPage');
+
+    function changePage(dir) {
+        const list = currentFilter === 'all' ? allJobs : allJobs.filter(j => j.status === currentFilter);
+        const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+        currentPage = Math.min(Math.max(1, currentPage + dir), totalPages);
+        renderJobs();
+    }
+
+    function esc(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function statusBadge(s) {
+        if (s === 'Queued')
+            return `<span class="badge rounded-pill" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;font-weight:600;">Queued</span>`;
+        if (s === 'Running')
+            return `<span class="badge rounded-pill text-bg-warning d-inline-flex align-items-center gap-1">
+                    <span class="spinner-grow" style="width:.45rem;height:.45rem;"></span> Running
+                </span>`;
+        if (s === 'Completed')
+            return `<span class="badge rounded-pill text-bg-success">Completed</span>`;
+        if (s === 'Cancelled')
+            return `<span class="badge rounded-pill text-bg-secondary">Cancelled</span>`;
+        return `<span class="badge rounded-pill text-bg-danger">${esc(s)}</span>`;
+    }
+
+    function typeBadge(t) {
+        const col = { discovery: 'info', fast_scan: 'primary', intense: 'danger', custom: 'secondary', xml_upload: 'success' }[t] || 'secondary';
+        const labelMap = { fast_scan: 'Fast Scan', discovery: 'Discovery', intense: 'Intense Scan', custom: 'Custom Scan', xml_upload: 'XML Upload', vuln_scan: 'Vulnerability Scan (CVE)' };
+        const label = labelMap[t] || t;
+        return `<span class="badge text-bg-${col}">${esc(label)}</span>`;
+    }
+
+    function srcBadge(src) {
+        if (src === 'schedule') return `<span class="badge" style="background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;font-weight:500;"><i class="ti ti-clock me-1"></i>Schedule</span>`;
+        if (src === 'rescan') return `<span class="badge" style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;font-weight:500;"><i class="ti ti-refresh me-1"></i>Rescan</span>`;
+        if (src === 'drilldown') return `<span class="badge" style="background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;font-weight:500;"><i class="ti ti-scan me-1"></i>Drill-down</span>`;
+        return `<span class="badge" style="background:#f8fafc;color:#475569;border:1px solid #e2e8f0;font-weight:500;"><i class="ti ti-user me-1"></i>Manual</span>`;
+    }
+
+    let lastRenderKey = '';
+    function renderJobs() {
+        const list = currentFilter === 'all' ? allJobs : allJobs.filter(j => j.status === currentFilter);
+        countBadge.textContent = allJobs.length;
+        if (!list.length) {
+            lastRenderKey = '';
+            jobsBody.innerHTML = '';
+            emptyState.classList.remove('d-none');
+            paginationBar.classList.add('d-none');
+            return;
+        }
+        emptyState.classList.add('d-none');
+
+        const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+        currentPage = Math.min(Math.max(1, currentPage), totalPages);
+        const start = (currentPage - 1) * PAGE_SIZE;
+        const pageItems = list.slice(start, start + PAGE_SIZE);
+
+        // The list is polled every 3 seconds; rebuilding identical rows would drop keyboard focus and any text selection
+        const key = JSON.stringify([pageItems, list.length, allJobs.length, currentPage, [...expandedJobs]]);
+        if (key === lastRenderKey) return;
+        lastRenderKey = key;
+
+        jobsBody.innerHTML = pageItems.map(j => {
+            const seqBadge = j.scan_total > 1
+                ? `<span class="badge ms-1" style="font-size:.6rem;background:#EAF3DE;color:#3B6D11;border:0.5px solid #C0DD97;" title="สแกนครั้งที่ ${j.scan_seq} จากทั้งหมด ${j.scan_total} ครั้ง">count: ${j.scan_seq}/${j.scan_total}</span>`
+                : '';
+            return `
+        <tr>
+            <td class="text-muted small" style="white-space:nowrap;"><button type="button" class="job-toggle" data-id="${j.id}" aria-expanded="${expandedJobs.has(j.id)}" aria-label="ดูรายละเอียดของงานนี้" title="รายละเอียด"><i class="ti ti-chevron-right"></i></button>#${j.owner_seq}</td>
+            <td class="job-name-cell">
+                <div class="fw-semibold job-name-title">${j.scan_name ? esc(j.scan_name) : '<span class="text-muted fst-italic">—</span>'}</div>
+                <code class="small text-muted">${esc(j.target)}</code>${seqBadge}
+                ${(j.status === 'Queued' || j.status === 'Running') ? `<div class="job-prog" data-id="${j.id}"></div>` : ''}
+            </td>
+            <td>${typeBadge(j.scan_type)}</td>
+            <td>${srcBadge(j.triggered_by)}</td>
+            <td class="text-muted small" style="white-space:nowrap;">${j.timestamp}</td>
+            <td>${statusBadge(j.status)}</td>
+            <td>${j.status === 'Completed'
+                    ? `<div class="d-flex gap-1">
+                     <a href="/scan/${j.id}" class="btn btn-sm btn-outline-primary">View</a>
+                     ${j.scan_type !== 'xml_upload' ? `<button class="btn btn-sm btn-outline-secondary rescan-btn" title="Rescan"
+                             data-id="${j.id}" data-target="${esc(j.target)}" data-type="${esc(j.scan_type)}"
+                             data-timing="${j.timing != null ? j.timing : ''}" data-version-intensity="${j.version_intensity != null ? j.version_intensity : ''}" data-skip-ping="${j.skip_ping ? '1' : ''}" data-all-ports="${j.all_ports ? '1' : ''}" data-no-dns="${j.no_dns ? '1' : ''}" data-host-probes="${j.host_probes ? '1' : ''}" data-gentle="${j.gentle ? '1' : ''}" data-udp="${j.udp ? '1' : ''}"><i class="ti ti-refresh"></i></button>` : ''}
+                   </div>`
+                    : (j.status === 'Running' || j.status === 'Queued')
+                        ? `<button class="btn btn-sm btn-outline-danger stop-btn" data-id="${j.id}"><i class="ti ti-player-stop-filled me-1"></i>Stop</button>`
+                        : `<button class="btn btn-sm btn-outline-secondary" disabled>—</button>`}</td>
+        </tr>${expandedJobs.has(j.id) ? detailsRowHtml(j) : ''}`;
+        }).join('');
+        applyProgress();                    // the empty progress boxes of the new rows are filled from the last answer of /api/jobs/progress
+
+        // Update pagination bar
+        if (list.length > PAGE_SIZE) {
+            paginationBar.classList.remove('d-none');
+            paginationInfo.textContent = `แสดง ${start + 1}–${Math.min(start + PAGE_SIZE, list.length)} จาก ${list.length} รายการ`;
+            pageIndicator.textContent = `หน้า ${currentPage} / ${totalPages}`;
+            btnPrev.disabled = currentPage <= 1;
+            btnNext.disabled = currentPage >= totalPages;
+        } else {
+            paginationBar.classList.add('d-none');
+        }
+    }
+
+
+    // ===== JOB / SCHEDULE DETAILS PANEL =====
+    // What a scan ran with (the exact nmap command, timing, intensity) and what it found. The facts come from the server
+    // (describe_scan_settings in scanner.py builds the arguments with the same function the scanner runs); the words are here.
+    const SCHEDULE_DETAILS = {{ schedule_details | tojson }};
+    const expandedJobs = new Set();
+    const jobDetailsCache = {};            // job id -> { status, data }; refetched when the job's status changes
+    const pendingDetails = new Set();
+
+    const SCAN_TYPE_NOTE = {
+        discovery: 'ตรวจว่ามีอุปกรณ์ใดออนไลน์ (ping sweep) ไม่สแกนพอร์ต',
+        fast_scan: 'สแกนพอร์ตยอดนิยม (100 พอร์ต) พร้อมตรวจเวอร์ชันบริการและระบบปฏิบัติการ',
+        intense: 'สแกนละเอียด: ระบบปฏิบัติการ เวอร์ชัน สคริปต์พื้นฐาน และ traceroute (-A)',
+        vuln_scan: 'สแกนละเอียดแบบ Intense แล้วนำเวอร์ชันของบริการที่เปิดอยู่ไปค้นหา CVE จาก NVD',
+        custom: 'สแกนด้วย arguments ที่ผู้ใช้กำหนดเอง (ผ่านการตรวจ whitelist)',
+        xml_upload: 'นำเข้าจากไฟล์ XML ของ nmap ไม่ได้สแกนจริง'
+    };
+    const STEP_TEXT = {
+        gateway_probe: 'หาก default gateway ของคอมพิวเตอร์ที่รันระบบอยู่ในช่วงที่สแกนแต่ไม่ตอบ ping ระบบจะตรวจพอร์ต 53, 80, 443, 8080 ของ gateway นั้นอีกครั้ง',
+        mdns_ssdp: 'ฟังการตอบกลับ mDNS (Bonjour) และ SSDP (UPnP) ระหว่างสแกน',
+        nvd_lookup: 'ค้นหา CVE ของพอร์ตที่เปิดจาก NVD API (เฉพาะบริการที่ nmap ระบุผลิตภัณฑ์และเวอร์ชันได้)',
+        udp_pass: 'รอบที่ 2: สแกน UDP 12 พอร์ตที่พบบ่อยกับอุปกรณ์ที่รอบแรกพบว่าออนไลน์',
+        xml_import: 'ข้อมูลมาจากไฟล์ที่นำเข้า ไม่ได้ส่งแพ็กเก็ตสแกนเครือข่าย'
+    };
+    const TIMING_WORDS = { 0: 'ช้าที่สุด', 1: 'ช้ามาก แม่นยำที่สุด', 2: 'ช้า แม่นยำสูง', 3: 'สมดุล', 4: 'เร็ว' };
+    const TRIGGER_TEXT = { manual: 'สั่งเอง (Manual)', schedule: 'ตั้งเวลา (Schedule)', rescan: 'สแกนซ้ำ (Rescan)', drilldown: 'Drill-down จากรายงาน', chatbot: 'สั่งผ่าน Chatbot' };
+    const WEEKDAYS = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
+    const NOT_RECORDED = '<span class="text-muted">ไม่ได้บันทึกไว้ (งานเก่า)</span>';
+
+    function escAttr(str) { return esc(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+    function jdRow(label, html) { return `<div class="jd-row"><dt>${label}</dt><dd>${html}</dd></div>`; }
+
+    function timingText(x) {
+        if (x.source === 'custom') return 'ตามที่ระบุใน arguments';
+        if (x.source === 'none') return '—';
+        if (x.source === 'gentle') return `T2 <span class="text-muted">(ตั้งโดยโหมดสแกนแบบนุ่มนวล)</span>`;
+        const base = `T${x.value} · ${TIMING_WORDS[x.value] || ''}`;
+        if (x.source === 'nmap-default') return `${base} <span class="text-muted">(ไม่ได้ระบุ -T: ใช้ค่าเริ่มต้นของ nmap)</span>`;
+        if (x.source === 'type-default') return `${base} <span class="text-muted">(ค่าเริ่มต้นของสแกนชนิดนี้)</span>`;
+        return base;
+    }
+    function intensityText(x) {
+        if (x.source === 'custom') return 'ตามที่ระบุใน arguments';
+        if (x.source === 'unused') return '<span class="text-muted">ไม่ใช้ (Discovery ไม่อ่าน banner)</span>';
+        if (x.source === 'none') return '—';
+        return x.source === 'type-default' ? `${x.value} <span class="text-muted">(ค่าเริ่มต้น)</span>` : String(x.value);
+    }
+    function durationText(sec) {
+        const m = Math.floor(sec / 60), r = sec % 60;
+        return m ? `${m} นาที ${r} วินาที` : `${r} วินาที`;
+    }
+
+    // A job that failed validation never reached nmap: showing "nmap <args>" as the command it ran would be wrong.
+    const REJECTED_ERROR = /^(Flag not allowed|Invalid arguments format|Invalid value for|Unexpected token|Invalid target specified)/;
+    function wasRejected(d) {
+        return d.status === 'Failed' && REJECTED_ERROR.test(d.error || '');
+    }
+
+    // the "settings used" block, shared by a job and a schedule (rejected: the job never started nmap)
+    function settingsHtml(st, target, rejected) {
+        let html = `<div class="jd-title">การตั้งค่าที่ใช้</div><dl class="jd-list">`
+            + jdRow('ประเภท', `${typeBadge(st.scan_type)}<div class="jd-sub">${SCAN_TYPE_NOTE[st.scan_type] || ''}</div>`);
+        if (st.timing.source !== 'none') html += jdRow('Timing', timingText(st.timing));
+        if (st.intensity.source !== 'none') html += jdRow('Version intensity', intensityText(st.intensity));
+        if (st.scan_type === 'discovery') {
+            html += jdRow('mDNS / SSDP', st.multicast === true ? 'เปิด' : st.multicast === false ? 'ปิด' : NOT_RECORDED);
+        }
+        if (st.skip_ping === true || st.skip_ping === false) html += jdRow('ตรวจ ping', st.skip_ping ? 'ข้าม (-Pn)' : 'ตามปกติ');
+        if (st.all_ports === true || st.all_ports === false) html += jdRow('พอร์ตที่สแกน', st.all_ports ? 'ทุกพอร์ต (1-65535)' : 'ตามรายการปกติของประเภทนี้');
+        if (st.no_dns === true || st.no_dns === false) html += jdRow('ชื่ออุปกรณ์ (DNS)', st.no_dns ? 'ไม่ค้นหา (-n)' : 'ค้นหาตามปกติ');
+        if (st.host_probes === true || st.host_probes === false) html += jdRow('ตรวจหาอุปกรณ์ที่ไม่ตอบ ping', st.host_probes ? 'เปิด (ลองเชื่อมต่อพอร์ตที่พบบ่อย)' : 'ปิด');
+        if (st.gentle === true || st.gentle === false) html += jdRow('สแกนแบบนุ่มนวล', st.gentle ? 'เปิด (ช้าลงมาก จำกัดอัตรา)' : 'ปิด');
+        if (st.udp === true || st.udp === false) html += jdRow('สแกน UDP', st.udp ? 'เปิด (รอบที่ 2: 12 พอร์ตที่พบบ่อย)' : 'ปิด');
+        html += '</dl>';
+        if (rejected) {
+            html += `<div class="jd-sub mt-2">ไม่ได้เรียก nmap: ถูกปฏิเสธก่อนเริ่มสแกน (ดูข้อผิดพลาดที่ช่อง "ผลลัพธ์")</div>`
+                + (st.scan_type === 'custom' && st.arguments ? `<div class="jd-cmd"><code>${esc(st.arguments)}</code></div>` : '');
+        } else if (st.scan_type !== 'xml_upload') {
+            const cmd = `nmap ${st.arguments} ${target}`.replace(/\s+/g, ' ').trim();
+            html += st.scan_type === 'custom' && !st.arguments
+                ? `<div class="jd-sub mt-2">ไม่ได้บันทึก arguments ของงานนี้ไว้</div>`
+                : `<div class="jd-cmd"><code>${esc(cmd)}</code><button type="button" class="jd-copy" data-cmd="${escAttr(cmd)}" title="คัดลอกคำสั่ง" aria-label="คัดลอกคำสั่ง nmap"><i class="ti ti-copy"></i></button></div>`;
+        }
+        if (st.udp_arguments && !rejected) {
+            const ucmd = `nmap ${st.udp_arguments} <อุปกรณ์ที่รอบแรกพบว่าออนไลน์>`;
+            html += `<div class="jd-sub mt-2">รอบที่ 2 (UDP) ทำกับอุปกรณ์ที่รอบแรกพบว่าออนไลน์</div>`
+                + `<div class="jd-cmd"><code>${esc(ucmd)}</code><button type="button" class="jd-copy" data-cmd="${escAttr(ucmd)}" title="คัดลอกคำสั่ง" aria-label="คัดลอกคำสั่ง nmap ของรอบที่ 2"><i class="ti ti-copy"></i></button></div>`;
+        }
+        if (st.steps.length) html += `<ul class="jd-notes">${st.steps.map(k => `<li>${STEP_TEXT[k]}</li>`).join('')}</ul>`;
+        return html;
+    }
+
+    function jobDetailsHtml(j, d) {
+        if (!d) return '<div class="text-muted small">กำลังโหลดรายละเอียด…</div>';
+        const origin = jdRow('สร้างโดย', esc(TRIGGER_TEXT[d.triggered_by] || d.triggered_by))
+            + (d.name ? jdRow(d.triggered_by === 'schedule' ? 'ตารางเวลา' : 'ชื่องาน', esc(d.name)) : '')
+            + jdRow('เจ้าของ', d.owner ? esc(d.owner) : '—')
+            + jdRow('Target', `<code>${esc(d.target)}</code>`);
+        let result = d.status === 'Queued' ? jdRow('สร้างเมื่อ', esc(d.created)) : jdRow('เริ่ม', esc(d.started));
+        if (d.status === 'Queued') result += jdRow('สถานะ', 'รอคิว กำลังรอให้ระบบเริ่มสแกน');
+        else if (d.status === 'Running') result += jdRow('สถานะ', 'กำลังสแกน…');
+        else if (d.finished) {
+            result += jdRow('เสร็จ', esc(d.finished));
+            if (d.duration != null) result += jdRow('ใช้เวลา', durationText(d.duration));
+        } else if (d.status === 'Cancelled') result += jdRow('สถานะ', 'ถูกยกเลิก');
+        else if (d.settings.scan_type !== 'xml_upload') result += jdRow('เสร็จ', NOT_RECORDED);
+        if (d.error) result += jdRow('ข้อผิดพลาด', `<span class="text-danger">${esc(d.error)}</span>`);
+        if (d.hosts != null) {
+            result += jdRow('พบอุปกรณ์', d.hosts) + jdRow('พอร์ตที่เปิด', d.open_ports);
+            if (d.cves != null) result += jdRow('CVE', d.cves);
+        }
+        const run = d.run || {};
+        if (run.summary) result += jdRow('nmap ตรวจ', esc(run.summary));
+        if (run.nmap) result += jdRow('เวอร์ชัน nmap', esc(run.nmap));
+        const runNotes = (run.notes || []).map(n => `<div class="jd-run-note ${n.kind === 'warn' ? 'warn' : ''}"><i class="ti ${n.kind === 'warn' ? 'ti-alert-triangle' : 'ti-info-circle'}"></i><span>${esc(n.text)}</span></div>`).join('');
+        return `<div class="jd-grid">
+            <div>${settingsHtml(d.settings, d.target, wasRejected(d))}</div>
+            <div><div class="jd-title">ที่มา</div><dl class="jd-list">${origin}</dl></div>
+            <div><div class="jd-title">ผลลัพธ์</div><dl class="jd-list">${result}</dl></div>
+        </div>${runNotes}`;
+    }
+
+    function detailsRowHtml(j) {
+        const c = jobDetailsCache[j.id];
+        if (!c || c.status !== j.status) loadDetails(j);       // fills this row in when it arrives; until then the old data or a notice shows
+        const body = c ? (c.data ? jobDetailsHtml(j, c.data) : '<div class="text-danger small">โหลดรายละเอียดไม่สำเร็จ</div>') : jobDetailsHtml(j, null);
+        return `<tr class="job-details-row" data-for="${j.id}"><td colspan="7">${body}</td></tr>`;
+    }
+
+    async function loadDetails(j) {
+        if (pendingDetails.has(j.id)) return;
+        pendingDetails.add(j.id);
+        let data = null;
+        try {
+            const res = await fetch(`/api/jobs/${j.id}/details`);
+            if (res.ok) data = await res.json();
+        } catch (e) { }
+        jobDetailsCache[j.id] = { status: j.status, data };
+        pendingDetails.delete(j.id);
+        const cell = document.querySelector(`tr.job-details-row[data-for="${j.id}"] td`);
+        if (cell && expandedJobs.has(j.id)) cell.innerHTML = data ? jobDetailsHtml(j, data) : '<div class="text-danger small">โหลดรายละเอียดไม่สำเร็จ</div>';
+    }
+
+    function toggleJobDetails(id) {
+        if (expandedJobs.has(id)) expandedJobs.delete(id);
+        else {
+            expandedJobs.add(id);
+            if (jobDetailsCache[id] && !jobDetailsCache[id].data) delete jobDetailsCache[id];     // a failed load is tried again
+        }
+        renderJobs();
+    }
+
+    function scheduleDetailsHtml(sc) {
+        const when = sc.repeat === 'daily' ? `ทุกวัน เวลา ${sc.time}`
+            : sc.repeat === 'weekly' ? `ทุกวัน${WEEKDAYS[sc.weekday] || ''} เวลา ${sc.time}`
+            : `ทุกวันที่ ${sc.monthday} ของเดือน เวลา ${sc.time}`;
+        const plan = jdRow('ความถี่', esc(when))
+            + jdRow('รอบถัดไป', sc.next_run ? esc(sc.next_run) : '—')
+            + jdRow('รันล่าสุด', sc.last_run ? esc(sc.last_run) : 'ยังไม่เคยรัน')
+            + jdRow('สถานะ', sc.active ? 'เปิดใช้งาน' : 'ปิดอยู่')
+            + jdRow('สร้างเมื่อ', sc.created ? esc(sc.created) : '—')
+            + jdRow('Target', `<code>${esc(sc.target)}</code>`);
+        return `<div class="jd-grid two">
+            <div>${settingsHtml(sc.settings, sc.target)}<div class="jd-sub mt-2">ทุกครั้งที่ตารางนี้รัน จะใช้ค่าตั้งเหล่านี้</div></div>
+            <div><div class="jd-title">ตารางเวลา</div><dl class="jd-list">${plan}</dl></div>
+        </div>`;
+    }
+
+    function toggleScheduleDetails(btn) {
+        const row = document.getElementById('schedule-details-' + btn.dataset.id);
+        if (!row) return;
+        const open = row.classList.contains('d-none');
+        if (open && !row.firstElementChild.firstElementChild) {
+            const sc = SCHEDULE_DETAILS[btn.dataset.id];
+            row.firstElementChild.innerHTML = sc ? scheduleDetailsHtml(sc) : '';
+        }
+        row.classList.toggle('d-none', !open);
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    async function copyText(text, btn) {
+        try { await navigator.clipboard.writeText(text); }
+        catch (e) {
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); } catch (e2) { }
+            ta.remove();
+        }
+        const icon = btn.querySelector('i');
+        if (icon) { icon.className = 'ti ti-check'; setTimeout(() => { icon.className = 'ti ti-copy'; }, 1200); }
+    }
+
+    // the Rescan and Stop buttons of the rows (rows are rebuilt as the list changes, so one handler on the table body serves them all)
+    function openRescanModal(btn) {
+        document.getElementById('rescanJobId').value = btn.dataset.id;
+        document.getElementById('rescanTarget').textContent = btn.dataset.target;
+        const scanType = btn.dataset.type || 'fast_scan';
+        setCustomSelectValue('rescan', scanType);
+        const wrap = document.getElementById('rescanCustomArgWrapper');
+        const inp = document.getElementById('rescanCustomArgsInput');
+        if (wrap && inp) {
+            if (scanType === 'custom') { wrap.classList.remove('d-none'); inp.required = true; }
+            else { wrap.classList.add('d-none'); inp.required = false; }
+        }
+        updateScanAdvancedForType('rescan', scanType);
+        // pre-fill Timing / Version Intensity from the original job, if it saved any
+        const timingSel = document.getElementById('rescan_timing_input');
+        if (timingSel) {
+            timingSel.value = btn.dataset.timing || '';
+            timingSel.dispatchEvent(new Event('change', { bubbles: true }));       // the Timing control and the command box follow
+        }
+        const mcInput = document.getElementById('rescan_mc_input');
+        if (mcInput) mcInput.checked = false;   // mDNS/SSDP lookup always starts unticked
+        const pnInput = document.getElementById('rescan_pn_input');
+        if (pnInput) pnInput.checked = btn.dataset.skipPing === '1';   // -Pn starts as the original scan had it
+        const apInput = document.getElementById('rescan_ap_input');
+        if (apInput) { apInput.checked = btn.dataset.allPorts === '1'; refreshAllPortsNote('rescan'); }   // so does "all ports"
+        const dnsInput = document.getElementById('rescan_dns_input');
+        if (dnsInput) dnsInput.checked = btn.dataset.noDns === '1';                                        // and "no DNS"
+        const prInput = document.getElementById('rescan_pr_input');
+        if (prInput) prInput.checked = btn.dataset.hostProbes === '1';
+        const gtInput = document.getElementById('rescan_gt_input');
+        if (gtInput) gtInput.checked = btn.dataset.gentle === '1';
+        const udpInput = document.getElementById('rescan_udp_input');
+        if (udpInput) udpInput.checked = btn.dataset.udp === '1';
+        syncAdvancedExclusions('rescan');                                                                  // greys out what the original choices exclude
+        const viInput = document.getElementById('rescan_vi_input');
+        if (viInput) {
+            viInput.value = btn.dataset.versionIntensity || '7';
+            viInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        new bootstrap.Modal(document.getElementById('rescanModal')).show();
+    }
+
+    async function stopJob(btn) {
+        const id = btn.dataset.id;
+        if (!confirm('หยุดการสแกนนี้?')) return;
+        btn.disabled = true;
+        btn.textContent = 'หยุดแล้ว...';
+        try {
+            const res = await fetch(`/tasks/${id}/cancel`, { method: 'POST' });
+            if (res.ok) { fetchJobs(); }
+            else { alert('ไม่สามารถหยุดได้'); btn.disabled = false; btn.textContent = '⏹ Stop'; }
+        } catch (e) { alert('เกิดข้อผิดพลาด'); btn.disabled = false; btn.textContent = '⏹ Stop'; }
+    }
+
+    jobsBody.addEventListener('click', function (e) {
+        const toggle = e.target.closest('.job-toggle');
+        if (toggle) { toggleJobDetails(+toggle.dataset.id); return; }
+        const copy = e.target.closest('.jd-copy');
+        if (copy) { copyText(copy.dataset.cmd, copy); return; }
+        const rescan = e.target.closest('.rescan-btn');
+        if (rescan) { openRescanModal(rescan); return; }
+        const stop = e.target.closest('.stop-btn');
+        if (stop) stopJob(stop);
+    });
+    document.addEventListener('click', function (e) {
+        const toggle = e.target.closest('.sched-toggle');
+        if (toggle) { toggleScheduleDetails(toggle); return; }
+        const copy = e.target.closest('.sched-details-row .jd-copy');
+        if (copy) copyText(copy.dataset.cmd, copy);
+    });
+
+    // ===== PROGRESS OF WAITING AND RUNNING SCANS =====
+    // From /api/jobs/progress, NOT from /api/jobs: that one is compared poll by poll and the table is rebuilt when it changes, and progress changes
+    // at every poll. The rows only carry an empty .job-prog box; this fills it in place, so nothing is rebuilt (focus, selection and open panels stay).
+    let progressMap = {};
+    const STEP_WORDS = [
+        [/^(arp )?ping scan/i, 'ตรวจว่ามีอุปกรณ์ออนไลน์'],
+        [/^parallel dns/i, 'แปลงชื่อ (DNS)'],
+        [/udp scan/i, 'สแกนพอร์ต UDP'],
+        [/(connect|syn stealth|ack|window|fin|null|xmas|maimon|sctp \w+) scan/i, 'สแกนพอร์ต'],
+        [/^service scan/i, 'ตรวจเวอร์ชันของบริการ'],
+        [/^(nse|script)/i, 'รันสคริปต์ NSE'],
+        [/^traceroute/i, 'ติดตามเส้นทาง (traceroute)']
+    ];
+    function stepText(task) {
+        for (const [re, words] of STEP_WORDS) if (re.test(task)) return words;
+        return task || 'กำลังสแกน';            // a step nmap names in a way we do not know is shown as nmap wrote it
+    }
+    function clockText(sec) {
+        const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+        const two = n => String(n).padStart(2, '0');
+        return h ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`;
+    }
+    function remainingText(sec) {
+        return sec < 60 ? `เหลือประมาณ ${Math.max(1, sec)} วินาที` : `เหลือประมาณ ${Math.ceil(sec / 60)} นาที`;
+    }
+    function progressParts(p) {
+        // [text, percent or null] for one entry of /api/jobs/progress; null percent = no bar (nothing reliable to measure)
+        if (!p) return ['', null];
+        if (p.state === 'queued') return [p.position ? `รอคิว · ลำดับที่ ${p.position}` : 'รอคิว', null];
+        if (p.nvd && p.nvd.total > 0) {
+            return [`ค้นหา CVE จาก NVD · ${p.nvd.done} จาก ${p.nvd.total} พอร์ต`, Math.round(100 * p.nvd.done / p.nvd.total)];
+        }
+        if (p.task !== undefined && p.percent != null) {
+            let t = `${stepText(p.task)} ${Math.round(p.percent)}%`;
+            if (p.remaining_s != null) t += ` · ${remainingText(p.remaining_s)} (ของขั้นนี้)`;
+            return [t, p.percent];
+        }
+        return [p.elapsed_s != null ? `กำลังสแกน · ผ่านไป ${clockText(p.elapsed_s)}` : 'กำลังสแกน', null];
+    }
+    function applyProgress() {
+        document.querySelectorAll('.job-prog').forEach(box => {
+            const [text, pct] = progressParts(progressMap[box.dataset.id]);
+            let label = box.querySelector('.jp-text'), bar = box.querySelector('.jp-bar');
+            if (!label) {
+                label = document.createElement('div'); label.className = 'jp-text';
+                bar = document.createElement('div'); bar.className = 'jp-bar'; bar.setAttribute('role', 'progressbar');
+                bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', '100');
+                bar.appendChild(document.createElement('span'));
+                box.appendChild(label); box.appendChild(bar);
+            }
+            label.textContent = text;                        // textContent: a step name comes from nmap's output
+            bar.hidden = pct === null;
+            if (pct !== null) {
+                bar.firstChild.style.width = Math.max(0, Math.min(100, pct)) + '%';
+                bar.setAttribute('aria-valuenow', String(Math.round(pct)));
+                bar.setAttribute('aria-label', text);
+            }
+        });
+    }
+    async function fetchProgress() {
+        if (!allJobs.some(j => j.status === 'Queued' || j.status === 'Running')) { progressMap = {}; return; }
+        try {
+            const res = await fetch('/api/jobs/progress', { cache: 'no-store' });
+            if (!res.ok) return;
+            progressMap = await res.json();
+            applyProgress();
+        } catch (e) { }
+    }
+
+    async function fetchJobs() {
+        try {
+            const res = await fetch('/api/jobs');
+            if (!res.ok) return;
+            allJobs = await res.json();
+            renderJobs();
+            fetchProgress();
+        } catch (e) { }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchJobs();
+        pollTimer = setInterval(fetchJobs, 3000);
+
+        document.getElementById('statusFilter')?.addEventListener('change', function () {
+            currentFilter = this.value;
+            currentPage = 1;
+            renderJobs();
+        });
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { clearInterval(pollTimer); }
+        else { fetchJobs(); pollTimer = setInterval(fetchJobs, 3000); }
+    });
+
+
+    // ===== SCHEDULE REPEAT =====
+    document.getElementById('repeatSelect')?.addEventListener('change', function () {
+        document.getElementById('weeklyOptions').classList.toggle('d-none', this.value !== 'weekly');
+        document.getElementById('monthlyOptions').classList.toggle('d-none', this.value !== 'monthly');
+    });
+
+    // ===== CUSTOM ARGS WHITELIST VALIDATION =====
+    const ALLOWED_FLAGS = new Set([
+        '-sV', '-sS', '-sT', '-sU', '-sN', '-sF', '-sX',
+        '-F', '-p', '-T0', '-T1', '-T2', '-T3', '-T4',
+        '--open', '-O', '--version-intensity', '-sC', '--top-ports', '-Pn'
+    ]);
+
+    // Same rules as scanner.validate_custom_args (the server is the one that decides; this only tells the person early):
+    // only letters, digits, spaces and , : = _ - ; every word is a listed flag or the value of the flag before it; each value has a range.
+    const VALUE_FLAGS = {
+        '-p': (v) => {
+            if (v.length > 200) return 'รายการพอร์ตยาวเกินไป';
+            for (const item of v.split(',')) {
+                const m = /^(?:[TU]:)?(?:([0-9]{1,5})(?:-([0-9]{1,5}))?|[A-Za-z][A-Za-z0-9_-]{0,31})$/.exec(item);
+                if (!m) return 'ต้องเป็นพอร์ต เช่น 80,443 หรือ 1-1024';
+                if (m[1] !== undefined) {
+                    const lo = parseInt(m[1], 10), hi = m[2] !== undefined ? parseInt(m[2], 10) : lo;
+                    if (lo < 1 || lo > 65535 || hi < 1 || hi > 65535 || lo > hi) return 'พอร์ตต้องอยู่ระหว่าง 1-65535 และช่วงต้องเรียงจากน้อยไปมาก';
+                }
+            }
+            return null;
+        },
+        '--top-ports': (v) => (/^[0-9]{1,5}$/.test(v) && +v >= 1 && +v <= 1000) ? null : 'ต้องเป็นตัวเลข 1 ถึง 1000',
+        '--version-intensity': (v) => (/^[0-9]{1,5}$/.test(v) && +v <= 9) ? null : 'ต้องเป็นตัวเลข 0 ถึง 9',
+    };
+
+    function validateCustomArgs(raw) {
+        if (!raw.trim()) return null;
+        if (raw.length > 500) return 'อาร์กิวเมนต์ยาวเกินไป (ไม่เกิน 500 ตัวอักษร)';
+        if (!/^[A-Za-z0-9 ,:=_-]+$/.test(raw)) {
+            return 'ใช้ได้เฉพาะตัวอักษร ตัวเลข ช่องว่าง และเครื่องหมาย , : = _ - (ไม่รับเครื่องหมายคำพูด เครื่องหมายทับ หรือสัญลักษณ์อื่น)';
+        }
+        const words = raw.trim().split(/ +/);
+        if (words.length > 40) return 'อาร์กิวเมนต์มากเกินไป (ไม่เกิน 40 คำ)';
+        let i = 0;
+        while (i < words.length) {
+            const word = words[i++];
+            if (!word.startsWith('-')) {
+                return `"${word}" ไม่ใช่ flag (ต้องเริ่มด้วย -) และไม่ใช่ค่าของ flag ก่อนหน้า`;
+            }
+            const eq = word.indexOf('=');
+            const flag = eq < 0 ? word : word.slice(0, eq);
+            if (!ALLOWED_FLAGS.has(flag)) {
+                return `flag "${flag}" ไม่อยู่ในรายการที่อนุญาต\nอนุญาต: ${[...ALLOWED_FLAGS].join(', ')}`;
+            }
+            const check = VALUE_FLAGS[flag];
+            if (!check) {
+                if (eq >= 0) return `"${flag}" ไม่รับค่า`;
+                continue;
+            }
+            let value;
+            if (eq >= 0) {
+                if (flag === '-p') return '-p ต้องแยกค่าเป็นอีกคำหนึ่ง เช่น -p 80,443';
+                value = word.slice(eq + 1);
+            } else {
+                if (i >= words.length || words[i].startsWith('-')) return `"${flag}" ต้องมีค่า`;
+                value = words[i++];
+            }
+            const problem = check(value);
+            if (problem) return `ค่าของ "${flag}" ไม่ถูกต้อง: ${problem}`;
+        }
+        return null; // valid
+    }
+
+    function showCustomArgsError(msg) {
+        const errBox = document.getElementById('customArgsError');
+        const errMsg = document.getElementById('customArgsErrorMsg');
+        const inp = document.getElementById('customArgsInput');
+        if (msg) {
+            errMsg.textContent = ' ' + msg;
+            errBox.classList.remove('d-none');
+            inp.classList.add('is-invalid');
+        } else {
+            errBox.classList.add('d-none');
+            inp.classList.remove('is-invalid');
+        }
+    }
+
+    document.getElementById('customArgsInput')?.addEventListener('input', function () {
+        showCustomArgsError(validateCustomArgs(this.value));
+    });
+
+    // ===== CUSTOM DROPDOWN COMPONENT INITIALIZER =====
+    function initCustomSelect(prefix, onSelectChange) {
+        const wrapper = document.getElementById(`${prefix}_custom_select`);
+        if (!wrapper) return;
+        const trigger = wrapper.querySelector('.clylar-select-trigger');
+        const hiddenInput = document.getElementById(`${prefix}_scan_type`);
+        const labelSpan = document.getElementById(`${prefix}_selected_label`);
+        const menu = wrapper.querySelector('.clylar-select-menu');
+        const options = wrapper.querySelectorAll('.clylar-option-row');
+
+        function openMenu() {
+            wrapper.classList.add('is-open');
+            trigger.setAttribute('aria-expanded', 'true');
+        }
+
+        function closeMenu() {
+            wrapper.classList.remove('is-open');
+            trigger.setAttribute('aria-expanded', 'false');
+        }
+
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (wrapper.classList.contains('is-open')) closeMenu();
+            else openMenu();
+        });
+
+        options.forEach(opt => {
+            opt.addEventListener('click', function (e) {
+                // If user clicked the info button inside the row, do not close or select unless intended
+                if (e.target.closest('.clylar-option-info-btn')) {
+                    e.stopPropagation();
+                    return;
+                }
+                const val = this.dataset.value;
+                const label = this.dataset.label;
+                hiddenInput.value = val;
+                labelSpan.textContent = label;
+
+                options.forEach(o => {
+                    o.classList.toggle('is-selected', o === opt);
+                    o.setAttribute('aria-selected', o === opt ? 'true' : 'false');
+                });
+
+                closeMenu();
+                if (typeof onSelectChange === 'function') onSelectChange(val);
+                hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+
+        // Prevent clicking info button from bubbling to document click
+        wrapper.querySelectorAll('.clylar-option-info-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        });
+    }
+
+    // Set custom dropdown value programmatically
+    function setCustomSelectValue(prefix, value) {
+        const wrapper = document.getElementById(`${prefix}_custom_select`);
+        if (!wrapper) return;
+        const hiddenInput = document.getElementById(`${prefix}_scan_type`);
+        const labelSpan = document.getElementById(`${prefix}_selected_label`);
+        const options = wrapper.querySelectorAll('.clylar-option-row');
+
+        hiddenInput.value = value;
+        let matched = false;
+        options.forEach(opt => {
+            if (opt.dataset.value === value) {
+                opt.classList.add('is-selected');
+                opt.setAttribute('aria-selected', 'true');
+                labelSpan.textContent = opt.dataset.label;
+                matched = true;
+            } else {
+                opt.classList.remove('is-selected');
+                opt.setAttribute('aria-selected', 'false');
+            }
+        });
+        if (!matched && options.length > 0) {
+            const first = options[0];
+            first.classList.add('is-selected');
+            labelSpan.textContent = first.dataset.label;
+            hiddenInput.value = first.dataset.value;
+        }
+    }
+
+    // Close any open custom dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.clylar-custom-select')) {
+            document.querySelectorAll('.clylar-custom-select.is-open').forEach(el => {
+                el.classList.remove('is-open');
+                el.querySelector('.clylar-select-trigger')?.setAttribute('aria-expanded', 'false');
+            });
+        }
+    });
+
+    // Initialize New Scan custom select
+    initCustomSelect('ns', function (val) {
+        const wrap = document.getElementById('customArgWrapper');
+        const inp = document.getElementById('customArgsInput');
+        if (val === 'custom') {
+            wrap.classList.remove('d-none');
+            inp.required = true;
+            inp.focus();
+        } else {
+            wrap.classList.add('d-none');
+            inp.required = false;
+            showCustomArgsError(null);
+        }
+        updateScanAdvancedForType('ns', val);
+        if (window.nsCommandRefresh) window.nsCommandRefresh();          // the command box follows the profile (this select sets a hidden input, which fires no event)
+    });
+
+    // ===== SCHEDULE TIME FIELD =====
+    // The Time box is plain text so the exact time can be typed: "14:30", "1430", "230", "7", "2:30pm". It is read as 24-hour time unless am / pm
+    // is typed, shown back as HH:MM when the box loses focus, and anything unclear is refused (amber box, short hint), never guessed.
+    function parseSchedTime(raw) {
+        const s = String(raw || '').trim().toLowerCase().replace(/[๐-๙]/g, d => String(d.charCodeAt(0) - 0x0E50));
+        let suffix = null;
+        const body = s.replace(/\s*([ap])\.?\s*m\.?$/, (_, ap) => { suffix = ap; return ''; });
+        let h, mi, m = body.match(/^(\d{1,2})\s*[:.]\s*(\d{2})$/);
+        if (m) { h = +m[1]; mi = +m[2]; }
+        else if ((m = body.match(/^(\d{1,4})$/))) {
+            h = m[1].length <= 2 ? +m[1] : +m[1].slice(0, -2);
+            mi = m[1].length <= 2 ? 0 : +m[1].slice(-2);
+        } else return null;
+        if (mi > 59) return null;
+        if (suffix) { if (h < 1 || h > 12) return null; h = (h % 12) + (suffix === 'p' ? 12 : 0); }
+        else if (h > 23) return null;
+        return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
+    }
+
+    function markSchedTime(bad) {
+        const box = document.getElementById('schedTimeInput'), help = document.getElementById('schedTimeHelp');
+        if (!box || !help) return;
+        box.classList.toggle('is-bad', bad);
+        help.classList.toggle('is-bad', bad);
+        box.setAttribute('aria-invalid', bad ? 'true' : 'false');
+        help.textContent = bad ? 'เวลาไม่ถูกต้อง เช่น 14:30' : 'ใช้ 24 ชม. เช่น 14:30';
+    }
+
+    (function () {
+        const box = document.getElementById('schedTimeInput');
+        if (!box) return;
+        const native = document.getElementById('schedTimeNative'), pick = document.getElementById('schedTimePick');
+        box.addEventListener('input', () => markSchedTime(false));
+        box.addEventListener('blur', () => {
+            const when = parseSchedTime(box.value);
+            if (when) box.value = when;
+            markSchedTime(!when);
+        });
+        pick.addEventListener('click', () => {
+            native.value = parseSchedTime(box.value) || '02:00';
+            try { native.showPicker(); } catch (e) { native.focus(); }
+        });
+        native.addEventListener('change', () => { if (native.value) { box.value = native.value; markSchedTime(false); } });
+        document.getElementById('newScanModal').addEventListener('hidden.bs.modal', () => markSchedTime(false));
+    })();
+
+    // ===== SCHEDULE TOGGLE BUTTON =====
+    (function () {
+        let scheduleMode = false;
+
+        const toggleBtn = document.getElementById('toggleScheduleBtn');
+        const schedPanel = document.getElementById('scheduleSettingsPanel');
+        const actionBtn = document.getElementById('mainActionBtn');
+        const formMode = document.getElementById('formMode');
+        const mainForm = document.getElementById('newScanForm');
+        const saveSchedForm = document.getElementById('saveScheduleForm');
+
+        if (!toggleBtn) return;
+
+        toggleBtn.addEventListener('click', function () {
+            scheduleMode = !scheduleMode;
+
+            if (scheduleMode) {
+                schedPanel.classList.remove('d-none');
+                toggleBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
+                    <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                </svg>
+                Remove Schedule`;
+                toggleBtn.classList.add('btn-outline-danger');
+                toggleBtn.classList.remove('btn-outline-secondary');
+                actionBtn.textContent = 'Save Schedule';
+                actionBtn.classList.remove('btn-primary');
+                actionBtn.classList.add('btn-dark');
+            } else {
+                schedPanel.classList.add('d-none');
+                toggleBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
+                    <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                </svg>
+                Schedule`;
+                toggleBtn.classList.remove('btn-outline-danger');
+                toggleBtn.classList.add('btn-outline-secondary');
+                actionBtn.textContent = 'Scan';
+                actionBtn.classList.add('btn-primary');
+                actionBtn.classList.remove('btn-dark');
+            }
+        });
+
+        // Override form submit to route to correct endpoint
+        actionBtn?.addEventListener('click', function (e) {
+            e.preventDefault();
+            const scanName = document.getElementById('ns_scan_name')?.value || '';
+            const target = document.getElementById('taskTargetInput')?.value || '';
+            const scanType = document.getElementById('ns_scan_type')?.value || 'fast_scan';
+
+            if (!target) {
+                document.getElementById('taskTargetInput').focus();
+                document.getElementById('taskTargetInput').reportValidity();
+                return;
+            }
+
+            if (scheduleMode) {
+                const when = parseSchedTime(document.getElementById('schedTimeInput')?.value);
+                if (!when) {
+                    markSchedTime(true);
+                    document.getElementById('schedTimeInput').focus();
+                    return;
+                }
+                document.getElementById('schedTimeInput').value = when;
+                // Validate custom_args before scheduling
+                if (scanType === 'custom') {
+                    const customArgs = document.getElementById('customArgsInput')?.value || '';
+                    const err = validateCustomArgs(customArgs);
+                    if (err) {
+                        showCustomArgsError(err);
+                        document.getElementById('customArgsInput').focus();
+                        return;
+                    }
+                    document.getElementById('sf_custom_args').value = customArgs;
+                } else {
+                    document.getElementById('sf_custom_args').value = '';
+                }
+                // Submit as schedule
+                document.getElementById('sf_name').value = scanName || target;
+                document.getElementById('sf_target').value = target;
+                document.getElementById('sf_scan_type').value = scanType;
+                document.getElementById('sf_repeat').value = document.querySelector('[name="repeat"]')?.value || 'daily';
+                document.getElementById('sf_time').value = when;
+                document.getElementById('sf_day_of_week').value = document.querySelector('[name="day_of_week"]')?.value || '0';
+                document.getElementById('sf_day_of_month').value = document.querySelector('[name="day_of_month"]')?.value || '1';
+                document.getElementById('sf_timing').value = document.getElementById('newScanForm').querySelector('[name="timing"]')?.value || '';
+                document.getElementById('sf_version_intensity').value = document.getElementById('newScanForm').querySelector('[name="version_intensity"]')?.value || '';
+                document.getElementById('sf_skip_ping').value = document.getElementById('newScanForm').querySelector('[name="skip_ping"]')?.checked ? '1' : '';
+                document.getElementById('sf_all_ports').value = document.getElementById('newScanForm').querySelector('[name="all_ports"]')?.checked ? '1' : '';
+                document.getElementById('sf_no_dns').value = document.getElementById('newScanForm').querySelector('[name="no_dns"]')?.checked ? '1' : '';
+                document.getElementById('sf_host_probes').value = document.getElementById('newScanForm').querySelector('[name="host_probes"]')?.checked ? '1' : '';
+                document.getElementById('sf_gentle').value = document.getElementById('newScanForm').querySelector('[name="gentle"]')?.checked ? '1' : '';
+                document.getElementById('sf_udp').value = document.getElementById('newScanForm').querySelector('[name="udp"]')?.checked ? '1' : '';
+                const modalEl2 = document.getElementById('newScanModal');
+                modalEl2.addEventListener('hidden.bs.modal', function onHidden() {
+                    modalEl2.removeEventListener('hidden.bs.modal', onHidden);
+                    saveSchedForm.requestSubmit();
+                }, { once: true });
+                bootstrap.Modal.getOrCreateInstance(modalEl2).hide();
+            } else {
+                // Normal immediate scan
+                if (scanType === 'custom') {
+                    const customArgs = document.getElementById('customArgsInput')?.value || '';
+                    const err = validateCustomArgs(customArgs);
+                    if (err) {
+                        showCustomArgsError(err);
+                        document.getElementById('customArgsInput').focus();
+                        return;
+                    }
+                }
+                const modalEl = document.getElementById('newScanModal');
+                bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+                mainForm.requestSubmit();
+            }
+        });
+    })();
+
+    // ===== SCHEDULE TOGGLE =====
+    document.querySelectorAll('.toggle-switch').forEach(el => {
+        el.addEventListener('change', function () {
+            const id = this.dataset.id;
+            fetch('/schedules/' + id + '/toggle', { method: 'POST' }).then(r => r.json()).then(data => {
+                const el = document.querySelector('.next-run-' + id);
+                if (el) el.textContent = data.is_active ? data.next_run : '-';
+            });
+        });
+    });
+
+    // ===== Saved-target list of the Target box =====
+    // A combobox: typing filters the list (a match is bold), ArrowDown / ArrowUp / Enter / Esc work, the list is grouped into networks
+    // and single devices, and a network shows how many addresses it names. Every value is put in with textContent (labels are typed by users).
+    (function () {
+        let saved = [];              // rows from /api/scanned-ips (already in the order to show)
+        let shown = [];              // the rows drawn right now, in drawing order: what the arrow keys walk
+        let active = -1;             // index in `shown`, -1 = none (Enter then just sends the typed text)
+        let showAll = false;         // opened with the chevron: ignore what is typed until typing resumes
+        let open = false;
+        let inp, dd, list, toggle, wrap, live;
+
+        function el(tag, cls, text) {
+            const e = document.createElement(tag);
+            if (cls) e.className = cls;
+            if (text != null) e.textContent = text;
+            return e;
+        }
+        const fmt = n => Number(n).toLocaleString('en-US');
+        // the matching part of a value in bold (no innerHTML: the value is whatever a user typed)
+        function withHit(parent, text, q) {
+            const i = q ? text.toLowerCase().indexOf(q) : -1;
+            if (i < 0) { parent.appendChild(document.createTextNode(text)); return; }
+            parent.appendChild(document.createTextNode(text.slice(0, i)));
+            parent.appendChild(el('b', 'ip-hit', text.slice(i, i + q.length)));
+            parent.appendChild(document.createTextNode(text.slice(i + q.length)));
+        }
+        function say(msg) { if (live) live.textContent = msg; }
+
+        async function load() {
+            try {
+                const r = await fetch('/api/scanned-ips');
+                saved = r.ok ? await r.json() : [];
+            } catch (e) { saved = []; }
+            if (open) render();
+        }
+
+        function setActive(i, scroll) {
+            active = i;
+            list.querySelectorAll('.ip-opt').forEach(o => {
+                const on = Number(o.dataset.index) === i;
+                o.classList.toggle('is-active', on);
+                o.setAttribute('aria-selected', on ? 'true' : 'false');
+                if (on && scroll) o.scrollIntoView({ block: 'nearest' });
+            });
+            if (i >= 0 && shown[i]) inp.setAttribute('aria-activedescendant', 'ip-opt-' + shown[i].id);
+            else inp.removeAttribute('aria-activedescendant');
+        }
+
+        function render() {
+            const q = showAll ? '' : inp.value.trim().toLowerCase();
+            const m = saved.filter(r => !q || r.target.toLowerCase().includes(q) || (r.label || '').toLowerCase().includes(q));
+            const nets = m.filter(r => r.kind === 'net');
+            const hosts = m.filter(r => r.kind !== 'net');
+            shown = [];
+            list.textContent = '';
+            const group = (title, rows) => {
+                if (!rows.length) return;
+                const h = el('div', 'ip-group', title);
+                h.setAttribute('role', 'presentation');
+                list.appendChild(h);
+                rows.forEach(r => {
+                    const row = el('div', 'ip-opt');
+                    row.id = 'ip-opt-' + r.id;
+                    row.setAttribute('role', 'option');
+                    row.setAttribute('aria-selected', 'false');
+                    row.dataset.index = String(shown.length);
+                    const main = el('div', 'ip-main');
+                    const t = el('span', 'ip-target'); withHit(t, r.target, q); main.appendChild(t);
+                    if (r.label) { const l = el('small', 'ip-label'); withHit(l, r.label, q); main.appendChild(l); }
+                    if (r.kind === 'net') {
+                        const tag = el('span', 'ip-tag' + (r.big ? ' is-big' : ''), fmt(r.size) + ' ที่อยู่');
+                        if (r.big) tag.title = 'ช่วงใหญ่: ตัวเลือก -Pn รองรับไม่เกิน ' + fmt(r.pn_max) + ' ที่อยู่';
+                        main.appendChild(tag);
+                    }
+                    const del = el('button', 'ip-del');
+                    del.type = 'button'; del.tabIndex = -1; del.dataset.id = r.id;
+                    del.title = 'ลบออกจากรายการ'; del.setAttribute('aria-label', 'ลบ ' + r.target + ' ออกจากรายการ');
+                    const ic = el('i', 'ti ti-trash'); ic.setAttribute('aria-hidden', 'true'); del.appendChild(ic);
+                    row.appendChild(main); row.appendChild(del);
+                    list.appendChild(row);
+                    shown.push(r);
+                });
+            };
+            group('เครือข่าย', nets);
+            group('อุปกรณ์', hosts);
+            if (!shown.length) list.appendChild(el('div', 'ip-empty', saved.length ? 'ไม่พบในรายการที่บันทึกไว้' : 'ยังไม่มีเป้าหมายที่บันทึกไว้'));
+            setActive(-1);
+            say(shown.length ? 'พบ ' + shown.length + ' รายการ' : 'ไม่พบรายการ');
+        }
+
+        function openList(all) {
+            showAll = !!all;
+            open = true;
+            dd.style.display = 'block';
+            inp.setAttribute('aria-expanded', 'true');
+            toggle.setAttribute('aria-expanded', 'true');
+            render();
+        }
+        function closeList() {
+            open = false; active = -1;
+            dd.style.display = 'none';
+            inp.setAttribute('aria-expanded', 'false');
+            toggle.setAttribute('aria-expanded', 'false');
+            inp.removeAttribute('aria-activedescendant');
+        }
+        function pick(r) {
+            inp.value = r.target;
+            inp.dispatchEvent(new Event('change', { bubbles: true }));       // setting .value fires nothing; the command box listens for the target
+            closeList();
+            inp.focus();
+        }
+        async function remove(id) {
+            const r = saved.find(s => String(s.id) === String(id));
+            if (!r) return;
+            if (!confirm('ลบ "' + r.target + '" ออกจากรายการเป้าหมาย?')) return;
+            try {
+                const res = await fetch('/api/scanned-ips/' + encodeURIComponent(id), { method: 'DELETE' });
+                if (res.ok) { saved = saved.filter(s => String(s.id) !== String(id)); render(); }
+                else alert('ลบไม่สำเร็จ');
+            } catch (err) { alert('ลบไม่สำเร็จ'); }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            inp = document.getElementById('taskTargetInput');
+            dd = document.getElementById('taskIpDropdown');
+            list = document.getElementById('taskIpList');
+            toggle = document.getElementById('taskIpToggle');
+            wrap = document.getElementById('taskIpWrap');
+            live = document.getElementById('taskIpLive');
+            if (!inp || !dd || !list || !toggle || !wrap) return;
+
+            document.getElementById('newScanModal')?.addEventListener('shown.bs.modal', load);
+            document.getElementById('newScanModal')?.addEventListener('hidden.bs.modal', closeList);
+
+            // typing opens the list and filters it; nothing is chosen until an arrow key moves onto a row
+            inp.addEventListener('input', () => openList(false));
+            inp.addEventListener('keydown', e => {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (!open) { openList(true); setActive(shown.length ? 0 : -1, true); }
+                    else if (shown.length) setActive(Math.min(active + 1, shown.length - 1), true);
+                } else if (e.key === 'ArrowUp') {
+                    if (!open) return;
+                    e.preventDefault();
+                    setActive(active > 0 ? active - 1 : -1, true);
+                } else if (e.key === 'Enter') {
+                    if (open && active >= 0 && shown[active]) { e.preventDefault(); pick(shown[active]); }
+                } else if (e.key === 'Escape') {
+                    if (open) { e.preventDefault(); e.stopPropagation(); closeList(); }   // otherwise Bootstrap closes the whole dialog
+                }
+            });
+            toggle.addEventListener('mousedown', e => e.preventDefault());
+            toggle.addEventListener('click', () => { if (open) closeList(); else { inp.focus(); openList(true); } });
+
+            // a click in the list must not take focus from the box (it would close the list)
+            dd.addEventListener('mousedown', e => e.preventDefault());
+            list.addEventListener('mousedown', e => {
+                const del = e.target.closest('.ip-del');
+                if (del) { remove(del.dataset.id); return; }
+                const row = e.target.closest('.ip-opt');
+                if (row && shown[Number(row.dataset.index)]) pick(shown[Number(row.dataset.index)]);
+            });
+            list.addEventListener('mousemove', e => {
+                const row = e.target.closest('.ip-opt');
+                if (row && Number(row.dataset.index) !== active) setActive(Number(row.dataset.index));
+            });
+            wrap.addEventListener('focusout', e => { if (open && !wrap.contains(e.relatedTarget)) closeList(); });
+        });
+    })();
+
+    // ===== Command box of the New Scan and Rescan dialogs (like Zenmap's Command line) =====
+    // Shows `nmap <arguments> <target>` for the form's CURRENT choices. The arguments come from /api/scan-command, which builds them with the
+    // same functions a real scan uses (so the box cannot drift from what runs); the target is put in here. Hidden until a dialog's header
+    // button is pressed; ONE choice for both dialogs, remembered per user in this browser.
+    (function () {
+        const KEY = 'clylar.scanCommand.open.{{ current_user.id }}';
+        const boxes = [];                        // one per dialog
+        let isOpen = false;
+
+        function setOpen(v, remember) {
+            isOpen = v;
+            if (remember) { try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) { /* the choice just is not remembered */ } }
+            boxes.forEach(b => { b.show(v); b.refresh(); });
+        }
+
+        function create(cfg) {
+            const el = id => document.getElementById(id);
+            const form = el(cfg.form), toggle = el(cfg.toggle), box = el(cfg.box), textEl = el(cfg.text), warnEl = el(cfg.warn);
+            const stepsEl = el(cfg.steps), noteEl = el(cfg.note), copyBtn = el(cfg.copy), modal = el(cfg.modal);
+            const targetInput = cfg.targetInput ? el(cfg.targetInput) : null;        // New Scan: a box the user types in
+            if (!form || !toggle || !box || !textEl || !copyBtn || !modal) return null;
+            let seq = 0, timer = null, last = null;
+            const field = name => form.querySelector('[name="' + name + '"]');
+            const targetText = () => (targetInput ? targetInput.value : (el(cfg.targetText)?.textContent || '')).trim();   // Rescan: the fixed target
+
+            function params() {
+                const p = new URLSearchParams();
+                p.set('scan_type', field('scan_type')?.value || 'fast_scan');
+                p.set('timing', field('timing')?.value || '');
+                p.set('version_intensity', field('version_intensity')?.value || '');
+                if (field('skip_ping')?.checked) p.set('skip_ping', '1');
+                if (field('all_ports')?.checked) p.set('all_ports', '1');
+                if (field('no_dns')?.checked) p.set('no_dns', '1');
+                if (field('host_probes')?.checked) p.set('host_probes', '1');
+                if (field('gentle')?.checked) p.set('gentle', '1');
+                if (field('udp')?.checked) p.set('udp', '1');
+                if (field('multicast')?.checked) p.set('multicast', '1');
+                p.set('custom_args', field('custom_args')?.value || '');
+                return p;
+            }
+
+            function render() {
+                if (!isOpen || !last) return;
+                const target = targetText();
+                const custom = last.scan_type === 'custom';
+                const problem = custom && typeof validateCustomArgs === 'function' ? validateCustomArgs(field('custom_args')?.value || '') : null;
+                const args = (last.arguments || '').trim() || (custom ? '<arguments>' : '');
+                const cmd = ('nmap ' + args + ' ' + (target || '<เป้าหมาย>')).replace(/\s+/g, ' ').trim();
+                textEl.textContent = cmd;
+                copyBtn.dataset.cmd = cmd;
+                box.classList.toggle('is-bad', !!problem);
+                warnEl.hidden = !problem;
+                warnEl.textContent = problem ? 'arguments ไม่ผ่านการตรวจ ระบบจะไม่รับคำสั่งสแกนนี้: ' + String(problem).split('\n')[0].trim() : '';
+                stepsEl.textContent = '';
+                (last.steps || []).forEach(k => {
+                    if (!STEP_TEXT[k]) return;
+                    const li = document.createElement('li');
+                    li.textContent = (k === 'udp_pass' && last.udp_arguments) ? 'รอบที่ 2: nmap ' + last.udp_arguments + ' <อุปกรณ์ที่รอบแรกพบว่าออนไลน์>' : STEP_TEXT[k];
+                    stepsEl.appendChild(li);
+                });
+                noteEl.textContent = '';
+                if (last.internal) {              // "ระบบเพิ่ม <code>-oX - --stats-every 3s</code> โดยอัตโนมัติ ..." (the flags as code, so they read as a command)
+                    const code = document.createElement('code');
+                    code.textContent = last.internal;
+                    noteEl.append('ระบบเพิ่ม ', code, ' เองเพื่ออ่านผลและความคืบหน้า ไม่มีผลต่อผลสแกน');
+                }
+            }
+
+            async function refresh() {
+                if (!isOpen || !modal.classList.contains('show')) return;       // nothing to show, or the dialog is not on screen
+                const mine = ++seq;               // an older answer that arrives late is dropped
+                try {
+                    const res = await fetch('/api/scan-command?' + params().toString(), { cache: 'no-store' });
+                    if (mine !== seq) return;
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    last = await res.json();
+                    render();
+                } catch (e) {
+                    if (mine !== seq) return;
+                    last = null;
+                    textEl.textContent = 'แสดงคำสั่งไม่ได้ในขณะนี้';
+                    copyBtn.dataset.cmd = '';
+                    warnEl.hidden = true; stepsEl.textContent = ''; noteEl.textContent = '';
+                }
+            }
+            function soon() { clearTimeout(timer); timer = setTimeout(refresh, 150); }
+
+            toggle.addEventListener('change', () => setOpen(toggle.checked, true));      // the header switch (a checkbox with role="switch")
+            copyBtn.addEventListener('click', () => { if (copyBtn.dataset.cmd) copyText(copyBtn.dataset.cmd, copyBtn); });
+            // any control of the form; a typed target only changes the last word of the command, so it needs no request
+            const onChange = e => { if (targetInput && e.target === targetInput) render(); else soon(); };
+            form.addEventListener('input', onChange);
+            form.addEventListener('change', onChange);
+            modal.addEventListener('shown.bs.modal', refresh);
+            if (cfg.hook) window[cfg.hook] = soon;       // the profile select sets a hidden input, which fires no event
+            return { refresh, show(v) { box.hidden = !v; toggle.checked = !!v; } };
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            try { isOpen = localStorage.getItem(KEY) === '1'; } catch (e) { isOpen = false; }      // default: hidden
+            [
+                create({ form: 'newScanForm', toggle: 'nsCmdToggle', box: 'nsCmdBox', text: 'nsCmdText', warn: 'nsCmdWarn', steps: 'nsCmdSteps',
+                         note: 'nsCmdNote', copy: 'nsCmdCopy', modal: 'newScanModal', targetInput: 'taskTargetInput', hook: 'nsCommandRefresh' }),
+                create({ form: 'rescanForm', toggle: 'rescanCmdToggle', box: 'rescanCmdBox', text: 'rescanCmdText', warn: 'rescanCmdWarn', steps: 'rescanCmdSteps',
+                         note: 'rescanCmdNote', copy: 'rescanCmdCopy', modal: 'rescanModal', targetText: 'rescanTarget', hook: 'rescanCommandRefresh' })
+            ].forEach(b => { if (b) { boxes.push(b); b.show(isOpen); } });
+        });
+    })();
+
+    // Open modal with schedule panel via URL hash
+    if (window.location.hash === '#schedule') {
+        document.addEventListener('DOMContentLoaded', () => {
+            new bootstrap.Modal(document.getElementById('newScanModal')).show();
+            document.getElementById('toggleScheduleBtn')?.click();
+        });
+    }
+</script>
+
+<!-- ========== RESCAN MODAL ========== -->
+{% if current_user.role in ('admin', 'superadmin') %}
+<div class="modal fade" id="rescanModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+            <div class="modal-body p-4">
+                <div class="d-flex align-items-start justify-content-between gap-2 mb-1">
+                    <h5 class="fw-bold mb-0" style="font-size:1.1rem;">Rescan</h5>
+                    <div class="form-check form-switch ns-cmd-switch" title="แสดงหรือซ่อนคำสั่ง nmap ที่จะใช้">
+                        <input class="form-check-input" type="checkbox" role="switch" id="rescanCmdToggle" aria-controls="rescanCmdBox">
+                        <label class="form-check-label" for="rescanCmdToggle"><i class="ti ti-terminal-2" aria-hidden="true"></i>แสดงคำสั่ง</label>
+                    </div>
+                </div>
+                <p class="text-muted small mb-3">
+                    Target: <code id="rescanTarget"></code><br>
+                    <span class="text-warning small"></span>
+                </p>
+                <form method="POST" id="rescanForm">
+                    <input type="hidden" name="job_id" id="rescanJobId">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-dark mb-1">Scan Profile</label>
+                        <div class="clylar-custom-select" id="rescan_custom_select">
+                            <input type="hidden" name="scan_type" id="rescan_scan_type" value="fast_scan">
+                            <button type="button" class="clylar-select-trigger" id="rescan_select_trigger" aria-haspopup="listbox" aria-expanded="false">
+                                <span class="clylar-selected-text fw-normal" id="rescan_selected_label">Fast Scan</span>
+                                <i class="ti ti-chevron-down clylar-select-chevron"></i>
+                            </button>
+                            <ul class="clylar-select-menu" role="listbox">
+                                <li class="clylar-option-row is-selected" data-value="fast_scan" data-label="Fast Scan" role="option" aria-selected="true">
+                                    <span class="clylar-option-name">Fast Scan</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Fast Scan Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Fast Scan (สแกนแบบเร็ว)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">สแกนพอร์ตยอดนิยม 100 พอร์ตแรก พร้อมตรวจจับเวอร์ชั่นของบริการและระบบปฏิบัติการ (OS) เหมาะสำหรับตรวจหาพอร์ตที่เปิดอยู่อย่างเร่งด่วน</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;"><span class="text-nowrap">nmap -F -sV</span> <span class="text-nowrap">--version-intensity 7</span> <span class="text-nowrap">-O</span></div>
+                                        </div>
+                                    </span>
+                                </li>
+                                <li class="clylar-option-row" data-value="intense" data-label="Intense Scan" role="option" aria-selected="false">
+                                    <span class="clylar-option-name">Intense Scan</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Intense Scan Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Intense Scan (สแกนแบบละเอียด)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">สแกนครบวงจรพร้อมตรวจจับระบบปฏิบัติการ (OS), เวอร์ชั่นของบริการ, รันสคริปต์ และ Traceroute</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;">nmap -T4 -A -v</div>
+                                        </div>
+                                    </span>
+                                </li>
+                                <li class="clylar-option-row" data-value="discovery" data-label="Discovery (Ping Scan)" role="option" aria-selected="false">
+                                    <span class="clylar-option-name">Discovery (Ping Scan)</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Discovery Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Discovery (สแกนค้นหาโฮสต์)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">ตรวจหาเครื่องที่ออนไลน์อยู่ในเครือข่ายโดยไม่สแกนพอร์ต เหมาะสำหรับการสำรวจผังเครือข่าย</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;">nmap -sn</div>
+                                        </div>
+                                    </span>
+                                </li>
+                                <li class="clylar-option-row" data-value="custom" data-label="Custom (nmap args)" role="option" aria-selected="false">
+                                    <span class="clylar-option-name">Custom (nmap args)</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Custom Args Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Custom (กำหนดคำสั่งเอง)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">กำหนดพารามิเตอร์และคำสั่ง Nmap เพิ่มเติมได้เองตามต้องการ เพื่อให้เหมาะกับเป้าหมาย</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;">nmap [custom_args]</div>
+                                        </div>
+                                    </span>
+                                </li>
+                                <li class="clylar-option-row" data-value="vuln_scan" data-label="Vulnerability Scan" role="option" aria-selected="false">
+                                    <span class="clylar-option-name">Vulnerability Scan</span>
+                                    <span class="clylar-option-info-btn" role="button" aria-label="Vulnerability Scan Info">
+                                        <i class="ti ti-info-circle"></i>
+                                        <div class="clylar-item-tooltip">
+                                            <div class="fw-semibold text-dark mb-1" style="font-size:0.83rem;">Vulnerability Scan (สแกนช่องโหว่)</div>
+                                            <div class="text-secondary mb-2" style="font-size:0.77rem;">สแกนครบวงจร (OS และเวอร์ชั่นของบริการ) แล้วนำเวอร์ชั่นที่พบไปค้นหาช่องโหว่ (CVE) จากฐานข้อมูล NVD ต้องเชื่อมต่ออินเทอร์เน็ต</div>
+                                            <div class="pt-1 border-top font-monospace text-muted" style="font-size:0.72rem; border-color:#f1f5f9 !important;"><span class="text-nowrap">nmap -T4 -A -v</span> + NVD CVE lookup</div>
+                                        </div>
+                                    </span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="mb-3 d-none" id="rescanCustomArgWrapper">
+                        <label class="form-label fw-semibold small text-dark mb-1">Custom nmap arguments</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-dark text-success font-monospace"
+                                style="font-size:.82rem;">nmap</span>
+                            <input type="text" name="custom_args" id="rescanCustomArgsInput"
+                                class="form-control font-monospace" placeholder="-p 22,80,443 -sV" autocomplete="off">
+                        </div>
+                        <div class="form-text">target จะถูกต่อท้ายให้อัตโนมัติ</div>
+                    </div>
+
+                    <!-- Advanced options: the shared partial (Timing, -Pn, mDNS / SSDP, Version Intensity) -->
+                    {% with prefix='rescan', with_mc=true %}{% include 'partials/_scan_advanced.html' %}{% endwith %}
+
+                    <!-- The command the form would run with its current choices (same box as the New Scan dialog) -->
+                    <div id="rescanCmdBox" class="ns-cmd mb-3" hidden>
+                        <div class="ns-cmd-head">คำสั่งที่จะใช้</div>
+                        <div class="jd-cmd"><code id="rescanCmdText"></code><button type="button" class="jd-copy" id="rescanCmdCopy" title="คัดลอกคำสั่ง" aria-label="คัดลอกคำสั่ง nmap"><i class="ti ti-copy"></i></button></div>
+                        <div id="rescanCmdWarn" class="ns-cmd-warn" hidden></div>
+                        <ul id="rescanCmdSteps" class="ns-cmd-steps"></ul>
+                        <div id="rescanCmdNote" class="ns-cmd-note"></div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-3">
+                        <button type="button" class="btn btn-outline-secondary btn-sm rounded-3 px-3"
+                            data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-warning btn-sm rounded-3 px-4 fw-semibold text-dark">
+                            Rescan
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    initCustomSelect('rescan', function (val) {
+        const wrap = document.getElementById('rescanCustomArgWrapper');
+        const inp = document.getElementById('rescanCustomArgsInput');
+        if (val === 'custom') {
+            wrap.classList.remove('d-none');
+            inp.required = true;
+            inp.focus();
+        } else {
+            wrap.classList.add('d-none');
+            inp.required = false;
+        }
+        updateScanAdvancedForType('rescan', val);
+        if (window.rescanCommandRefresh) window.rescanCommandRefresh();       // the command box follows the profile (a hidden input fires no event)
+    });
+    document.getElementById('rescanForm')?.addEventListener('submit', function () {
+        const jobId = document.getElementById('rescanJobId').value;
+        this.action = '/tasks/' + jobId + '/rescan';
+    });
+
+    // ── Auto-close modals on submit ──────────────────────────────────────────────
+    ['newScanForm', 'rescanForm'].forEach(function (formId) {
+        const form = document.getElementById(formId);
+        if (!form) return;
+        form.addEventListener('submit', function () {
+            const modalEl = form.closest('.modal');
+            if (modalEl) {
+                const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                bsModal.hide();
+            }
+        });
+    });
+</script>
+{% endif %}
+
+{% endblock %}

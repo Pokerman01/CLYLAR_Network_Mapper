@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block page_title %}<div class="topbar-page-title">อุปกรณ์</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">อุปกรณ์ทั้งหมดที่พบจากการสแกน ({{ devices|length }} เครื่อง)</div>{% endblock %}
+
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+{% for category, message in messages %}
+<div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+  {{ message }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endfor %}
+{% endif %}
+{% endwith %}
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    {% if devices %}
+    {% set fam_th = {'Unknown': 'ไม่ทราบ', 'Other': 'อื่น ๆ'} %}
+
+    <!-- Filter bar -->
+    <div class="tf-toolbar d-flex flex-wrap align-items-center gap-2 px-4 py-3 border-bottom">
+      <div class="tf-search">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input type="search" class="form-control form-control-sm" data-tf-search placeholder="ค้นหา IP, MAC, ผู้ผลิต, OS, ประเภท, พอร์ต…" aria-label="ค้นหาอุปกรณ์" autocomplete="off">
+      </div>
+      <select class="form-select form-select-sm" data-tf-select="type" data-tf-label="ประเภท" aria-label="กรองตามประเภทอุปกรณ์">
+        <option value="">ทุกประเภท</option>
+        {% for label, n in type_options %}<option value="{{ label }}">{{ label }} ({{ n }})</option>{% endfor %}
+      </select>
+      <select class="form-select form-select-sm" data-tf-select="os" data-tf-label="ระบบปฏิบัติการ" aria-label="กรองตามระบบปฏิบัติการ">
+        <option value="">ทุกระบบปฏิบัติการ</option>
+        {% for family, n in os_options %}<option value="{{ family }}" data-display="{{ fam_th.get(family, family) }}">{{ fam_th.get(family, family) }} ({{ n }})</option>{% endfor %}
+      </select>
+      <select class="form-select form-select-sm" data-tf-select="ports" data-tf-label="พอร์ต" aria-label="กรองตามพอร์ต">
+        <option value="">ทุกอุปกรณ์</option>
+        <option value="has" data-display="มีพอร์ตเปิด">มีพอร์ตเปิด ({{ with_ports }})</option>
+        <option value="none" data-display="ไม่มีพอร์ตเปิด">ไม่มีพอร์ตเปิด ({{ without_ports }})</option>
+      </select>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-tf-clear hidden><i class="ti ti-filter-off me-1" aria-hidden="true"></i>ล้างตัวกรอง</button>
+      <span class="ms-auto text-muted small" data-tf-count data-tf-unit="เครื่อง" role="status" aria-live="polite">แสดง {{ devices|length }} จาก {{ devices|length }} เครื่อง</span>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table align-middle mb-0" style="font-size:.88rem;" data-resizable>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th class="ps-4 py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="ip" title="เรียงตาม IP">IP Address<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="mac" title="เรียงตาม MAC">MAC Address<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="os" title="เรียงตามระบบปฏิบัติการ">OS<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="type" title="เรียงตามประเภทอุปกรณ์">Type<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 pe-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="ports" data-tf-type="num" data-tf-first="desc" title="เรียงตามจำนวนพอร์ต">Open Ports<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 pe-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="scans" data-tf-type="num" data-tf-first="desc" title="เรียงตามจำนวนครั้งที่สแกน">Scan Count<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="seen" data-tf-first="desc" title="เรียงตามเวลาที่พบล่าสุด">Last Seen<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="pe-4 py-3 text-muted" style="font-weight:600;font-size:.78rem;"></th>
+          </tr>
+        </thead>
+        <tbody data-tf-body>
+          {% for d in devices %}
+          <tr data-tf-row
+              data-q="{{ ([d.ip] + d.other_ips + ['' if d.mac == '—' else d.mac, d.mac_vendor, d.os, d.os_family, fam_th.get(d.os_family, ''), d.device_type.label] + d.ports) | select | map('string') | join('|') | lower }}"
+              data-f-type="{{ d.device_type.label }}" data-f-os="{{ d.os_family }}" data-f-ports="{{ 'has' if d.port_count else 'none' }}"
+              data-s-ip="{{ d.ip }}" data-s-mac="{{ '' if d.mac == '—' else d.mac }}" data-s-os="{{ d.os }}" data-s-type="{{ d.device_type.label }}"
+              data-s-ports="{{ d.port_count }}" data-s-scans="{{ d.scan_count }}" data-s-seen="{{ '' if d.last_seen == '—' else d.last_seen }}"
+              style="border-top:1px solid #f1f3f5;">
+            <td class="ps-4 py-3 fw-semibold" style="color:#0f172a;">
+              <a class="ip-link" href="{{ url_for('device_detail', ip=d.ip) }}" title="ดูรายละเอียดอุปกรณ์">{{ d.ip }}</a>
+              {% if d.other_ips %}
+              <div class="fw-normal text-muted" style="font-size:.75rem;" title="อุปกรณ์เดียวกัน (MAC เดียวกัน) เคยได้รับ IP เหล่านี้ด้วย">
+                เคยใช้ IP: {{ d.other_ips | join(', ') }}
+              </div>
+              {% endif %}
+            </td>
+            <td class="py-3 text-muted">
+              {% if d.mac and d.mac != '—' %}
+                {{ d.mac }}{% if d.mac_vendor %} <span style="font-size:.75rem;">({{ d.mac_vendor }})</span>{% endif %}
+                {{ mac_note_html(d.ip, d.mac, d.mac_vendor, dash=False) }}
+              {% else %}
+                {{ mac_note_html(d.ip, '', '') }}
+              {% endif %}
+            </td>
+            <td class="py-3">{{ d.os }}</td>
+            <td class="py-3">
+              <span class="badge rounded-pill" style="background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;font-weight:500;" title="{{ d.device_type.reason }}">
+                <i class="ti {{ d.device_type.icon }} me-1"></i>{{ d.device_type.label }}
+              </span>
+            </td>
+            <td class="py-3">
+              <span class="badge rounded-pill" style="background:#fff3cd;color:#8a6d00;font-weight:600;"{% if d.open_ports_list %} title="{{ d.open_ports_list[:12] | join(', ') }}{{ ' …' if d.open_ports_list | length > 12 }}"{% endif %}>
+                {{ d.port_count }} port{{ 's' if d.port_count != 1 else '' }}
+              </span>
+            </td>
+            <td class="py-3 text-muted">{{ d.scan_count }}</td>
+            <td class="py-3 text-muted" style="white-space:nowrap;">{{ d.last_seen }}</td>
+            <td class="pe-4 py-3 text-end">
+              <a href="{{ url_for('device_detail', ip=d.ip) }}" class="btn btn-sm btn-outline-secondary text-nowrap">ดูรายละเอียด</a>
+            </td>
+          </tr>
+          {% endfor %}
+          <tr data-tf-empty hidden>
+            <td colspan="8" class="text-center text-muted py-5">
+              <i class="ti ti-filter-off" style="font-size:2rem;color:#cbd5e1;" aria-hidden="true"></i>
+              <p class="mt-2 mb-1">ไม่พบอุปกรณ์ที่ตรงกับตัวกรอง</p>
+              <p class="small mb-1" data-tf-empty-detail></p>
+              <p class="small mb-3">ลองพิมพ์ให้สั้นลง หรือล้างตัวกรองบางอย่างออก</p>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-tf-clear>ล้างตัวกรอง</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="ti ti-device-desktop" style="font-size:2.5rem;color:#cbd5e1;"></i>
+      <p class="mt-2 mb-0">ยังไม่พบอุปกรณ์ — เริ่มสแกนเครือข่ายเพื่อดูข้อมูลที่นี่</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if devices %}{% include 'partials/_table_filter.html' %}{% include 'partials/_resizable_columns.html' %}{% endif %}
+
+{% endblock %}

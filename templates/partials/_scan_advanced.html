@@ -1,0 +1,62 @@
+{# The collapsible "ตัวเลือกขั้นสูง" block shared by every scan-creation form (New Scan and Rescan in tasks.html, Drill-down in scan_detail.html).
+   Needs `prefix` ('ns' / 'rescan' / 'dd'); `with_mc` adds the Discovery-only mDNS / SSDP switch (the Drill-down form has none).
+   The ids are the ones base.html's scripts and the forms' own code look up: <prefix>_adv_wrapper / _adv_toggle / _adv_panel, _timing_input (the real
+   <select name="timing">, kept as the source of truth and drawn as the segmented control _timing_seg), _mc_row / _mc_input, _pn_row / _pn_input, _ap_row / _ap_input / _ap_note, _dns_row / _dns_input, _pr_row / _pr_input, _gt_row / _gt_input,
+   _vi_row / _vi_input / _vi_value. Rows are shown or hidden per scan type by updateScanAdvancedForType() in base.html. #}
+<div class="mb-3" id="{{ prefix }}_adv_wrapper">
+    <button type="button" class="scan-adv-toggle" id="{{ prefix }}_adv_toggle" aria-expanded="false" aria-controls="{{ prefix }}_adv_panel" onclick="toggleScanAdvanced('{{ prefix }}')">
+        <i class="ti ti-adjustments-horizontal"></i>
+        <span>ตัวเลือกขั้นสูง</span>
+        <small>Timing, ping, พอร์ต, DNS, นุ่มนวล, UDP</small>
+        <i class="ti ti-chevron-down"></i>
+    </button>
+    <div class="scan-adv-panel" id="{{ prefix }}_adv_panel" style="display:none;">
+        <div class="adv-row" id="{{ prefix }}_timing_row">
+            {% include 'partials/_timing_label.html' %}
+            <div class="adv-seg" id="{{ prefix }}_timing_seg" role="radiogroup" aria-label="Timing"></div>
+            <select name="timing" id="{{ prefix }}_timing_input" class="adv-native" tabindex="-1" aria-hidden="true">
+                <option value="">Default</option>
+                <option value="1">T1 — Sneaky</option>
+                <option value="2">T2 — Polite</option>
+                <option value="3">T3 — Normal</option>
+                <option value="4">T4 — Aggressive</option>
+            </select>
+        </div>
+        {% if with_mc %}
+        <div class="adv-row" id="{{ prefix }}_mc_row" style="display:none;">
+            {% include 'partials/_multicast_label.html' %}
+        </div>
+        {% endif %}
+        <div class="adv-row" id="{{ prefix }}_pn_row">
+            {% include 'partials/_skip_ping_label.html' %}
+        </div>
+        <div class="adv-row" id="{{ prefix }}_ap_row">
+            {% include 'partials/_all_ports_label.html' %}
+        </div>
+        <div class="adv-row" id="{{ prefix }}_dns_row">
+            {% include 'partials/_no_dns_label.html' %}
+        </div>
+        <div class="adv-row" id="{{ prefix }}_pr_row">
+            {% include 'partials/_probes_label.html' %}
+        </div>
+        <div class="adv-row" id="{{ prefix }}_gt_row">
+            {% include 'partials/_gentle_label.html' %}
+        </div>
+        <div class="adv-row" id="{{ prefix }}_udp_row">
+            {% include 'partials/_udp_label.html' %}
+        </div>
+        <div class="adv-row" id="{{ prefix }}_vi_row">
+            <div class="adv-head">
+                <label class="adv-label" for="{{ prefix }}_vi_input">Version Intensity</label>
+                <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบาย Version Intensity">
+                    <i class="ti ti-info-circle"></i>
+                    <div class="scan-adv-info-card">
+                        <div class="text-secondary" style="font-size:0.77rem;">ค่ายิ่งสูง nmap จะใช้วิธีตรวจหลายแบบขึ้นเพื่อระบุเวอร์ชันของบริการ จึงระบุได้มากขึ้นแต่ใช้เวลานานขึ้น หากบริการไม่เปิดเผยเวอร์ชัน การเพิ่มค่านี้ไม่ช่วย ค่าเริ่มต้นคือ 7</div>
+                    </div>
+                </span>
+                <span class="adv-val" id="{{ prefix }}_vi_value">7 · ค่าเริ่มต้น</span>
+            </div>
+            <input type="range" class="form-range" name="version_intensity" min="0" max="9" value="7" id="{{ prefix }}_vi_input" oninput="syncViLabel('{{ prefix }}')">
+        </div>
+    </div>
+</div>

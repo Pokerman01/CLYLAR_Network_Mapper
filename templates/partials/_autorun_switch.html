@@ -1,0 +1,3 @@
+{# The "scan right away" switch of the chat widget (popup, Assistant page, Voice page). One copy; the ids are shared, so a page has only one. Its text and tooltip are
+   written by autorunRender() in base.html (they follow the interface language); the state comes from the server (voice_autorun) and is saved by POST /api/ui/voice-autorun. #}
+<label class="cb-auto" id="cb-auto" for="cb-auto-sw"><span class="cb-auto-t" id="cb-auto-t">สแกนทันที</span><span class="form-check form-switch m-0 p-0"><input class="form-check-input" type="checkbox" role="switch" id="cb-auto-sw"{% if voice_autorun %} checked{% endif %}></span></label><span class="visually-hidden" id="cb-auto-desc"></span>
