@@ -4,7 +4,7 @@
 
 ## ภาษาไทย
 
-CLYLAR Network Scanner เป็นเว็บแอปพลิเคชันที่พัฒนาด้วย Flask และใช้ตราสัญลักษณ์ของบริษัท โทรคมนาคมแห่งชาติ จำกัด (มหาชน) หรือ NT ความสามารถหลักได้แก่ สแกนเครือข่ายด้วย nmap ค้นหาช่องโหว่ที่เปิดเผยต่อสาธารณะ (CVE) จากฐานข้อมูล NVD ตั้งเวลาสแกนซ้ำ สร้างรายงาน PDF และมีผู้ช่วย AI ที่รองรับคำสั่งเสียง หน้าจอแสดงได้ทั้งภาษาไทย (ค่าเริ่มต้น) และภาษาอังกฤษ และเลือกได้ทั้งธีมสว่างและธีมมืด
+CLYLAR Network Scanner เป็นเว็บแอปพลิเคชันที่พัฒนาด้วย Flask และใช้ตราสัญลักษณ์ของบริษัท โทรคมนาคมแห่งชาติ จำกัด (มหาชน) หรือ NT ความสามารถหลัก ได้แก่ การสแกนเครือข่ายด้วย nmap การค้นหาช่องโหว่ที่เปิดเผยต่อสาธารณะ (CVE) จากฐานข้อมูล NVD การตั้งเวลาสแกนซ้ำ การสร้างรายงาน PDF และผู้ช่วย AI ที่รองรับคำสั่งเสียง ส่วนหน้าจอใช้งานได้ทั้งภาษาไทย (ค่าเริ่มต้น) และภาษาอังกฤษ รวมถึงธีมสว่างและธีมมืด
 
 > **กรุณาใช้เฉพาะกับเครือข่ายที่คุณเป็นเจ้าของหรือได้รับอนุญาตให้สแกนเท่านั้น** การสแกนเครือข่ายของผู้อื่นโดยไม่ได้รับอนุญาตอาจมีความผิดตามกฎหมาย
 
@@ -52,7 +52,7 @@ CLYLAR Network Scanner เป็นเว็บแอปพลิเคชัน
 | Werkzeug | 3.1.3 | python-dotenv | 1.2.2 |
 | psutil | 5.9.5 | websocket-client | 1.9.0 |
 
-ไฟล์ `requirements.txt` ไม่ได้ระบุเวอร์ชัน ขั้นตอนที่ 5 จึงติดตั้งรุ่นล่าสุดของแต่ละแพ็กเกจ ซึ่งโดยปกติใช้งานได้ หากแอปมีปัญหาหลังติดตั้ง ให้ติดตั้งแพ็กเกจรุ่นตามตารางด้านบนด้วยคำสั่งนี้แทน (พิมพ์ในโฟลเดอร์ของแอปหลังทำขั้นตอนที่ 5 แล้ว เป็นคำสั่งเดียว พิมพ์ต่อกันในบรรทัดเดียว ใช้กับ Python 3.11.9 เท่านั้น เนื่องจาก `psutil` รุ่นนี้ยังไม่รองรับ Python 3.13)
+ไฟล์ `requirements.txt` ไม่ได้ระบุเวอร์ชัน ขั้นตอนที่ 5 จึงติดตั้งรุ่นล่าสุดของแต่ละแพ็กเกจ ซึ่งโดยปกติใช้งานได้ หากแอปมีปัญหาหลังติดตั้ง ให้ติดตั้งแพ็กเกจรุ่นตามตารางด้านบนด้วยคำสั่งนี้แทน (พิมพ์ในโฟลเดอร์ของแอปหลังทำขั้นตอนที่ 5 เสร็จแล้ว เป็นคำสั่งเดียวในบรรทัดเดียว และใช้กับ Python 3.11.9 เท่านั้น เพราะ `psutil` รุ่นนี้ยังไม่รองรับ Python 3.13)
 
 ```bat
 .venv\Scripts\python.exe -m pip install Flask==3.1.0 Flask-Login==0.6.3 Flask-SQLAlchemy==3.1.1 Flask-WTF==1.3.0 Werkzeug==3.1.3 APScheduler==3.11.2 python-nmap==0.7.1 requests==2.33.1 xhtml2pdf==0.2.17 python-dotenv==1.2.2 psutil==5.9.5 websocket-client==1.9.0
@@ -73,7 +73,7 @@ CLYLAR Network Scanner เป็นเว็บแอปพลิเคชัน
 |---|---|
 | `PATH` | รายการโฟลเดอร์ที่ Windows ค้นหาโปรแกรมเมื่อคุณพิมพ์ชื่อคำสั่ง หากโปรแกรมไม่อยู่ในโฟลเดอร์เหล่านี้ Windows จะแสดงข้อความ "is not recognized" |
 | สภาพแวดล้อมเสมือน (virtual environment) | โฟลเดอร์ `.venv` ที่เก็บแพ็กเกจของแอปนี้โดยเฉพาะ ไม่ปะปนกับโปรแกรม Python อื่นในเครื่อง |
-| สิทธิ์ผู้ดูแลระบบของ Windows (Administrator) | สิทธิ์ระดับสูงของ Windows ซึ่ง Windows จะให้กด Yes เพื่อยืนยันก่อนเปิดโปรแกรม โปรแกรม nmap ต้องใช้สิทธิ์นี้จึงจะตรวจ OS และ MAC ได้ครบ |
+| สิทธิ์ผู้ดูแลระบบของ Windows (Administrator) | สิทธิ์ระดับสูงของ Windows โดย Windows จะให้กด Yes เพื่อยืนยันก่อนเปิดโปรแกรม nmap ต้องใช้สิทธิ์นี้จึงจะตรวจ OS และ MAC ได้ครบ |
 | เป้าหมายแบบ `/24` | `192.168.1.0/24` หมายถึงที่อยู่ 192.168.1.0 ถึง 192.168.1.255 รวม 256 ที่อยู่ ตัวเลขหลัง `/` ยิ่งน้อย เครือข่ายยิ่งใหญ่ |
 | CVE | รหัสของช่องโหว่ที่เปิดเผยต่อสาธารณะ เช่น `CVE-2021-44228` |
 
@@ -273,7 +273,7 @@ sudo .venv/bin/python app.py
 #### ผู้ช่วยและคำสั่งเสียง
 
 - เมนู **ผู้ช่วย** เป็นหน้าแชท พิมพ์คำสั่ง เช่น "สแกน 192.168.1.10" ถามข้อมูล เช่น "มีกี่อุปกรณ์" หรือสั่งเปิดหน้า เช่น "เปิดหน้ารายงาน" ระบบประมวลผลคำสั่งสแกน คำถามเกี่ยวกับข้อมูล และการเปิดหน้าได้เอง โดยไม่ใช้ AI ส่วนคำถามอื่นจะส่งต่อให้ AI (ต้องตั้งค่า ดู [การตั้งค่าเพิ่มเติม](#การตั้งค่าเพิ่มเติม-ไม่บังคับ))
-- ทุกคำสั่งสแกนต้องกด **ยืนยันและเริ่มสแกน** ที่การ์ดก่อน ระบบจึงจะเริ่มสแกน เว้นแต่คุณเปิดสวิตช์ **สแกนทันที** (ใช้ได้กับเครือข่ายภายในที่ไม่เกิน /24 เท่านั้น) ในหน้าผู้ช่วยและหน้าเสียง AI ไม่สามารถสั่งสแกนได้ แต่ในหน้าต่างแชทที่เปิดจากปุ่มลอย เมื่อพิมพ์ข้อความ AI อาจสั่งสแกนได้ทันทีโดยไม่ถามยืนยัน (ยังเป็นพฤติกรรมเดิมที่รอการตัดสินใจ)
+- ทุกคำสั่งสแกนต้องกด **ยืนยันและเริ่มสแกน** ที่การ์ดก่อน ระบบจึงจะเริ่มสแกน เว้นแต่คุณเปิดสวิตช์ **สแกนทันที** (ใช้ได้กับเครือข่ายภายในที่ไม่เกิน /24 เท่านั้น) AI ไม่สามารถเริ่มสแกนเองได้ แม้ AI เสนอคำสั่งสแกนในหน้าต่างแชทที่เปิดจากปุ่มลอย ก็ต้องกดยืนยันที่การ์ดเช่นเดียวกัน
 - ปุ่มลอยที่มุมขวาล่างมีเมนูลัด 3 รายการ ได้แก่ **แชท** **สั่งด้วยเสียง** และ **สแกนด่วน** ส่วนเมนู **เสียง** เป็นหน้าเต็มสำหรับสั่งด้วยเสียง การสั่งด้วยเสียงต้องใช้ Chrome หรือ Edge และเปิดแอปผ่าน `127.0.0.1`, `localhost` หรือ HTTPS
 - ระหว่างรอคำตอบของ AI คุณเปลี่ยนไปหน้าอื่นได้ คำตอบจะแสดงเมื่อกลับมาที่แชทนั้น ระหว่างรอสามารถกด **หยุด** ได้ และหากไม่ได้รับคำตอบ สามารถกด **ลองอีกครั้ง**
 
@@ -291,7 +291,7 @@ sudo .venv/bin/python app.py
 
 ### การตั้งค่าเพิ่มเติม (ไม่บังคับ)
 
-- **ผู้ช่วย AI ออนไลน์ (Gemini)** ใส่คีย์ต่อจาก `GOOGLE_API_KEY=` ในไฟล์ `.env` (ที่สร้างในขั้นตอนที่ 6) หรือในหน้าตั้งค่า โดยผู้ดูแลระบบสูงสุด (superadmin) กำหนดคีย์ที่ใช้ร่วมกันได้ และผู้ดูแลระบบแต่ละคนกำหนดคีย์ของตนเองได้ หากตั้งคีย์ไว้ทั้งสองที่ ระบบจะใช้คีย์ในหน้าตั้งค่า ขอรับคีย์ได้ที่ <https://aistudio.google.com/app/apikey> หากไม่มีคีย์ คำสั่งเสียงและหน้าผู้ช่วยยังรับคำสั่งที่ระบบประมวลผลได้เอง เช่น สั่งสแกน ถามจำนวนอุปกรณ์ และเปิดหน้าอื่น ๆ ของแอป
+- **ผู้ช่วย AI ออนไลน์ (Gemini)** ใส่คีย์ต่อจาก `GOOGLE_API_KEY=` ในไฟล์ `.env` (ที่สร้างในขั้นตอนที่ 6) หรือในหน้าตั้งค่า โดยผู้ดูแลระบบสูงสุด (superadmin) กำหนดคีย์ที่ใช้ร่วมกันได้ และผู้ดูแลระบบแต่ละคนกำหนดคีย์ของตนเองได้ หากตั้งคีย์ไว้ทั้งสองที่ ระบบจะใช้คีย์ในหน้าตั้งค่า ขอรับคีย์ได้ที่ <https://aistudio.google.com/app/apikey> ผู้ดูแลระบบสูงสุดเลือกโมเดล Gemini ได้จากรายการในหน้าตั้งค่า รายการนี้แสดงโมเดลที่คีย์ของระบบใช้ได้ จึงต้องตั้งคีย์ก่อน และเมื่อเปลี่ยนจากโมเดลในเครื่องมาใช้ Gemini ระบบจะแจ้งเตือนก่อนว่าคำถามจะถูกส่งไปยัง Google ทั้งนี้ AI เห็นตัวเลขสรุปครบทุกรายการ แต่เห็นรายการละเอียดของอุปกรณ์ ช่องโหว่ และงานสแกนเพียงบางส่วน หากต้องการข้อมูลเฉพาะรายการ ให้ระบุที่อยู่ IP หรือรหัส CVE ในคำถาม หากไม่มีคีย์ คำสั่งเสียงและหน้าผู้ช่วยยังรับคำสั่งที่ระบบประมวลผลได้เอง เช่น สั่งสแกน ถามจำนวนอุปกรณ์ และเปิดหน้าอื่น ๆ ของแอป
 - **คีย์ NVD (ค้นหา CVE)** ใช้กับสแกนช่องโหว่ ไม่บังคับ หากไม่มีคีย์ ระบบยังค้นหาได้แต่ช้าลง เพราะ NVD อนุญาตเพียง 5 คำขอใน 30 วินาที (ระบบจึงเว้นช่วงระหว่างคำขอประมาณ 6.5 วินาที) ขอคีย์ฟรีได้ที่ <https://nvd.nist.gov/developers/request-an-api-key> NVD จะส่งคีย์ทางอีเมล และต้องกดลิงก์ยืนยันในอีเมลก่อนจึงจะใช้ได้ จากนั้นใส่คีย์ต่อจาก `NVD_API_KEY=` ในไฟล์ `.env` หรือใส่ที่หน้า **ตั้งค่า** ในการ์ด **การค้นหา CVE (NVD)** (เฉพาะผู้ดูแลระบบสูงสุด) คีย์ที่ตั้งในหน้าตั้งค่ามีผลก่อนไฟล์ `.env`
 - **AI ในเครื่อง (Ollama + Typhoon)** ตอบคำถามด้วยโมเดลที่ทำงานบนเครื่องของคุณแทน Gemini ข้อมูลจึงไม่ออกนอกเครื่อง ดูขั้นตอนทั้งหมดที่หัวข้อ [การติดตั้งและใช้งาน AI ในเครื่อง](#การติดตั้งและใช้งาน-ai-ในเครื่อง)
 - **Whisper (ถอดเสียงเป็นข้อความในเครื่อง)** ถอดเสียงคำสั่งเป็นข้อความบนเครื่องของคุณเอง โดยไม่ส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ ต้องดาวน์โหลดโมเดลแยกต่างหาก (ประมาณ 3 GB) และตั้งค่าเพิ่มเติม ดูขั้นตอนใน **[docs/whisper-setup.md](docs/whisper-setup.md)** หากไม่ได้ติดตั้ง ระบบจะใช้ตัวถอดเสียงของเบราว์เซอร์แทน
@@ -333,7 +333,7 @@ sudo .venv/bin/python app.py
 
 3. **เลือกใช้ในแอป** เข้าสู่ระบบด้วยบัญชีผู้ดูแลระบบสูงสุด (superadmin) ซึ่งเป็นบัญชีเดียวที่เปลี่ยนค่านี้ได้ เปิดหน้า **ตั้งค่า** แล้วในการ์ด **ผู้ช่วย AI** ที่ช่อง **AI ที่ใช้ตอบ** ให้เลือก **ในเครื่อง (Typhoon)**
 4. **ทดสอบ** กด **ทดสอบการเชื่อมต่อ** ระบบจะแจ้งว่าเชื่อมต่อ Ollama ได้หรือไม่ และพบโมเดลที่ตั้งไว้หรือไม่ การทดสอบไม่เรียกใช้โมเดลและไม่โหลดโมเดลเข้าหน่วยความจำ
-5. **ใช้งาน** ถามผู้ช่วยตามปกติที่หน้า **ผู้ช่วย** หรือปุ่มลอย คำตอบจะมีป้าย **AI ในเครื่อง** กำกับ และเมื่อวางเมาส์บนแถบสถานะของแชท จะมีคำอธิบายว่าคำถามไม่ออกนอกเครื่องนี้ หากคำตอบใช้เวลานาน กดปุ่ม **หยุด** ได้ ระบบจะหยุดการทำงานของโมเดลทันที
+5. **ใช้งาน** ถามผู้ช่วยตามปกติที่หน้า **ผู้ช่วย** หรือปุ่มลอย คำตอบจะมีป้าย **AI ในเครื่อง** กำกับ และเมื่อวางเมาส์บนแถบสถานะของแชท จะมีคำอธิบายว่าคำถามไม่ออกนอกเครื่องที่ใช้สแกน หากคำตอบใช้เวลานาน กดปุ่ม **หยุด** ได้ ระบบจะหยุดการทำงานของโมเดลทันที
 
 **การปรับแต่ง** กด **ตั้งค่าโมเดล** ในการ์ดเดียวกัน
 
@@ -358,7 +358,7 @@ sudo .venv/bin/python app.py
 
 | อาการ | สาเหตุและวิธีแก้ |
 |---|---|
-| ทดสอบการเชื่อมต่อไม่ผ่าน | Ollama ยังไม่ทำงาน เปิดโปรแกรม Ollama (หรือรัน `ollama serve`) แล้วตรวจสอบค่าในช่อง **ที่อยู่เซิร์ฟเวอร์ Ollama** |
+| ทดสอบการเชื่อมต่อไม่ผ่าน | Ollama ยังไม่ทำงาน หรือเพิ่งเริ่มทำงาน หลังเปิดเครื่องอาจใช้เวลา 1 ถึง 2 นาที (หน้าตั้งค่าจะลองซ้ำเองประมาณ 2 นาที) หากยังไม่ได้ ให้เปิดโปรแกรม Ollama (หรือรัน `ollama serve`) ตรวจสอบค่าในช่อง **ที่อยู่เซิร์ฟเวอร์ Ollama** และกด **ดูวิธีแก้ไข** ข้างข้อความเพื่อดูขั้นตอนทีละข้อ |
 | แจ้งว่าไม่พบโมเดล | ยังไม่ได้ดาวน์โหลดโมเดล หรือชื่อโมเดลในช่องไม่ตรงกับ `ollama list` |
 | ตอบช้ามาก | ตรวจด้วย `ollama ps` ว่าโมเดลใช้การ์ดจอบางส่วนหรือไม่ หากใช้เฉพาะ CPU จะช้า ให้เพิ่มเลเยอร์ที่ใช้ GPU หากหน่วยความจำการ์ดจอเหลือพอ |
 | Ollama หรือแอปแจ้งว่าหน่วยความจำไม่พอ | ลดเลเยอร์ที่ใช้ GPU ลง หรือปิด Whisper ชั่วคราว |
@@ -656,7 +656,7 @@ The **Advanced options** of the new-scan box offer Timing, no ping (`-Pn`), scan
 #### Assistant and voice commands
 
 - The **Assistant** page is a chat. Type a command such as "scan 192.168.1.10", or ask "how many devices" or "open the reports page". The system handles scan commands, questions about your data and opening pages by itself, without AI. Other questions go to the AI (needs setup, see [Optional settings](#optional-settings)).
-- Every scan command needs your confirmation (**Confirm, scan now**) on a card before it starts, unless you turn on the **Scan right away** switch (only for private networks of /24 or smaller). On the Assistant and Voice pages the AI cannot start a scan. In the chat window opened from the floating button, however, the AI can start a scan at once, without asking, when you type a request (this is the original behaviour and is still waiting for a decision).
+- Every scan command needs your confirmation (**Confirm, scan now**) on a card before it starts, unless you turn on the **Scan right away** switch (only for private networks of /24 or smaller). The AI can never start a scan by itself: even when it proposes a scan in the chat window opened from the floating button, you must confirm it on the card.
 - The floating button at the bottom right opens the chat, starts a voice command or a quick scan. The **Voice** page is a full-page voice screen. Voice needs Chrome or Edge, opened through `localhost` or HTTPS.
 - While the AI is writing an answer you can go to another page; the answer waits for you, and there are Stop and Retry buttons.
 
@@ -674,7 +674,7 @@ The light / dark theme button and the Thai / English switch are in the top bar. 
 
 ### Optional settings
 
-- **Online AI assistant (Gemini).** Put a key in a `.env` file (copy `.env.example`), or paste it on the Settings page (a superadmin sets the shared key, any admin can set their own). Settings-page keys take priority over `.env`. Get a key at <https://aistudio.google.com/app/apikey>. Without a key, voice commands and the Assistant page still handle what the system understands itself (scans, counts, opening pages).
+- **Online AI assistant (Gemini).** Put a key in a `.env` file (copy `.env.example`), or paste it on the Settings page (a superadmin sets the shared key, any admin can set their own). Settings-page keys take priority over `.env`. Get a key at <https://aistudio.google.com/app/apikey>. A superadmin chooses the Gemini model from a list on the Settings page; the list shows the models the shared key can use, so set the key first. When you switch from the local model to Gemini, the app warns you first that questions will be sent to Google. The AI sees every total but only part of the device, vulnerability and scan lists; to get details about one item, include its IP address or CVE ID in your question. Without a key, voice commands and the Assistant page still handle what the system understands itself (scans, counts, opening pages).
 - **NVD key (CVE lookup).** Used by the Vulnerability Scan. Optional: without a key the lookup still works but is slower, because NVD allows only 5 requests per 30 seconds (so the system waits about 6.5 seconds between requests). Request a free key at <https://nvd.nist.gov/developers/request-an-api-key>. NVD emails the key, and you must click the confirmation link in that email before it works. Then put the key after `NVD_API_KEY=` in the `.env` file, or enter it on the **Settings** page in the **CVE lookup (NVD)** card (superadmin only). A key set on the Settings page takes priority over the `.env` file.
 - **Local AI (Ollama + Typhoon).** Answers questions with a model that runs on your own computer instead of Gemini, so nothing leaves it. Full setup guide: [Local AI setup](#local-ai-setup).
 - **Local voice engine (Whisper).** Turns spoken commands into text on your own computer instead of sending audio to the browser vendor. It is a separate download of about 3 GB and needs its own setup: see **[docs/whisper-setup.md](docs/whisper-setup.md)**. Without it the app uses the browser's engine.
@@ -739,7 +739,7 @@ The assistant can answer questions with the **Typhoon 2.5 (Qwen3 4B)** model run
 
 | What you see | What to do |
 |---|---|
-| The connection test fails | Ollama is not running. Start the Ollama app (or run `ollama serve`) and check the Ollama server address. |
+| The connection test fails | Ollama is not running, or has only just started. After the computer starts it can take 1 to 2 minutes (the Settings page retries by itself for about 2 minutes). If it still fails, start the Ollama app (or run `ollama serve`), check the Ollama server address, and press **How to fix it** next to the message for step-by-step help. |
 | It says the model was not found | The model has not been downloaded, or the name in the field does not match `ollama list`. |
 | Answers are very slow | Run `ollama ps` to see whether the graphics card carries part of the model. CPU only is slow. Try more layers on the GPU if graphics memory allows. |
 | Out of memory | Lower the layers on the GPU, or turn Whisper off for a while. |
