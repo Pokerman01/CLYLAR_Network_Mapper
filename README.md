@@ -62,7 +62,7 @@ CLYLAR Network Scanner เป็นเว็บแอปพลิเคชัน
 
 ### การติดตั้ง
 
-**ก่อนเริ่ม: Command Prompt คืออะไร** Command Prompt คือหน้าต่างสีดำสำหรับพิมพ์คำสั่ง ทุกขั้นตอนในคู่มือนี้ใช้หน้าต่างนี้ (ไม่ใช่ PowerShell)
+**ก่อนเริ่ม** ทุกขั้นตอนในคู่มือนี้ใช้ Command Prompt (ไม่ใช่ PowerShell)
 
 - **เปิด:** กดปุ่ม Windows พิมพ์ `cmd` แล้วกด Enter
 - **คำสั่ง:** คำสั่งอยู่ในกรอบสีเทา ให้พิมพ์หรือคัดลอกทีละบรรทัด แล้วกด Enter ทุกครั้ง รอให้คำสั่งทำงานเสร็จ (เห็นเครื่องหมาย `>` กลับมา) ก่อนพิมพ์บรรทัดถัดไป
@@ -450,7 +450,7 @@ This guide has not been tested on Linux, macOS or Python 3.13.
 
 ### Install
 
-**Before you start: what is Command Prompt?** Command Prompt is the black window where you type commands. Every step in this guide uses it (not PowerShell).
+**Before you start:** every step in this guide uses Command Prompt (not PowerShell).
 
 - **Open it:** press the Windows key, type `cmd`, press Enter.
 - **Commands:** they are in the grey boxes. Type or copy them one line at a time and press Enter after each. Wait for a command to finish (the `>` sign comes back) before typing the next line.
