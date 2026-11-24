@@ -1,20 +1,23 @@
 from dotenv import load_dotenv
 load_dotenv()  # โหลด .env อัตโนมัติ (GOOGLE_API_KEY, GEMINI_MODEL)
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, session
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, session, g
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.security import generate_password_hash, check_password_hash
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import defer
-from models import db, User, ScanJob, ScheduledScan, SavedTarget, HistoryQuery, AppSetting, GeminiCall
-from scanner import (port_reason, port_reason_label, PORT_REASON_TH, run_network_scan, run_vuln_scan, get_system_default_gateway,
-                     get_scan_capabilities, get_local_adapters, mac_note, guess_device_type,
-                     clamp_scan_knobs, clamp_skip_ping, clamp_all_ports, clamp_no_dns, clamp_probes, clamp_gentle, clamp_udp, port_proto, port_key, port_text, udp_unavailable_th, udp_limit_error, UDP_MAX_ADDRESSES, options_conflict_th, gentle_limit_error, GENTLE_MAX_ADDRESSES, ports_limit_error, ALL_PORTS_MAX_ADDRESSES, ARP_ONLY_MAX, describe_scan_settings, discovery_service_text, virtual_machine_platform, is_local_ip,
+from models import db, User, ScanJob, ScheduledScan, SavedTarget, HistoryQuery, AppSetting, GeminiCall, Notification, ChatAnswer, LoginThrottle
+from scanner import (port_reason, port_reason_label, PORT_REASON_TH, run_network_scan, run_vuln_scan, get_system_default_gateway, get_public_ip,
+                     get_scan_capabilities, get_local_adapters, mac_note, guess_device_type, DEVICE_TYPES,
+                     clamp_scan_knobs, clamp_skip_ping, clamp_all_ports, clamp_no_dns, clamp_probes, clamp_gentle, clamp_udp, port_proto, port_key, port_text, udp_unavailable, udp_unavailable_th, udp_limit_error, UDP_MAX_ADDRESSES, options_conflict, options_conflict_th, gentle_limit_error, GENTLE_MAX_ADDRESSES, ports_limit_error, ALL_PORTS_MAX_ADDRESSES, ARP_ONLY_MAX, describe_scan_settings, discovery_service_text, virtual_machine_platform, is_local_ip,
                      effective_severity, severity_adjusted, severity_note, cvss_number, os_match_accuracy,
                      target_size, is_valid_target, PN_MAX_ADDRESSES, PROGRESS_EVERY)
 from cwe_data import cwe_info
 import voice_commands
+import i18n
+import local_llm
 import voice_lab
 import report_builder
 import device_builder
@@ -28,6 +31,7 @@ from zoneinfo import ZoneInfo
 from functools import wraps
 import ipaddress
 import json
+import math
 import pathlib
 import re
 import atexit
@@ -50,8 +54,12 @@ os.makedirs(INSTANCE_DIR, exist_ok=True)
 app = Flask(__name__, instance_path=INSTANCE_DIR)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'super-secret-key-change-me')
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(INSTANCE_DIR, 'scanner.db').replace(os.sep, '/')}"
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['WTF_CSRF_TIME_LIMIT'] = None  # valid for the session lifetime so idle tabs don't fail unexpectedly
 
 db.init_app(app)
+csrf = CSRFProtect(app)
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
@@ -59,25 +67,37 @@ login_manager.login_view = 'login'
 
 def mac_note_html(ip, mac='', vendor='', dash=True):
     """Badge explaining a missing/unresolvable MAC; '—' (dash=True) or nothing when there is nothing to explain."""
-    note = mac_note(ip, mac, vendor)
+    note = mac_note(ip, mac, vendor, lang=ui_lang_now())
     if note:
-        return Markup('<span class="badge" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;'
-                      'font-weight:500;font-size:.7rem;" title="{}">{}</span>').format(note['tip'], note['label'])
+        return Markup('<span class="badge mac-note-badge" title="{}">{}</span>').format(note['tip'], note['label'])
     return Markup('<span class="text-muted">—</span>') if dash else Markup('')
 
 
 app.jinja_env.globals['mac_note_html'] = mac_note_html
-app.jinja_env.globals['cwe_info'] = cwe_info   # official CWE id / name / link for a stored CVE record
+app.jinja_env.globals['cwe_info'] = lambda cve: cwe_info(cve, lang=ui_lang_now())   # official CWE id / name / link for a stored CVE record
+app.jinja_env.globals['t'] = lambda key, **values: i18n.t(key, ui_lang_now(), **values)      # interface text in the chosen language (i18n.py, locales/*.json)
 app.jinja_env.globals['voice_help_examples'] = voice_commands.HELP_EXAMPLES      # the chat's help panel (base.html)
 # the severity to show for a stored CVE record: NVD's label, with a CVSS v2-only 9.0+ shown as CRITICAL (see scanner.effective_severity)
 app.jinja_env.globals['effective_severity'] = effective_severity
 app.jinja_env.globals['port_reason_label'] = port_reason_label     # Thai words for nmap's reason of a port state (None when not recorded)
 app.jinja_env.globals['PORT_REASON_TH'] = PORT_REASON_TH
 app.jinja_env.globals['severity_adjusted'] = severity_adjusted
-app.jinja_env.globals['severity_note'] = severity_note
+app.jinja_env.globals['severity_note'] = lambda score: severity_note(score, lang=ui_lang_now())
 # The dashboard's "good" green: the donut's "No Findings" slice and the Task Status "Complete" bar. One value for both, also
 # handed to dashboard.html, where inkOf() swaps it for a deeper shade whenever it is used as a text colour.
 GOOD_GREEN = '#1cb454'
+
+# The six device tiers of the dashboard's donut, one per device by its worst CVE (the Network Topology page colours its dots by risk with them too).
+# Critical / High are the bright red and orange the owner prefers. A deep red + light orange pair (#991b1b / #fb923c) was tried
+# because these two look alike; the owner chose these back.
+DEVICE_TIER_COLOR = {
+    'critical': '#dc3545',
+    'high': '#fd7e14',
+    'medium': '#ffc107',
+    'low': '#9bc53d',
+    'clean': GOOD_GREEN,
+    'unscanned': '#6c757d',
+}
 app.jinja_env.globals['GOOD_GREEN'] = GOOD_GREEN
 # first adapter lookup shells out to PowerShell (~2s): do it once in the background at startup
 threading.Thread(target=get_local_adapters, daemon=True).start()
@@ -91,10 +111,49 @@ SCAN_TYPE_LABELS = {
     'xml_upload': 'XML Upload',
     'vuln_scan': 'Vulnerability Scan (CVE)',
 }
+# The same names in Thai (2026-11-11, the owner: "in Thai mode every word is Thai"; the technical words are transliterated). Only what is SHOWN
+# changes: the stored scan_type values and the CSV export keep the English names. The PDF report is always Thai.
+SCAN_TYPE_LABELS_TH = {
+    'fast_scan': 'สแกนแบบเร็ว',
+    'discovery': 'ค้นหาอุปกรณ์',
+    'intense': 'สแกนแบบละเอียด',
+    'custom': 'สแกนแบบกำหนดเอง',
+    'xml_upload': 'นำเข้าไฟล์ XML',
+    'vuln_scan': 'สแกนช่องโหว่ (CVE)',
+}
+
+
+def scan_labels(lang=None):
+    """The scan-type names for the interface language of this request (or for `lang` when given)."""
+    return SCAN_TYPE_LABELS if (lang or ui_lang_now()) == 'en' else SCAN_TYPE_LABELS_TH
+
 
 @app.template_filter('scan_label')
 def scan_label_filter(value):
-    return SCAN_TYPE_LABELS.get(value, value)
+    return scan_labels().get(value, value)
+
+
+def sev_label(value, lang=None):
+    """Localized CVE severity label ('วิกฤต'/'สูง'/'ปานกลาง'/'ต่ำ' in TH, 'Critical'/'High'/'Medium'/'Low' in EN)."""
+    k = str(value or '').strip().lower()
+    if k not in ('critical', 'high', 'medium', 'low'):
+        k = 'unknown'
+    return i18n.t('vulns.sev.' + k, lang if lang in i18n.LANGS else ui_lang_now())
+
+
+@app.template_filter('sev_label')
+def sev_label_filter(value):
+    return sev_label(value)
+
+
+def job_label(n, lang=None):
+    """Localized scan job label ('งาน #12' in TH, 'Job #12' in EN)."""
+    return i18n.t('common.job_num', lang if lang in i18n.LANGS else ui_lang_now(), n=n)
+
+
+@app.template_filter('job_label')
+def job_label_filter(value):
+    return job_label(value)
 
 @app.template_filter('css_str')
 def css_str_filter(value):
@@ -112,6 +171,12 @@ def from_json_filter(value):
     except Exception:
         return []
 
+
+@app.template_filter('host_count')
+def host_count_filter(job):
+    """Number of real hosts discovered by a ScanJob (never counts error objects on failed scans)."""
+    return len(_parse_job_hosts(job))
+
 # --- APScheduler ---
 scheduler = BackgroundScheduler(timezone="Asia/Bangkok")
 scheduler.start()
@@ -120,7 +185,8 @@ atexit.register(lambda: scheduler.shutdown())
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    user = User.query.get(int(user_id))
+    return None if user is not None and user.is_suspended else user      # a suspended account is signed out at its next request
 
 
 # ─────────────────────────────────────────
@@ -194,40 +260,162 @@ def visible_schedules_query():
 #  Layout context (sidebar/topbar — every template)
 # ─────────────────────────────────────────
 
+EN_MONTHS = [None, 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 THAI_MONTHS = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
                'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
+
+
+# ─────────────────────────────────────────
+#  Theme (light / dark) and interface language (th / en): one choice per user
+# ─────────────────────────────────────────
+# Kept per user on the server (`AppSetting` ui_theme.<user id> / ui_lang.<user id>) so it holds in every browser, and ALSO in a cookie
+# (clylar_theme / clylar_lang) so the login page, which has no user yet, shows the same choice. Light and Thai are the defaults. The server writes
+# both into the page (<html data-theme lang>), so there is no flash of the wrong theme. Changing them is a JSON POST (there is no CSRF token, so
+# a form post is a 400), open to a visitor who is not signed in (the login page has the buttons too): it then sets the cookie only.
+UI_THEMES = ('light', 'dark')
+UI_COOKIE_SECONDS = 365 * 24 * 3600
+
+
+def _ui_pref(kind, allowed, default):
+    """kind is 'theme' or 'lang': the signed-in user's saved choice, else the cookie, else the default."""
+    if current_user.is_authenticated:
+        try:
+            value = get_setting('ui_%s.%d' % (kind, current_user.id))
+            if value in allowed:
+                return value
+        except Exception:
+            pass
+    value = request.cookies.get('clylar_' + kind)
+    return value if value in allowed else default
+
+
+def ui_lang_now():
+    """The interface language of this request ('th' or 'en'), worked out once per request."""
+    try:
+        if not hasattr(g, 'ui_lang'):
+            g.ui_lang = _ui_pref('lang', i18n.LANGS, i18n.DEFAULT_LANG)
+        return g.ui_lang
+    except RuntimeError:                       # no request (a script or a test): the default
+        return i18n.DEFAULT_LANG
+
+
+def tr(key, **values):
+    """A text for the server's own messages (flash notices, API errors) in the current language: the same keys as t() in a template."""
+    return i18n.t(key, ui_lang_now(), **values)
+
+
+def fmt_dt(value, fmt='%Y-%m-%d %H:%M'):
+    """A date or time in the calendar of the interface language: the Buddhist year (+543) in Thai, the ordinary year in English. Only what is shown
+    changes, never what is stored. A text (already formatted) comes back as it is: use ui_year() for that."""
+    if not value:
+        return ''
+    if isinstance(value, str):
+        return ui_year(value)
+    if ui_lang_now() != 'en':
+        fmt = fmt.replace('%Y', '%04d' % (value.year + 543))
+    return value.strftime(fmt)
+
+
+def ui_year(text):
+    """'2026-11-10 13:20' -> '2569-11-10 13:20' in Thai (the same for a date alone); English and anything else unchanged."""
+    if ui_lang_now() == 'en' or not isinstance(text, str):
+        return text
+    m = re.match(r'^(\d{4})(-\d{2}-\d{2})', text)
+    return '%d%s%s' % (int(m.group(1)) + 543, m.group(2), text[m.end():]) if m else text
+
+
+app.jinja_env.filters['fdt'] = fmt_dt
+app.jinja_env.filters['ui_year'] = ui_year
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """The browser asks for it on every page; the Clylar app icon is the answer (it used to be a 404 and a console error)."""
+    return app.send_static_file('images/clylar-app-icon.png')
+
+
+def _ui_save(kind, value):
+    if current_user.is_authenticated:
+        set_setting('ui_%s.%d' % (kind, current_user.id), value)
+    response = jsonify({kind: value})
+    response.set_cookie('clylar_' + kind, value, max_age=UI_COOKIE_SECONDS, samesite='Lax', path='/')
+    return response
+
+
+@app.route('/api/ui/theme', methods=['POST'])
+def api_ui_theme():
+    """{theme: 'light' | 'dark'}"""
+    theme = (request.get_json(silent=True) or {}).get('theme')
+    if theme not in UI_THEMES:
+        return jsonify({'error': 'theme must be light or dark'}), 400
+    return _ui_save('theme', theme)
+
+
+@app.route('/api/ui/lang', methods=['POST'])
+def api_ui_lang():
+    """{lang: 'th' | 'en'}"""
+    lang = (request.get_json(silent=True) or {}).get('lang')
+    if lang not in i18n.LANGS:
+        return jsonify({'error': 'lang must be th or en'}), 400
+    return _ui_save('lang', lang)
+
+
+def localized_scan_warnings():
+    """Capability warnings from get_scan_capabilities(), rendered in the active UI language."""
+    warnings = get_scan_capabilities().get('warnings') or []
+    out = []
+    for w in warnings:
+        code = w.get('code') if isinstance(w, dict) else None
+        if code in ('no_nmap', 'not_admin', 'no_npcap'):
+            out.append({'text': tr(f'cap.{code}.text'), 'tip': tr(f'cap.{code}.tip')})
+        elif isinstance(w, dict):
+            out.append(w)
+    return out
 
 
 @app.context_processor
 def inject_layout_context():
     now = now_th()
     notif_count = 0
+    notif_unread = 0
     if current_user.is_authenticated:
         try:
             notif_count = visible_scans_query().filter(ScanJob.status.in_(ACTIVE_STATUSES)).count()      # waiting or running
+            notif_unread = Notification.query.filter_by(user_id=current_user.id, read_at=None).count()     # the bell's badge
         except Exception:
             notif_count = 0
     chat_button_hidden = False       # the floating chat button is only drawn for admins; each of them may hide it (Settings page)
     voice_autorun = False            # "scan at once": this admin chose to skip the confirmation card for a safe target (see voice_autorun_allowed)
     chat_ai_on = True                # the chat's status line: "AI ปิดอยู่" when the Settings switch has the AI off
+    chat_ai_engine = 'gemini'        # which engine answers (Settings): the chat says whether a question leaves this computer
+    chat_hint_seen = True            # the one-time "you can hide this button in Settings" hint beside the speed dial: shown only while this is False (admins who have not seen it)
     if current_user.is_authenticated and current_user.is_any_admin:
         try:
             chat_button_hidden = get_setting(chat_button_key(current_user.id), '0') == '1'
+            chat_hint_seen = get_setting(chat_hint_key(current_user.id), '0') == '1'
             chat_ai_on = ai_enabled()
+            chat_ai_engine = ai_engine()
             voice_autorun = voice_autorun_on(current_user.id)
         except Exception:
             chat_button_hidden = False
     return {
         'now_year': now.year,
         'thai_date_today': f"{now.day} {THAI_MONTHS[now.month]} {now.year + 543}",
+        # the date in the top bar in the chosen language: Thai with the Buddhist year, English with the Gregorian one
+        'date_today': (f"{now.day} {EN_MONTHS[now.month]} {now.year}" if ui_lang_now() == 'en' else f"{now.day} {THAI_MONTHS[now.month]} {now.year + 543}"),
         'notification_count': notif_count,
-        'scan_warnings': get_scan_capabilities()['warnings'],
+        'notification_unread': notif_unread,
+        'scan_warnings': localized_scan_warnings(),
         # the id of the scan a form just ran before redirecting here (set by the routes below), shown once as the "scan finished" notice; it does not
         # depend on the browser's storage or on the page having seen the scan run
         'scan_just_finished': session.pop('scan_just_finished', None),
         'chat_button_hidden': chat_button_hidden,
+        'chat_hint_seen': chat_hint_seen,
         'chat_ai_on': chat_ai_on,
+        'chat_ai_engine': chat_ai_engine,
         'voice_autorun': voice_autorun,
+        'ui_theme': _ui_pref('theme', UI_THEMES, 'light'),       # <html data-theme=...> and the theme button
+        'ui_lang': ui_lang_now(),                                # <html lang=...> and the language button
     }
 
 
@@ -251,20 +439,25 @@ def calc_next_run(schedule):
             candidate += timedelta(weeks=1)
         return candidate
     elif schedule.repeat == 'monthly':
+        # Day 29 to 31: a month that is shorter runs on its LAST day (see monthly_run_day). The next run is the first such day, this month or a
+        # later one, that is still in the future; every month is worked out from its own length (a month is never built by replace(month=...),
+        # which fails when the next month is shorter).
         dom = schedule.day_of_month or 1
-        try:
-            candidate = base.replace(day=dom)
-        except ValueError:
-            import calendar
-            last_day = calendar.monthrange(base.year, base.month)[1]
-            candidate = base.replace(day=last_day)
-        if candidate <= now:
-            if candidate.month == 12:
-                candidate = candidate.replace(year=candidate.year + 1, month=1)
-            else:
-                candidate = candidate.replace(month=candidate.month + 1)
+        year, month = now.year, now.month
+        for _ in range(14):
+            candidate = base.replace(year=year, month=month, day=monthly_run_day(year, month, dom))
+            if candidate > now:
+                return candidate
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
         return candidate
     return base
+
+
+def monthly_run_day(year, month, day_of_month):
+    """The day of that month a monthly schedule runs on: the chosen day, or the last day when the month is shorter (31 in April is the 30th,
+    29 to 31 in a common February is the 28th)."""
+    import calendar
+    return min(max(int(day_of_month or 1), 1), calendar.monthrange(year, month)[1])
 
 
 def job_skip_ping(scan_type, custom_args, form_value):
@@ -302,34 +495,30 @@ def job_udp(scan_type, form_value):
 
 
 def scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp=False):
-    """The Thai sentence for a form route that refuses a new scan because of how its options combine or how big the target is, else None: probes with -Pn, Gentle
-    with all ports, all ports on more than 64 addresses, Gentle on more than 1,024, the UDP option without Administrator / Npcap or on more than 64 addresses. The scanner repeats these checks as a backstop, but that only fails the job
-    after it was queued; the person should be told at once."""
-    conflict = options_conflict_th(bool(skip_ping), bool(all_ports), bool(host_probes), bool(gentle))
+    """Localized refusal message for a form route when options conflict or target size exceeds a safe cap, else None."""
+    lang = ui_lang_now()
+    conflict_fn = options_conflict if lang == 'en' else options_conflict_th
+    conflict = conflict_fn(bool(skip_ping), bool(all_ports), bool(host_probes), bool(gentle))
     if conflict:
         return conflict
     refusal = all_ports_refusal(target, all_ports)
     if refusal:
         return refusal
     if gentle and gentle_limit_error(target):
-        return ('สแกนแบบนุ่มนวลรองรับไม่เกิน %s ที่อยู่ (ช่วง /22) แต่เป้าหมายนี้มี %s ที่อยู่ กรุณาลดช่วงเป้าหมายหรือยกเลิกตัวเลือกนี้'
-                % (format(GENTLE_MAX_ADDRESSES, ','), format(target_size(target), ',')))
+        return i18n.t('refusal.gentle_limit', lang, max=format(GENTLE_MAX_ADDRESSES, ','), n=format(target_size(target), ','))
     if udp:
-        if udp_unavailable_th():
-            return udp_unavailable_th()
+        unavail = udp_unavailable() if lang == 'en' else udp_unavailable_th()
+        if unavail:
+            return unavail
         if udp_limit_error(target):
-            return ('การสแกน UDP รองรับไม่เกิน %d ที่อยู่ (ช่วง /26) แต่เป้าหมายนี้มี %s ที่อยู่ กรุณาลดช่วงเป้าหมายหรือยกเลิกตัวเลือกนี้'
-                    % (UDP_MAX_ADDRESSES, format(target_size(target), ',')))
+            return i18n.t('refusal.udp_limit', lang, max=UDP_MAX_ADDRESSES, n=format(target_size(target), ','))
     return None
 
 
 def all_ports_refusal(target, all_ports):
-    """The Thai sentence for a form route that refuses a new scan of too many addresses with "all ports" on, else None. The scanner has the same
-    check as a backstop, but that one only fails the job after it was queued; the person should be told at once."""
+    """Localized refusal message when scanning all ports exceeds ALL_PORTS_MAX_ADDRESSES, else None."""
     if all_ports and ports_limit_error(target):
-        n = target_size(target)
-        return ('สแกนทุกพอร์ต (1-65535) รองรับไม่เกิน %d ที่อยู่ (ช่วง /26) แต่เป้าหมายนี้มี %s ที่อยู่ กรุณาลดช่วงเป้าหมายหรือยกเลิกตัวเลือกนี้'
-                % (ALL_PORTS_MAX_ADDRESSES, format(n, ',')))
+        return i18n.t('refusal.all_ports_limit', ui_lang_now(), max=ALL_PORTS_MAX_ADDRESSES, n=format(target_size(target), ','))
     return None
 
 
@@ -344,6 +533,13 @@ def scan_with_info(target, scan_type, custom_args=None, timing=None, version_int
         results = run_network_scan(target, scan_type, custom_args=custom_args, timing=timing, version_intensity=version_intensity,
                                    multicast=multicast, skip_ping=bool(skip_ping), info=info, all_ports=bool(all_ports), no_dns=bool(no_dns),
                                host_probes=bool(host_probes), gentle=bool(gentle), udp=bool(udp))
+    # Snapshot this machine's outbound public IP for live scans (never called on XML uploads)
+    try:
+        pub_ip = get_public_ip(max_age=300)
+        if pub_ip:
+            info['public_ip'] = pub_ip
+    except Exception:
+        pass
     try:
         return results, (json.dumps(info) if info else None)
     except (TypeError, ValueError):
@@ -354,10 +550,8 @@ ACTIVE_STATUSES = ('Queued', 'Running')      # a scan that is waiting for a work
 
 
 def _job_seq(job):
-    """The number the app shows as "Job #N" for a job that was just created: its place in its owner's list by time (see _owner_seq_map)."""
-    return ScanJob.query.filter(
-        ScanJob.owner_id == job.owner_id,
-        db.or_(ScanJob.timestamp < job.timestamp, db.and_(ScanJob.timestamp == job.timestamp, ScanJob.id <= job.id))).count()
+    """The job number shown as 'Job #N' everywhere on screen — matches the database id in /scan/<id>."""
+    return job.id
 
 
 def _execute_job(job_id):
@@ -388,6 +582,7 @@ def _execute_job(job_id):
          .update({'status': 'Failed' if has_error else 'Completed', 'result_data': results, 'scan_info': info_text,
                   'finished_at': now_th()}, synchronize_session=False))
         db.session.commit()
+        _notify_job_finished(job_id)          # the bell (never raises; nothing for a job that was cancelled)
 
 
 scan_runner.init(_execute_job)
@@ -410,11 +605,19 @@ def recover_interrupted_jobs():
     """Marks every job that was waiting or running as Failed ("interrupted"). The queue lives in memory and a worker dies with its process, so
     a job that is still 'Queued' or 'Running' when a process starts serving requests can only be one that a restart cut off. (nmap itself, if
     it was running, ends by itself.) Returns how many jobs were marked."""
+    cut_off = ScanJob.query.filter(ScanJob.status.in_(ACTIVE_STATUSES)).with_entities(ScanJob.id).all()
     n = (ScanJob.query.filter(ScanJob.status.in_(ACTIVE_STATUSES))
          .update({'status': 'Failed', 'finished_at': now_th(),
                   'result_data': json.dumps([{'error': 'Interrupted: the application restarted while this scan was waiting or running.'}])},
                  synchronize_session=False))
     db.session.commit()
+    for (job_id,) in cut_off:                  # the bell says so (once per job; never raises)
+        try:
+            job = ScanJob.query.get(job_id)
+            if job and job.owner_id:
+                _notify(job.owner_id, 'scan_interrupted', 'scan', 'amber', {'n': _job_seq(job), 'target': job.target}, '/tasks', job.id)
+        except Exception:
+            db.session.rollback()
     return n
 
 
@@ -422,10 +625,10 @@ def _scan_started_redirect(job, endpoint='tasks_page', **values):
     """The answer of a form that starts a scan: queue the job and go to the Tasks page at once with a plain notice (the scan runs in the
     background). The flag makes the page announce the job when it finishes even if that happens before the page's first poll."""
     if not enqueue_scan(job):
-        flash('เริ่มสแกนไม่ได้ กรุณาลองใหม่อีกครั้ง', 'danger')
+        flash(tr('flash.scan_start_failed'), 'danger')
         return redirect(url_for(endpoint, **values))
     session['scan_just_finished'] = job.id
-    flash(f'รับคำสั่งสแกน {job.target} แล้ว (งาน #{_job_seq(job)}) ระบบจะแจ้งเมื่อสแกนเสร็จ', 'success')
+    flash(tr('flash.scan_accepted', target=job.target, n=_job_seq(job)), 'success')
     return redirect(url_for(endpoint, **values))
 
 
@@ -444,6 +647,11 @@ def _recover_jobs_once():
     except Exception as e:
         db.session.rollback()
         print('could not recover interrupted jobs: %s' % e)
+    try:
+        recover_interrupted_answers()
+    except Exception as e:
+        db.session.rollback()
+        print('could not recover interrupted answers: %s' % e)
 
 
 def scan_run_info(job):
@@ -468,6 +676,14 @@ def scan_run_info(job):
             out[key] = raw[key]
     if isinstance(raw.get('udp_error'), str) and raw['udp_error']:
         out['udp_error'] = raw['udp_error'][:200]
+    pub_raw = raw.get('public_ip')
+    if isinstance(pub_raw, str) and pub_raw.strip():
+        try:
+            addr = ipaddress.ip_address(pub_raw.strip())
+            if not (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast or addr.is_reserved or addr.is_unspecified):
+                out['public_ip'] = str(addr)
+        except ValueError:
+            pass
     rows = raw.get('arp_only')
     if isinstance(rows, list):
         out['arp_only'] = [{'ip': str(r.get('ip') or '')[:45], 'mac': str(r.get('mac') or '')[:17], 'vendor': str(r.get('vendor') or '')[:60]}
@@ -475,59 +691,85 @@ def scan_run_info(job):
     return out
 
 
-def describe_run(job):
-    """The scan's own report of its run in plain Thai, for the Tasks panel and the scan pages (one wording for both):
+def describe_run(job, lang=None):
+    """The scan's own report of its run in `lang` (defaults to the active UI language), for Tasks and scan detail pages:
     {'summary', 'nmap', 'elapsed', 'notes': [{'kind': 'warn' | 'info', 'text'}], 'arp_only': [...], 'arp_only_total'}.
     It says only what was recorded: a job from before scan_info existed gives empty parts, never a guess."""
+    lang = lang if lang in i18n.LANGS else ui_lang_now()
+    say = lambda key, **kw: i18n.t(key, lang, **kw)
     run = scan_run_info(job)
     skip = bool(run.get('skip_ping') or job.skip_ping)
     n = lambda v: format(v, ',')
     parts = []
     if 'checked' in run:
-        parts.append('ตรวจ %s IP' % n(run['checked']) + (' (ข้ามการ ping)' if skip else ''))
+        parts.append(say('run.checked_skip' if skip else 'run.checked', n=n(run['checked'])))
         if skip:
             if 'up' in run:
-                parts.append('พบหลักฐานว่ามีเครื่อง %s' % n(run['up']))
+                parts.append(say('run.up_evidence', n=n(run['up'])))
             if 'no_evidence' in run:
-                parts.append('ไม่พบหลักฐาน %s' % n(run['no_evidence']))
+                parts.append(say('run.no_evidence', n=n(run['no_evidence'])))
         else:
             if 'up' in run:
-                parts.append('ตอบกลับ %s' % n(run['up']))
+                parts.append(say('run.up_reply', n=n(run['up'])))
             if 'down' in run:
-                parts.append('ไม่ตอบ %s' % n(run['down']))
+                parts.append(say('run.down_reply', n=n(run['down'])))
     notes = []
     if run.get('admin') is False:
-        notes.append({'kind': 'warn', 'text': 'สแกนครั้งนี้รันโดยไม่มีสิทธิ์ Administrator/root — อุปกรณ์ที่บล็อก ping อาจหายไป และอ่าน MAC / ระบบปฏิบัติการได้ไม่ครบ'})
+        notes.append({'kind': 'warn', 'text': say('run.note.not_admin')})
     if run.get('npcap') is False:
-        notes.append({'kind': 'warn', 'text': 'ไม่พบ Npcap ตอนสแกน — nmap ใช้ ping แทน ARP จึงอาจพลาดอุปกรณ์ที่บล็อก ping'})
+        notes.append({'kind': 'warn', 'text': say('run.note.no_npcap')})
     if skip and run.get('no_evidence'):
-        notes.append({'kind': 'info', 'text': 'ที่อยู่ %s ที่ไม่มีอะไรตอบกลับไม่ถูกแสดงเป็นอุปกรณ์ — เครื่องที่ปิดกั้นทุกพอร์ตกับที่อยู่ว่างแยกกันไม่ได้' % n(run['no_evidence'])})
+        notes.append({'kind': 'info', 'text': say('run.note.skip_no_evidence', n=n(run['no_evidence']))})
     elif (not skip and job.scan_type in ('fast_scan', 'intense', 'vuln_scan', 'custom') and run.get('down')
           and run.get('checked', 10 ** 9) <= 8):
-        notes.append({'kind': 'info', 'text': 'มี %s IP ที่ไม่ตอบ ซึ่งอาจเป็นอุปกรณ์ที่บล็อก ping — สแกนซ้ำโดยเปิด "ข้ามการ ping (-Pn)" เพื่อลองพอร์ตโดยตรง' % n(run['down'])})
+        notes.append({'kind': 'info', 'text': say('run.note.suggest_pn', n=n(run['down']))})
     if run.get('host_probes') is True:
-        notes.append({'kind': 'info', 'text': 'ตรวจหาอุปกรณ์ที่ไม่ตอบ ping ด้วยการลองเชื่อมต่อพอร์ตที่พบบ่อยและ ICMP เพิ่มเติม ในวงเดียวกันระบบใช้ ARP อยู่แล้ว ผลจึงต่างจากเดิมเฉพาะอุปกรณ์ที่อยู่หลังเราเตอร์'})
+        notes.append({'kind': 'info', 'text': say('run.note.host_probes')})
     if run.get('gentle') is True:
-        notes.append({'kind': 'info', 'text': 'สแกนแบบนุ่มนวล: ส่งแพ็กเก็ตช้าและจำกัดอัตรา ลองซ้ำไม่เกิน 2 ครั้ง จึงใช้เวลานานกว่าปกติมาก และพอร์ตที่แพ็กเก็ตสูญหายอาจแสดงเป็น filtered'})
+        notes.append({'kind': 'info', 'text': say('run.note.gentle')})
     if run.get('udp') is True:
-        notes.append({'kind': 'info', 'text': 'รอบที่ 2 สแกน UDP 12 พอร์ตที่พบบ่อย (53, 67, 69, 123, 137, 161, 500, 520, 623, 1434, 1900, 5060) กับอุปกรณ์ที่รอบแรกพบว่าออนไลน์ '
-                                             'พอร์ต UDP ที่ไม่ตอบกลับจะแสดงเป็น open|filtered ซึ่งหมายถึงไม่ทราบว่าเปิดหรือถูกกรอง ไม่ใช่พอร์ตที่เปิด และระบบไม่ค้นหา CVE ให้พอร์ตนั้น'})
+        notes.append({'kind': 'info', 'text': say('run.note.udp')})
     if run.get('udp_failed') is True:
-        notes.append({'kind': 'warn', 'text': 'รอบสแกน UDP ทำงานไม่สำเร็จ จึงไม่มีผลพอร์ต UDP ของสแกนนี้ ผลพอร์ต TCP ไม่ได้รับผลกระทบ' + (' (สาเหตุ: %s)' % run['udp_error'] if run.get('udp_error') else '')})
+        msg = say('run.note.udp_failed_cause', cause=run['udp_error']) if run.get('udp_error') else say('run.note.udp_failed')
+        notes.append({'kind': 'warn', 'text': msg})
     if run.get('udp_not_scanned'):
-        notes.append({'kind': 'warn', 'text': '%s เครื่องไม่ได้สแกน UDP (เป็นที่อยู่ที่ไม่ใช่ IPv4 หรือ nmap ไม่รายงานผล) จึงไม่ทราบพอร์ต UDP ของเครื่องนั้น' % format(run['udp_not_scanned'], ',')})
+        notes.append({'kind': 'warn', 'text': say('run.note.udp_not_scanned', n=n(run['udp_not_scanned']))})
     if run.get('udp_timed_out'):
-        notes.append({'kind': 'warn', 'text': '%s เครื่องใช้เวลาสแกน UDP เกิน 10 นาที nmap จึงข้ามเครื่องนั้น และไม่ทราบพอร์ต UDP ของเครื่องนั้น' % format(run['udp_timed_out'], ',')})
+        notes.append({'kind': 'warn', 'text': say('run.note.udp_timed_out', n=n(run['udp_timed_out']))})
     if run.get('no_dns') is True:
-        notes.append({'kind': 'info', 'text': 'ไม่ได้ค้นหาชื่ออุปกรณ์ผ่าน DNS (-n) อุปกรณ์ที่ไม่มีชื่อแสดงจึงไม่ได้แปลว่าไม่มีชื่อ (ชื่อ NetBIOS ที่ถามจากตัวอุปกรณ์ยังอ่านได้)'})
+        notes.append({'kind': 'info', 'text': say('run.note.no_dns')})
     if run.get('ports_scanned') == 65535:
-        notes.append({'kind': 'info', 'text': 'สแกนพอร์ต TCP ทั้งหมด 1-65535 ของแต่ละเครื่อง รายการแสดงเฉพาะพอร์ตที่ nmap แยกรายงาน ส่วนที่เหลือเป็นสถานะเดียวกันที่ nmap สรุปรวมไว้ (ปิดหรือถูกกรอง)'})
+        notes.append({'kind': 'info', 'text': say('run.note.all_ports')})
     if run.get('timed_out'):
-        notes.append({'kind': 'warn', 'text': '%s เครื่องใช้เวลาเกิน 45 นาที nmap จึงข้ามเครื่องนั้น และไม่ทราบพอร์ตของเครื่องนั้น (ไม่ได้แปลว่าไม่มีพอร์ตเปิด)' % n(run['timed_out'])})
+        notes.append({'kind': 'warn', 'text': say('run.note.timed_out', n=n(run['timed_out']))})
     if run.get('arp_only_total'):
-        notes.append({'kind': 'info', 'text': 'ตาราง ARP ของเครื่องนี้รู้จักอีก %s อุปกรณ์ในช่วงที่สแกน ซึ่งสแกนไม่ได้รายงานว่าออนไลน์ (เคยติดต่อกับเครื่องนี้ไม่นานมานี้ ข้อมูลอาจเก่า)' % n(run['arp_only_total'])})
+        notes.append({'kind': 'info', 'text': say('run.note.arp_only', n=n(run['arp_only_total']))})
     return {'summary': ' · '.join(parts), 'nmap': run.get('nmap'), 'elapsed': run.get('elapsed'), 'notes': notes,
             'arp_only': run.get('arp_only', []), 'arp_only_total': run.get('arp_only_total', 0)}
+
+
+_TIME_UNIT_TH = {'hour': 'ชั่วโมง', 'hours': 'ชั่วโมง', 'minute': 'นาที', 'minutes': 'นาที', 'second': 'วินาที', 'seconds': 'วินาที'}
+
+
+def localized_job_error(err, lang=None):
+    """Display stored runtime scan failure reasons in the viewer's language without altering the stored record."""
+    lang = lang if lang in i18n.LANGS else ui_lang_now()
+    s = str(err or '')[:500]
+    if not s:
+        return ''
+    if s == 'Interrupted: the application restarted while this scan was waiting or running.':
+        return i18n.t('job_err.interrupted', lang)
+    if s.startswith('Could not start the scan: '):
+        return i18n.t('job_err.start_failed', lang, detail=s[len('Could not start the scan: '):])
+    if s.startswith('Scan stopped unexpectedly: '):
+        return i18n.t('job_err.stopped', lang, detail=s[len('Scan stopped unexpectedly: '):])
+    m = re.match(r'^Scan stopped: it ran longer than its time limit \(([^)]+)\)\.$', s)
+    if m:
+        limit = m.group(1)
+        if lang != 'en':
+            limit = re.sub(r'\b(hours?|minutes?|seconds?)\b', lambda mm: _TIME_UNIT_TH.get(mm.group(1), mm.group(1)), limit)
+        return i18n.t('job_err.time_limit', lang, limit=limit)
+    return s
 
 
 def _stored_hosts(job):
@@ -541,13 +783,14 @@ def _stored_hosts(job):
     return [h for h in data if isinstance(h, dict)]
 
 
-def previous_comparable_job(job):
+def previous_comparable_job(job, base_query=None):
     """The newest EARLIER completed scan the user may see that can be compared with `job`: same target, same scan type, same -Pn choice and, for a
-    Custom scan, the same arguments (scan_diff.comparable_key). None when there is none (the first scan of its kind)."""
+    Custom scan, the same arguments (scan_diff.comparable_key). None when there is none (the first scan of its kind). `base_query` replaces
+    visible_scans_query() where there is no request (the worker that makes the bell's notifications passes the owner's own scans)."""
     if job.timestamp is None or job.status != 'Completed' or job.scan_type in (None, 'xml_upload'):
         return None
     key = scan_diff.comparable_key(job.scan_type, job.target, job.skip_ping, job.custom_args, job.all_ports, job.host_probes, job.gentle, job.udp)
-    q = (visible_scans_query()
+    q = ((base_query if base_query is not None else visible_scans_query())
          .filter(ScanJob.id != job.id, ScanJob.status == 'Completed', ScanJob.scan_type == job.scan_type, ScanJob.target == job.target,
                  ScanJob.result_data.isnot(None), ScanJob.timestamp <= job.timestamp)
          .options(defer(ScanJob.result_data))          # the candidates' (large) results are read only for the one that is picked
@@ -560,10 +803,10 @@ def previous_comparable_job(job):
     return None
 
 
-def scan_changes(job):
+def scan_changes(job, base_query=None):
     """What changed between `job` and the scan before it of the same kind: {'prev': {id, seq, when}, 'job': {id, seq}, 'diff': scan_diff result},
     or None when there is nothing to compare with."""
-    prev = previous_comparable_job(job)
+    prev = previous_comparable_job(job, base_query)
     now_hosts = _stored_hosts(job)
     if prev is None or now_hosts is None:
         return None
@@ -576,11 +819,229 @@ def scan_changes(job):
             'diff': diff}
 
 
-def execute_scheduled_scan(schedule_id):
+# ─────────────────────────────────────────
+#  The bell: Activity notifications (2026-11-17, the owner picked option B of docs/design-options/notification-bell/)
+# ─────────────────────────────────────────
+# A Notification row is made when something happens (a scan ends, a comparison with the scan before finds a new device or a new serious CVE) for
+# the owner of the scan AND for every plain user that owner created (they see the owner's scans), so each person has their own read state. The
+# row holds a kind and JSON parameters; the Thai / English text is made when the panel asks for it (locales notif.<kind>), so it follows the
+# reader's language. Everything is wrapped so a failure here can never break a scan. System warnings (no Administrator, no Npcap) are not
+# events: the panel shows them from the live check, with no read state.
+
+NOTIF_KEEP_DAYS = 30
+NOTIF_KEEP_MAX = 200
+NOTIF_LIST_MAX = 40
+
+
+def _notify(owner_id, kind, cat, tone, params=None, link=None, job_id=None):
+    """Adds one notification for the scan owner and the users that owner created. Never raises."""
+    if not owner_id:
+        return
+    try:
+        text = json.dumps(params or {}, ensure_ascii=False)
+        recipients = [owner_id] + [uid for (uid,) in User.query.filter(User.created_by == owner_id).with_entities(User.id).all()]
+        for uid in recipients:
+            db.session.add(Notification(user_id=uid, kind=kind, cat=cat, tone=tone, params=text, link=link, job_id=job_id))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _notify_job_finished(job_id):
+    """Called by a worker right after a job ended: 'scan finished' or 'scan failed', then what changed since the scan before it (new devices,
+    new Critical / High CVEs, new CISA KEV CVEs). A job that was cancelled makes none."""
+    try:
+        job = ScanJob.query.get(job_id)
+        if not job or not job.owner_id or job.status not in ('Completed', 'Failed'):
+            return
+        owner = job.owner_id
+        n = _job_seq(job)
+        link = '/scan/%d' % job.id
+        base = {'n': n, 'target': job.target, 'type': job.scan_type,
+                'schedule': (job.scan_name or '') if job.triggered_by == 'schedule' else ''}
+        if job.status == 'Failed':
+            _notify(owner, 'scan_failed', 'scan', 'amber', base, '/tasks', job.id)
+            return
+        hosts = _stored_hosts(job)
+        _notify(owner, 'scan_done', 'scan', 'ok', dict(base, hosts=len(hosts) if hosts is not None else None), link, job.id)
+        change = scan_changes(job, ScanJob.query.filter_by(owner_id=owner))
+        if not change:
+            return
+        diff, counts = change['diff'], change['diff']['counts']
+        if counts['new_devices']:
+            first = diff['new_devices'][0]['ip'] if diff['new_devices'] else ''
+            _notify(owner, 'new_devices', 'device', 'info', {'n': counts['new_devices'], 'ip': first if counts['new_devices'] == 1 else '', 'seq': n, 'target': job.target},
+                    ('/devices/%s' % first) if counts['new_devices'] == 1 and first else link, job.id)
+        rows = diff['new_cves']
+        crit = sum(1 for r in rows if r['severity'] == 'CRITICAL')
+        high = sum(1 for r in rows if r['severity'] == 'HIGH')
+        if crit or high:
+            ips = {r['ip'] for r in rows if r['severity'] in ('CRITICAL', 'HIGH')}
+            one = next(iter(ips)) if len(ips) == 1 else ''
+            _notify(owner, 'new_cves', 'vuln', 'crit' if crit else 'amber', {'crit': crit, 'high': high, 'ip': one, 'seq': n},
+                    ('/devices/%s' % one) if one else link, job.id)
+        if counts['new_kev']:
+            _notify(owner, 'new_kev', 'vuln', 'amber', {'n': counts['new_kev'], 'seq': n}, link, job.id)
+    except Exception:
+        db.session.rollback()
+
+
+def _ago_text(created, now):
+    sec = max(0, int((now - created).total_seconds())) if created else 0
+    if sec < 60:
+        return tr('notif.ago.now')
+    if sec < 3600:
+        return tr('notif.ago.min', n=sec // 60)
+    if sec < 86400:
+        return tr('notif.ago.hour', n=sec // 3600)
+    if sec < 7 * 86400:
+        return tr('notif.ago.day', n=sec // 86400)
+    return fmt_dt(created, '%Y-%m-%d')
+
+
+_NOTIF_ICON = {'scan_done': 'circle-check', 'scan_failed': 'alert-triangle', 'scan_interrupted': 'alert-triangle', 'new_devices': 'device-desktop',
+               'new_cves': 'shield-exclamation', 'new_kev': 'flame', 'system': 'alert-triangle'}
+
+
+def _notif_view(n, now):
+    """One notification as the panel draws it: text, a second line, an optional tag, an icon, a tone, a link and the time."""
+    try:
+        p = json.loads(n.params) if n.params else {}
+    except ValueError:
+        p = {}
+    if not isinstance(p, dict):
+        p = {}
+    meta, tag = '', None
+    target = str(p.get('target') or '')
+    if n.kind == 'scan_done':
+        text = tr('notif.scan_done', n=p.get('n', ''))
+        parts = [target]
+        if isinstance(p.get('hosts'), int):
+            parts.append(tr('notif.m.host_one' if p['hosts'] == 1 else 'notif.m.hosts', n=p['hosts']))
+        if p.get('schedule'):
+            parts.append(tr('notif.m.schedule', name=p['schedule']))
+        meta = ' · '.join(x for x in parts if x)
+    elif n.kind == 'scan_failed':
+        text, meta = tr('notif.scan_failed', n=p.get('n', '')), target
+    elif n.kind == 'scan_interrupted':
+        text, meta = tr('notif.scan_interrupted', n=p.get('n', '')), ' · '.join(x for x in (target, tr('notif.m.restarted')) if x)
+    elif n.kind == 'new_devices':
+        count = int(p.get('n') or 0)
+        text = tr('notif.new_device_one', ip=p.get('ip', '')) if count == 1 and p.get('ip') else tr('notif.new_devices', n=count)
+        meta = tr('notif.m.job', n=p.get('seq', '')) + (' · ' + target if target else '')
+    elif n.kind == 'new_cves':
+        crit, high = int(p.get('crit') or 0), int(p.get('high') or 0)
+        k = crit + high
+        text = tr('notif.new_cves_ip', ip=p['ip'], n=k) if p.get('ip') else tr('notif.new_cves', n=k)
+        c_lbl, h_lbl = sev_label('CRITICAL'), sev_label('HIGH')
+        meta = ' · '.join(x for x in (('%s %d' % (c_lbl, crit)) if crit else '', ('%s %d' % (h_lbl, high)) if high else '', tr('notif.m.job', n=p.get('seq', ''))) if x)
+        tag = [c_lbl, 'crit'] if crit else [h_lbl, 'high']
+    elif n.kind == 'new_kev':
+        text, meta, tag = tr('notif.new_kev', n=p.get('n', '')), tr('notif.m.job', n=p.get('seq', '')), [tr('notif.tag.kev'), 'kev']
+    else:
+        text = n.kind
+    return {'id': n.id, 'kind': n.kind, 'cat': n.cat, 'tone': n.tone, 'icon': _NOTIF_ICON.get(n.kind, 'bell'), 'text': text, 'meta': meta, 'tag': tag,
+            'link': n.link or '', 'time': _ago_text(n.created_at, now), 'unread': n.read_at is None}
+
+
+def _progress_line(p):
+    """(text, percent or None) for one entry of api_jobs_progress, worded with the Tasks page's own texts (tasks.js.*)."""
+    if not p:
+        return '', None
+    if p.get('state') == 'queued':
+        return (tr('tasks.js.p_queued_pos', n=p['position']) if p.get('position') else tr('tasks.js.p_queued')), None
+    nvd = p.get('nvd')
+    if nvd and nvd.get('total', 0) > 0:
+        return tr('tasks.js.p_nvd', done=nvd['done'], total=nvd['total']), round(100 * nvd['done'] / nvd['total'])
+    if p.get('task') is not None and p.get('percent') is not None:
+        task = str(p['task'])
+        words = None
+        for pattern, key in ((r'^(arp )?ping scan', 'w_ping'), (r'^parallel dns', 'w_dns'), (r'udp scan', 'w_udp'),
+                             (r'(connect|syn stealth|ack|window|fin|null|xmas|maimon|sctp \w+) scan', 'w_ports'), (r'^service scan', 'w_service'),
+                             (r'^(nse|script)', 'w_nse'), (r'^traceroute', 'w_trace')):
+            if re.search(pattern, task, re.I):
+                words = tr('tasks.js.' + key)
+                break
+        text = '%s %d%%' % (words or task or tr('tasks.js.p_scanning'), round(p['percent']))
+        if p.get('remaining_s') is not None:
+            sec = p['remaining_s']
+            left = tr('tasks.js.p_left_sec', n=max(1, sec)) if sec < 60 else tr('tasks.js.p_left_min', n=-(-sec // 60))
+            text += tr('tasks.js.p_left_step', left=left)
+        return text, p['percent']
+    if p.get('elapsed_s') is not None:
+        s = p['elapsed_s']
+        clock = ('%d:%02d:%02d' % (s // 3600, (s % 3600) // 60, s % 60)) if s >= 3600 else ('%d:%02d' % (s // 60, s % 60))
+        return tr('tasks.js.p_elapsed', t=clock), None
+    return tr('tasks.js.p_scanning'), None
+
+
+@app.route('/api/notifications')
+@login_required
+def api_notifications():
+    """The bell. ?brief=1 answers only the two counts (the badge polls this); without it the panel's whole content: the running scans with their
+    progress, the system warnings and the newest notifications (read or not). Old ones are deleted here (NOTIF_KEEP_DAYS days, NOTIF_KEEP_MAX each)."""
+    now = now_th()
+    unread = Notification.query.filter_by(user_id=current_user.id, read_at=None).count()
+    active = visible_scans_query().filter(ScanJob.status.in_(ACTIVE_STATUSES))
+    out = {'unread': unread, 'running_count': active.count()}
+    if not request.args.get('brief'):
+        try:
+            Notification.query.filter(Notification.user_id == current_user.id, Notification.created_at < now - timedelta(days=NOTIF_KEEP_DAYS)).delete(synchronize_session=False)
+            keep = [i for (i,) in Notification.query.filter_by(user_id=current_user.id).order_by(Notification.id.desc()).limit(NOTIF_KEEP_MAX).with_entities(Notification.id).all()]
+            if len(keep) >= NOTIF_KEEP_MAX:
+                Notification.query.filter(Notification.user_id == current_user.id, Notification.id < min(keep)).delete(synchronize_session=False)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        progress = api_jobs_progress().get_json() or {}
+        jobs = active.order_by(ScanJob.timestamp).all()
+        seq = _owner_seq_map({j.owner_id for j in jobs if j.owner_id is not None}) if jobs else {}
+        running = []
+        for j in jobs:
+            text, pct = _progress_line(progress.get(str(j.id)))
+            running.append({'id': j.id, 'n': seq.get(j.id, j.id), 'target': j.target, 'state': 'queued' if j.status == 'Queued' else 'running', 'text': text, 'percent': pct})
+        items = [_notif_view(n, now) for n in Notification.query.filter_by(user_id=current_user.id)
+                 .order_by(Notification.created_at.desc(), Notification.id.desc()).limit(NOTIF_LIST_MAX).all()]
+        system = [{'id': 'sys%d' % i, 'kind': 'system', 'cat': 'system', 'tone': 'amber', 'icon': 'alert-triangle', 'text': w.get('text', ''), 'meta': '', 'tag': None,
+                   'link': '/tasks', 'time': '', 'unread': False} for i, w in enumerate(localized_scan_warnings())]
+        out.update({'running': running, 'items': items, 'system': system})
+    resp = jsonify(out)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/notifications/read', methods=['POST'])
+@login_required
+def api_notifications_read():
+    """Marks notifications read for the caller only: {"all": true} or {"ids": [..]}. JSON only (no CSRF exists, a form post is a 400)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'JSON required'}), 400
+    q = Notification.query.filter_by(user_id=current_user.id, read_at=None)
+    if data.get('all') is True:
+        pass
+    elif isinstance(data.get('ids'), list):
+        ids = [i for i in data['ids'][:100] if isinstance(i, int) and not isinstance(i, bool)]
+        q = q.filter(Notification.id.in_(ids))
+    else:
+        return jsonify({'error': 'all or ids required'}), 400
+    q.update({'read_at': now_th()}, synchronize_session=False)
+    db.session.commit()
+    return jsonify({'ok': True, 'unread': Notification.query.filter_by(user_id=current_user.id, read_at=None).count()})
+
+
+def execute_scheduled_scan(schedule_id, monthly_guard=False):
     with app.app_context():
         schedule = ScheduledScan.query.get(schedule_id)
         if not schedule or not schedule.is_active:
             return
+        owner = User.query.get(schedule.owner_id) if schedule.owner_id else None
+        if owner is not None and owner.is_suspended:      # a suspended account's schedules wait (they stay saved and run again after it is reactivated)
+            return
+        if monthly_guard:                 # a monthly schedule for day 29 to 31 fires on days 28 to 31 (see register_apscheduler_job): run only on its day
+            today = now_th()
+            if today.day != monthly_run_day(today.year, today.month, schedule.day_of_month):
+                return
 
         new_job = ScanJob(
             target=schedule.target,
@@ -620,13 +1081,111 @@ def register_apscheduler_job(schedule):
         trigger = CronTrigger(day_of_week=schedule.day_of_week,
                               hour=schedule.cron_hour, minute=schedule.cron_minute)
     elif schedule.repeat == 'monthly':
-        trigger = CronTrigger(day=schedule.day_of_month,
+        dom = int(schedule.day_of_month or 1)
+        # A plain cron day of 29, 30 or 31 SKIPS every month that is shorter (day 31 never runs in February, April, June, September, November).
+        # Those days fire on each of the days 28 to 31 instead and execute_scheduled_scan(..., monthly_guard=True) runs the scan only on the one
+        # that is this month's run day (the chosen day, or the last day of a shorter month).
+        trigger = CronTrigger(day='28-31' if dom >= 29 else dom,
                               hour=schedule.cron_hour, minute=schedule.cron_minute)
     else:
         return
 
     scheduler.add_job(func=execute_scheduled_scan, trigger=trigger,
-                      args=[schedule.id], id=job_id, replace_existing=True)
+                      args=[schedule.id, schedule.repeat == 'monthly' and int(schedule.day_of_month or 1) >= 29],
+                      id=job_id, replace_existing=True)
+
+
+_USER_SETTING_PREFIXES = ('ui_theme.', 'ui_lang.', 'chat_button_hidden.', 'chat_hint_seen.', 'voice_autorun.')
+
+
+def _ensure_user_autoincrement(con):
+    """Upgrade an existing SQLite `user` table to INTEGER PRIMARY KEY AUTOINCREMENT once, so deleted user IDs are never reused."""
+    cur = con.cursor()
+    row = cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='user'").fetchone()
+    if not row or 'AUTOINCREMENT' in (row[0] or '').upper():
+        return
+    con.commit()
+    con.execute("PRAGMA foreign_keys = OFF")
+    try:
+        cur.execute("BEGIN")
+        cur.execute("""
+            CREATE TABLE user_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username VARCHAR(50) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(20),
+                created_by INTEGER REFERENCES user(id),
+                created_at DATETIME,
+                is_suspended BOOLEAN DEFAULT 0,
+                suspended_at DATETIME
+            )
+        """)
+        old_count = cur.execute("SELECT COUNT(*) FROM user").fetchone()[0]
+        cur.execute("""
+            INSERT INTO user_new (id, username, password_hash, role, created_by, created_at, is_suspended, suspended_at)
+            SELECT id, username, password_hash, role, created_by, created_at, is_suspended, suspended_at FROM user
+        """)
+        new_count = cur.execute("SELECT COUNT(*) FROM user_new").fetchone()[0]
+        if new_count != old_count:
+            raise RuntimeError("user autoincrement migration row count mismatch")
+        cur.execute("DROP TABLE user")
+        cur.execute("ALTER TABLE user_new RENAME TO user")
+        max_uid = cur.execute("SELECT COALESCE(MAX(id), 0) FROM user").fetchone()[0]
+        cur.execute("DELETE FROM sqlite_sequence WHERE name IN ('user', 'user_new')")
+        if max_uid > 0:
+            cur.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('user', ?)", (max_uid,))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+
+
+def _sweep_orphaned_user_data():
+    """Remove per-user records left behind by accounts deleted before full cleanup existed."""
+    live_ids = {uid for (uid,) in User.query.with_entities(User.id).all()}
+    if not live_ids:
+        return
+    HistoryQuery.query.filter(~HistoryQuery.owner_id.in_(live_ids)).delete(synchronize_session=False)
+    Notification.query.filter(~Notification.user_id.in_(live_ids)).delete(synchronize_session=False)
+    ChatAnswer.query.filter(~ChatAnswer.user_id.in_(live_ids)).delete(synchronize_session=False)
+    GeminiCall.query.filter(GeminiCall.user_id.isnot(None), ~GeminiCall.user_id.in_(live_ids)).update(
+        {'user_id': None}, synchronize_session=False
+    )
+    stale_keys = []
+    for (k,) in AppSetting.query.with_entities(AppSetting.key).all():
+        for prefix in _USER_SETTING_PREFIXES:
+            if k.startswith(prefix):
+                suffix = k[len(prefix):]
+                if suffix.isdigit() and int(suffix) not in live_ids:
+                    stale_keys.append(k)
+                break
+    if stale_keys:
+        AppSetting.query.filter(AppSetting.key.in_(stale_keys)).delete(synchronize_session=False)
+    bad_targets = [s.id for s in SavedTarget.query.all() if not is_valid_target(s.target)]
+    if bad_targets:
+        SavedTarget.query.filter(SavedTarget.id.in_(bad_targets)).delete(synchronize_session=False)
+    db.session.commit()
+
+
+def _purge_user_data(uids, usernames=()):
+    """Delete or unlink every piece of per-user state owned by the given user IDs inside the caller's transaction."""
+    if not uids:
+        return
+    for s in ScheduledScan.query.filter(ScheduledScan.owner_id.in_(uids)).all():
+        job_id = f'schedule_{s.id}'
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
+    ScanJob.query.filter(ScanJob.owner_id.in_(uids)).delete(synchronize_session=False)
+    ScheduledScan.query.filter(ScheduledScan.owner_id.in_(uids)).delete(synchronize_session=False)
+    HistoryQuery.query.filter(HistoryQuery.owner_id.in_(uids)).delete(synchronize_session=False)
+    Notification.query.filter(Notification.user_id.in_(uids)).delete(synchronize_session=False)
+    ChatAnswer.query.filter(ChatAnswer.user_id.in_(uids)).delete(synchronize_session=False)
+    GeminiCall.query.filter(GeminiCall.user_id.in_(uids)).update({'user_id': None}, synchronize_session=False)
+    setting_keys = [f'{prefix}{uid}' for uid in uids for prefix in _USER_SETTING_PREFIXES]
+    AppSetting.query.filter(AppSetting.key.in_(setting_keys)).delete(synchronize_session=False)
+    throttle_keys = [f'user:{u.strip().lower()}' for u in usernames if u and u.strip()]
+    if throttle_keys:
+        LoginThrottle.query.filter(LoginThrottle.key.in_(throttle_keys)).delete(synchronize_session=False)
 
 
 # ─────────────────────────────────────────
@@ -704,9 +1263,15 @@ with app.app_context():
             cur.execute("ALTER TABLE user ADD COLUMN created_by INTEGER REFERENCES user(id)")
         if 'created_at' not in cols3:
             cur.execute("ALTER TABLE user ADD COLUMN created_at DATETIME")
+        if 'is_suspended' not in cols3:
+            cur.execute("ALTER TABLE user ADD COLUMN is_suspended BOOLEAN DEFAULT 0")
+        if 'suspended_at' not in cols3:
+            cur.execute("ALTER TABLE user ADD COLUMN suspended_at DATETIME")
 
         con.commit()
+        _ensure_user_autoincrement(con)
         con.close()
+        db.engine.dispose()
 
     # สร้าง superadmin ถ้ายังไม่มี
     if not User.query.filter_by(role='superadmin').first():
@@ -714,6 +1279,9 @@ with app.app_context():
         superadmin = User(username='admin', password_hash=hashed_pw, role='superadmin')
         db.session.add(superadmin)
         db.session.commit()
+
+    # ล้างข้อมูลค้างของบัญชีที่เคยถูกลบไปก่อนหน้า
+    _sweep_orphaned_user_data()
 
     # migrate: user เดิมที่เป็น role='admin' และไม่มี owner_id ใน scan → set owner_id
     # (กรณี upgrade จาก version เก่า ให้ผูก scan เก่ากับ superadmin)
@@ -731,21 +1299,122 @@ with app.app_context():
 #  AUTH
 # ─────────────────────────────────────────
 
+LOGIN_USER_MAX_ATTEMPTS = 5
+LOGIN_USER_LOCK_MINUTES = 5
+LOGIN_IP_MAX_ATTEMPTS = 10
+LOGIN_IP_LOCK_MINUTES = 10
+
+
+def _login_client_ip():
+    return (request.remote_addr or 'unknown').strip()[:64]
+
+
+def _login_throttle_keys(username_norm, ip):
+    keys = []
+    if username_norm:
+        keys.append((f'user:{username_norm[:100]}', LOGIN_USER_MAX_ATTEMPTS, LOGIN_USER_LOCK_MINUTES))
+    if ip:
+        keys.append((f'ip:{ip}', LOGIN_IP_MAX_ATTEMPTS, LOGIN_IP_LOCK_MINUTES))
+    return keys
+
+
+def _login_lock_remaining(username_norm, ip, now=None):
+    """Remaining lockout seconds across username and IP throttles (0 if not locked)."""
+    now = now or now_th()
+    keys = [k for k, _, _ in _login_throttle_keys(username_norm, ip)]
+    if not keys:
+        return 0
+    rows = LoginThrottle.query.filter(LoginThrottle.key.in_(keys)).all()
+    remaining = 0
+    for row in rows:
+        if row.locked_until and row.locked_until > now:
+            sec = int(math.ceil((row.locked_until - now).total_seconds()))
+            if sec > remaining:
+                remaining = sec
+    return remaining
+
+
+def _record_login_failure(username_norm, ip, now=None):
+    """Record a failed login attempt against both username and IP. Returns lockout seconds if a limit was just reached."""
+    now = now or now_th()
+    stale_cutoff = now - timedelta(minutes=max(LOGIN_USER_LOCK_MINUTES, LOGIN_IP_LOCK_MINUTES))
+    LoginThrottle.query.filter(
+        LoginThrottle.first_failed_at < stale_cutoff,
+        db.or_(LoginThrottle.locked_until.is_(None), LoginThrottle.locked_until <= now),
+    ).delete(synchronize_session=False)
+
+    remaining = 0
+    for key, max_attempts, lock_minutes in _login_throttle_keys(username_norm, ip):
+        row = LoginThrottle.query.get(key)
+        if row is None:
+            row = LoginThrottle(key=key, failures=0)
+            db.session.add(row)
+        window = timedelta(minutes=lock_minutes)
+        if row.locked_until and row.locked_until <= now:
+            row.failures = 0
+            row.first_failed_at = None
+            row.locked_until = None
+        elif row.first_failed_at and (now - row.first_failed_at) >= window:
+            row.failures = 0
+            row.first_failed_at = None
+        row.failures += 1
+        if row.first_failed_at is None:
+            row.first_failed_at = now
+        if row.failures >= max_attempts:
+            row.locked_until = now + window
+            sec = int(math.ceil((row.locked_until - now).total_seconds()))
+            if sec > remaining:
+                remaining = sec
+    db.session.commit()
+    return remaining
+
+
+def _clear_user_login_throttle(username):
+    """Clear the per-username brute-force counter (called on valid sign-in or admin password reset)."""
+    norm = (username or '').strip().lower()
+    if norm:
+        LoginThrottle.query.filter_by(key=f'user:{norm[:100]}').delete(synchronize_session=False)
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        user = User.query.filter_by(username=request.form.get('username')).first()
-        if user and check_password_hash(user.password_hash, request.form.get('password')):
+        raw_username = request.form.get('username') or ''
+        raw_password = request.form.get('password') or ''
+        username_norm = raw_username.strip().lower()
+        ip = _login_client_ip()
+
+        wait_sec = _login_lock_remaining(username_norm, ip)
+        if wait_sec > 0:
+            wait_min = max(1, math.ceil(wait_sec / 60))
+            flash(tr('flash.login_locked', minutes=wait_min))
+            return render_template('login.html'), 429, {'Retry-After': str(wait_sec)}
+
+        user = User.query.filter_by(username=raw_username).first()
+        if user and check_password_hash(user.password_hash, raw_password):
+            if user.is_suspended:          # said only after the password was right, so the message does not reveal which names exist
+                flash(tr('flash.account_suspended'))
+                return render_template('login.html')
+            _clear_user_login_throttle(user.username)
+            db.session.commit()
             login_user(user)
+            session.pop('csrf_token', None)  # rotate CSRF token on sign-in
             return redirect(url_for('dashboard'))
-        flash('Invalid username or password')
+
+        lock_sec = _record_login_failure(username_norm, ip)
+        if lock_sec > 0:
+            wait_min = max(1, math.ceil(lock_sec / 60))
+            flash(tr('flash.login_locked', minutes=wait_min))
+            return render_template('login.html'), 429, {'Retry-After': str(lock_sec)}
+        flash(tr('flash.login_invalid'))
     return render_template('login.html')
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 @login_required
 def logout():
     logout_user()
+    session.pop('csrf_token', None)
     return redirect(url_for('login'))
 
 
@@ -753,37 +1422,238 @@ def logout():
 #  DASHBOARD
 # ─────────────────────────────────────────
 
-def _open_port_and_cve_counts(jobs):
-    """(distinct open port numbers, distinct CVE ids) over the given scan jobs: the two numbers on the dashboard's Open Ports and
-    CVE Found cards. Only ports in state `open` count, the same rule as the loop in dashboard()."""
-    ports, cve_ids = set(), set()
-    for job in jobs:
-        try:
-            job_data = json.loads(job.result_data) if job.result_data else []
-        except Exception:
+_INV_SEV_RANK = {'LOW': 1, 'UNKNOWN': 1, 'MEDIUM': 2, 'HIGH': 3, 'CRITICAL': 4}
+
+
+def _parse_job_hosts(job):
+    """Valid host dicts (with a non-empty IP) from a completed ScanJob's result_data."""
+    if not job or not job.result_data:
+        return []
+    if job.status and job.status != 'Completed':
+        return []
+    try:
+        data = json.loads(job.result_data)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [d for d in data if isinstance(d, dict) and d.get('ip')]
+
+
+def _build_device_inventory(history):
+    """Single source of truth for physical devices, their latest open ports, and their latest vulnerability-scan CVEs.
+    Shared by Dashboard, Devices, Vulnerabilities, and the voice/AI summary so every page reports identical counts:
+      * physical devices merge by MAC when known (otherwise by IP), matching devices_page();
+      * open ports come from each device's newest non-discovery scan that listed ports (matching device_builder.py);
+      * CVEs and evaluated open services come ONLY from each device's newest completed vuln_scan (open ports only), so patched
+        CVEs disappear once a newer vuln_scan no longer sees them, while a Fast/Discovery scan never erases an older vuln_scan."""
+    buckets = {}
+    for job in history:
+        for d in _parse_job_hosts(job):
+            ip = d.get('ip', '')
+            mac = d.get('mac', '')
+            mac = mac.upper() if mac and mac != 'Unknown' else ''
+            key = ('mac', mac) if mac else ('ip', ip)
+            b = buckets.setdefault(key, {'ips': set(), 'records': []})
+            b['ips'].add(ip)
+            b['records'].append((job, d))
+
+    # Attach MAC-less records to the physical device that owns that IP, only when unambiguous (exact rule from devices_page).
+    for key in [k for k in buckets if k[0] == 'ip']:
+        owners = [k for k in buckets if k[0] == 'mac' and key[1] in buckets[k]['ips']]
+        if len(owners) != 1:
             continue
-        for d in job_data:
-            for p in (d.get('ports') or []) if isinstance(d, dict) else []:
-                if str(p.get('state', '')).lower() != 'open':
+        src, dst = buckets.pop(key), buckets[owners[0]]
+        dst['ips'] |= src['ips']
+        dst['records'].extend(src['records'])
+
+    devices = []
+    for b in buckets.values():
+        records = sorted(
+            b['records'],
+            key=lambda jr: (jr[0].timestamp or datetime.min, jr[0].id or 0),
+            reverse=True,
+        )
+        ips = []
+        for _job, d in records:
+            ip = d.get('ip', '')
+            if ip and ip not in ips:
+                ips.append(ip)
+        primary_ip = ips[0]
+        last_job, last_host = records[0]
+
+        mac = mac_vendor = hostname = os_name = ''
+        os_acc = None
+        all_ports_seen = set()
+        services = set()
+        for _job, d in records:
+            if not mac:
+                m = d.get('mac', '')
+                if m and m != 'Unknown':
+                    mac = m.upper()
+                    mac_vendor = d.get('mac_vendor', '')
+            if not hostname and d.get('hostname'):
+                hostname = d['hostname']
+            if not os_name:
+                guess = str(d.get('os') or '').strip()
+                if guess and guess.lower() not in ('unknown', 'up', 'down'):
+                    os_name = guess
+                    os_acc = os_match_accuracy(d.get('os_accuracy'))
+            for p in d.get('ports') or []:
+                if isinstance(p, dict):
+                    all_ports_seen.add(port_text(p))
+            services.update(discovery_service_text(d.get('discovery')))
+
+        # Open ports: strictly from the newest non-discovery scan that listed ports (matching device_builder.py).
+        ports_job = ports_host = None
+        for job, d in records:
+            if isinstance(d.get('ports'), list) and job.scan_type != 'discovery':
+                ports_job, ports_host = job, d
+                break
+        open_labels = set()
+        open_port_keys = set()
+        open_tcp_ports = set()
+        open_ports_detail = []
+        if ports_host is not None:
+            for p in ports_host.get('ports') or []:
+                if not isinstance(p, dict):
                     continue
-                if port_key(p):
-                    ports.add(port_key(p))
-                for cve in (p.get('cves') or []):
-                    cve_id = cve if isinstance(cve, str) else (cve.get('cve_id', '') if isinstance(cve, dict) else '')
-                    if cve_id:
-                        cve_ids.add(cve_id)
-    return len(ports), len(cve_ids)
+                is_open = str(p.get('state', '')).lower() == 'open'
+                if is_open:
+                    lbl = port_text(p)
+                    open_labels.add(lbl)
+                    ver = str(p.get('version_info') or '').strip()
+                    if ver == 'Unknown Version':
+                        ver = ''
+                    open_ports_detail.append(f'{lbl} ({ver})' if ver else lbl)
+                    if port_key(p):
+                        open_port_keys.add(port_key(p))
+                    if port_proto(p) == 'tcp':
+                        open_tcp_ports.add(p.get('port'))
+                answered = port_proto(p) == 'tcp' or is_open
+                if p.get('name') and answered:
+                    services.add(p['name'])
+                if p.get('version_info') and p['version_info'] != 'Unknown Version' and answered:
+                    services.add(p['version_info'])
+
+        # CVEs and evaluated services: strictly from the newest completed vuln_scan that saw this device (open ports only).
+        vuln_job = vuln_host = None
+        for job, d in records:
+            if job.scan_type == 'vuln_scan':
+                vuln_job, vuln_host = job, d
+                break
+
+        vuln_open_services = []
+        active_cves = {}          # cve_id -> finding dict (one finding per physical device x CVE)
+        port_cves = {}            # port_text(p) -> set of active cve_ids on that open port
+        worst_key = None
+        worst_severity = None
+        worst_cvss = None
+        if vuln_host is not None:
+            vuln_ip = vuln_host.get('ip') or primary_ip
+            for p in vuln_host.get('ports') or []:
+                if not isinstance(p, dict) or str(p.get('state', '')).lower() != 'open':
+                    continue
+                cves = p.get('cves') or []
+                label = port_text(p)
+                vuln_open_services.append({
+                    'ip': vuln_ip,
+                    'port': str(p.get('port', '')),
+                    'proto': port_proto(p),
+                    'cves': len(cves),
+                    'status': p.get('cve_status'),
+                    'version': str(p.get('version_info') or ''),
+                })
+                for cve in cves:
+                    info = cve if isinstance(cve, dict) else {}
+                    cid = info.get('cve_id', '') if isinstance(cve, dict) else (cve if isinstance(cve, str) else '')
+                    if not cid:
+                        continue
+                    port_cves.setdefault(label, set()).add(cid)
+                    sev = effective_severity(info) or 'UNKNOWN'
+                    score = cvss_number(info.get('cvss_score'))
+                    if sev in _INV_SEV_RANK:
+                        rk = (_INV_SEV_RANK[sev], score if score is not None else -1)
+                        if worst_key is None or rk > worst_key:
+                            worst_key = rk
+                            worst_severity = sev
+                            worst_cvss = info.get('cvss_score')
+                    if cid not in active_cves:
+                        active_cves[cid] = {
+                            'cve_id': cid,
+                            'severity': sev,
+                            'severity_adjusted': severity_adjusted(info),
+                            'cvss_score': info.get('cvss_score'),
+                            'cvss_num': score,
+                            'cwe_name': info.get('cwe_name', ''),
+                            'raw_cve': info,
+                            'description': info.get('description') or '',
+                            'ip': vuln_ip,
+                            'primary_ip': primary_ip,
+                            'port': p.get('port', ''),
+                            'protocol': port_proto(p),
+                            'service': p.get('name', ''),
+                            'product': re.sub(r'\s+', ' ', str(p.get('version_info') or '')).strip(),
+                            'job_id': vuln_job.id,
+                            'timestamp': vuln_job.timestamp,
+                            'kev': info.get('kev') is True,
+                            'kev_added': str(info.get('kev_added') or '')[:10] if info.get('kev') is True else '',
+                        }
+
+        devices.append({
+            'ip': primary_ip,
+            'ips': ips,
+            'other_ips': ips[1:],
+            'mac': mac,
+            'mac_vendor': mac_vendor,
+            'hostname': hostname,
+            'os': os_name,
+            'os_accuracy': os_acc,
+            'open_labels': open_labels,
+            'open_ports_detail': open_ports_detail,
+            'open_port_keys': open_port_keys,
+            'open_tcp_ports': open_tcp_ports,
+            'all_ports_seen': all_ports_seen,
+            'services': services,
+            'scan_count': len(records),
+            'last_seen': last_job.timestamp,
+            'last_scan_id': last_job.id,
+            'last_scan_ip': last_host.get('ip') or primary_ip,
+            'ports_scan_id': ports_job.id if ports_job else None,
+            'vuln_scanned': vuln_job is not None,
+            'vuln_scan_id': vuln_job.id if vuln_job else None,
+            'vuln_open_services': vuln_open_services,
+            'active_cves': active_cves,
+            'port_cves': port_cves,
+            'worst_severity': worst_severity,
+            'worst_cvss': worst_cvss,
+            'worst_key': worst_key,
+        })
+
+    devices.sort(key=lambda d: _ip_sort_key(d['ip']))
+    return devices
+
+
+def _open_port_and_cve_counts(jobs):
+    """(distinct open port keys, active per-device CVE findings) from each device's latest state over the given scan jobs."""
+    inv = _build_device_inventory(jobs)
+    ports = {k for dev in inv for k in dev['open_port_keys']}
+    cve_count = sum(len(dev['active_cves']) for dev in inv)
+    return len(ports), cve_count
 
 
 def _kpi_trend(now, before):
     """The footer trend of a dashboard card: how `now` moved against `before` (the same number without the newest scan).
     None when there is nothing to compare with (before is 0); else {'dir': 'up' | 'down' | 'flat', 'pct': whole percent,
-    at least 1 for any change}. These are totals over all history, so in practice they only go up or stay flat."""
+    at least 1 for any change}."""
     if not before:
         return None
     if now == before:
         return {'dir': 'flat', 'pct': 0}
     return {'dir': 'up' if now > before else 'down', 'pct': max(1, round(abs(now - before) / before * 100))}
+
+
+ALLOWED_FORM_SCAN_TYPES = ('fast_scan', 'discovery', 'intense', 'vuln_scan', 'custom')
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -792,8 +1662,14 @@ def dashboard():
     if request.method == 'POST':
         if not current_user.is_any_admin:
             abort(403)
-        target = request.form.get('target')
-        scan_type = request.form.get('scan_type')
+        target = (request.form.get('target') or '').strip()
+        scan_type = (request.form.get('scan_type') or '').strip()
+        if not target or len(target) > 100 or not is_valid_target(target):
+            flash(tr('flash.target_invalid', target=target or '—'), 'danger')
+            return redirect(url_for('tasks_page'))
+        if scan_type not in ALLOWED_FORM_SCAN_TYPES:
+            flash(tr('flash.scan_type_invalid'), 'danger')
+            return redirect(url_for('tasks_page'))
         scan_name = request.form.get('scan_name', '').strip() or None
         custom_args = request.form.get('custom_args', '').strip() or None
         multicast = scan_type == 'discovery' and request.form.get('multicast') == '1'   # mDNS/SSDP lookup, off unless ticked
@@ -820,100 +1696,36 @@ def dashboard():
             all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp,
         )
         db.session.add(new_job)
-        if target and not SavedTarget.query.filter_by(target=target).first():
+        if not SavedTarget.query.filter_by(target=target).first():
             db.session.add(SavedTarget(target=target))
         db.session.commit()
         return _scan_started_redirect(new_job)
 
-    history = visible_scans_query().order_by(ScanJob.timestamp.desc()).all()
+    history = visible_scans_query().order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).all()
     latest_scan = history[0] if history else None
-    scan_data = json.loads(latest_scan.result_data) if latest_scan and latest_scan.result_data else []
+    scan_data = _parse_job_hosts(latest_scan)
 
     from collections import Counter
-    # ระดับความรุนแรงของ CVE เรียงจากน้อยไปมาก ใช้หา "worst severity" ต่ออุปกรณ์
-    SEVERITY_RANK = {'LOW': 1, 'UNKNOWN': 1, 'MEDIUM': 2, 'HIGH': 3, 'CRITICAL': 4}
 
-    all_device_map = {}
-    device_vuln_scanned_ips = set()   # IP ที่เคยผ่าน vuln_scan อย่างน้อย 1 ครั้ง
-    device_worst_severity = {}        # ip -> severity (CRITICAL/HIGH/MEDIUM/LOW/UNKNOWN) ที่รุนแรงที่สุดที่เคยพบ
-    device_worst_cvss = {}            # ip -> cvss_score ของ CVE ที่รุนแรงที่สุด (ถ้ามี)
-    device_worst_key = {}             # ip -> (severity rank, CVSS score) of that CVE: what a new candidate has to beat
-    device_last_scan_id = {}          # ip -> job.id ของ scan ล่าสุดที่พบอุปกรณ์นี้ (history เรียง desc แล้ว)
-    device_worst_scan_id = {}         # ip -> job.id ของ scan ที่พบ CVE ตัวที่แสดงเป็น "Worst CVE"
-    device_os = {}                    # ip -> the newest scan's real OS guess (Unknown / up / down are not an OS), for the Top OS card
-    device_os_acc = {}                # ip -> nmap's confidence in THAT guess (from the same scan record; absent when the scan did not keep it)
-    device_vuln_scan_id = {}          # ip -> job.id ของ vuln_scan ล่าสุดที่พบอุปกรณ์นี้
-    port_device_scan = {}             # (port label, ip) -> job.id of the newest scan in which that device had that port open
-    port_cve_ids = {}                 # port label -> the CVE ids found on that port (open ports only), for the Open Ports pop-up
-    port_device_cves = {}             # (port label, ip) -> the CVE ids found on that device's port: a CVE belongs to one device
-    port_cve_scan = {}                # (port label, ip) -> job.id of the newest scan that found a CVE on that device's port
-    for job in history:
-        if not job.result_data:
-            continue
-        try:
-            job_data = json.loads(job.result_data)
-        except Exception:
-            continue
-        for d in job_data:
-            ip = d.get('ip', '')
-            if not ip:
-                continue
-            if ip not in all_device_map:
-                all_device_map[ip] = set()
-            if ip not in device_last_scan_id:
-                device_last_scan_id[ip] = job.id
-            if ip not in device_os:       # newest scan first, so the first real guess is the newest one
-                guess = str(d.get('os') or '').strip()
-                if guess and guess.lower() not in ('unknown', 'up', 'down'):
-                    device_os[ip] = guess
-                    acc = os_match_accuracy(d.get('os_accuracy'))
-                    if acc is not None:
-                        device_os_acc[ip] = acc
-            if job.scan_type == 'vuln_scan':
-                device_vuln_scanned_ips.add(ip)
-                device_vuln_scan_id.setdefault(ip, job.id)
-            for p in d.get('ports', []):
-                if str(p.get('state', '')).lower() != 'open':
-                    continue
-                label = port_text(p)
-                all_device_map[ip].add(label)
-                port_device_scan.setdefault((label, ip), job.id)       # history is newest first, so the first one seen is the newest
-                for cve in p.get('cves', []):
-                    cid = cve.get('cve_id') if isinstance(cve, dict) else (cve if isinstance(cve, str) else '')
-                    if cid:
-                        port_cve_ids.setdefault(label, set()).add(cid)
-                        port_device_cves.setdefault((label, ip), set()).add(cid)
-                        port_cve_scan.setdefault((label, ip), job.id)
-                    sev = effective_severity(cve)     # '' for a record that is not a dict
-                    if sev in SEVERITY_RANK:
-                        # worst = highest severity, then highest CVSS score within it (a CRITICAL 10.0 beats a CRITICAL 9.8)
-                        score = cvss_number(cve.get('cvss_score'))
-                        key = (SEVERITY_RANK[sev], score if score is not None else -1)
-                        if ip not in device_worst_key or key > device_worst_key[ip]:
-                            device_worst_key[ip] = key
-                            device_worst_severity[ip] = sev
-                            device_worst_cvss[ip] = cve.get('cvss_score')
-                            device_worst_scan_id[ip] = job.id
+    # Unified device inventory (shared with Devices and Vulnerabilities pages)
+    inventory = _build_device_inventory(history)
+    total_devices = len(inventory)
 
-    total_devices = len(all_device_map)
-    # Top OS: every device is counted ONCE, under the family of its newest real OS guess or under 'Unknown', so the rows add up to total_devices and
-    # nothing is left out. Known families first, biggest first; 'Other' and then 'Unknown' last.
+    # Top OS: every physical device is counted ONCE, under its newest real OS guess or 'Unknown'.
     os_counts, os_names = Counter(), {}
-    for ip in all_device_map:
-        guess = device_os.get(ip)
+    for dev in inventory:
+        guess = dev['os']
         family = _os_family(guess) if guess else 'Unknown'
         os_counts[family] += 1
         if guess:
             entry = os_names.setdefault(family, {}).setdefault(guess, {'count': 0, 'acc': []})
             entry['count'] += 1
-            if ip in device_os_acc:
-                entry['acc'].append(device_os_acc[ip])
+            if dev['os_accuracy'] is not None:
+                entry['acc'].append(dev['os_accuracy'])
 
     def _acc_range(values):
         return {'acc_n': len(values), 'acc_min': min(values) if values else None, 'acc_max': max(values) if values else None}
 
-    # nmap's confidence per family and per OS guess: the lowest and highest of the devices that HAVE one recorded (a mean would hide a weak guess), and
-    # how many of them that is. A device whose scan did not keep it (every scan from before this field) is not counted, never filled in.
     os_rows = []
     for fam, n in sorted(os_counts.items(), key=lambda kv: (kv[0] == 'Unknown', kv[0] == 'Other', -kv[1], kv[0])):
         names = sorted(os_names.get(fam, {}).items(), key=lambda kv: (-kv[1]['count'], kv[0]))
@@ -921,176 +1733,108 @@ def dashboard():
                         'names': [dict(name=nm, count=e['count'], **_acc_range(e['acc'])) for nm, e in names[:5]],
                         **_acc_range([a for _nm, e in names for a in e['acc']])})
     os_acc_any = any(r['acc_n'] for r in os_rows)
-    online_devices = sum(1 for d in scan_data if d.get('status', '').lower() in ('up', 'online', 'open') or d.get('ports'))
+    online_devices = sum(1 for d in scan_data if isinstance(d, dict) and (d.get('status', '').lower() in ('up', 'online', 'open') or d.get('ports')))
     offline_devices = len(scan_data) - online_devices
 
     port_device_counter = Counter()
-    for ip, ports in all_device_map.items():
-        for p in ports:
-            port_device_counter[p] += 1
-    # the labels come out of sets, whose order changes from one server start to the next, so ports with the same device count are put in port-number
-    # order (Counter.most_common left ties in that random order: the list reshuffled itself, and which tied port made the top 6 changed too)
+    port_cve_ids = {}
+    for dev in inventory:
+        for label in dev['open_labels']:
+            port_device_counter[label] += 1
+            cids = dev['port_cves'].get(label)
+            if cids:
+                port_cve_ids.setdefault(label, set()).update(cids)
+
     top_ports = sorted(port_device_counter.items(),
                        key=lambda kv: (-kv[1], int(kv[0].split('/')[0]) if kv[0].split('/')[0].isdigit() else 10 ** 6, kv[0]))[:6]
-    # what the Open Ports pop-up needs per top port: the devices that have it open and, for each, how many CVEs were found on that
-    # device's port and the scan to link to (the one that found them, else the newest where the port was open). A CVE belongs to a
-    # device, so the counts are per device; 'cve_count' on the port is the distinct CVEs over all of its devices.
     top_ports_detail = [{
         'label': label,
         'count': count,
         'cve_count': len(port_cve_ids.get(label, ())),
-        'devices': [{'ip': ip,
-                     'cve_count': len(port_device_cves.get((label, ip), ())),
-                     'scan_id': port_cve_scan.get((label, ip)) or port_device_scan.get((label, ip)) or device_last_scan_id.get(ip)}
-                    for ip in sorted((i for i, labels in all_device_map.items() if label in labels), key=_ip_sort_key)],
+        'devices': [{'ip': dev['ip'],
+                     'cve_count': len(dev['port_cves'].get(label, ())),
+                     'scan_id': (dev['vuln_scan_id'] if dev['port_cves'].get(label) else None) or dev['ports_scan_id'] or dev['last_scan_id']}
+                    for dev in inventory if label in dev['open_labels']],
     } for label, count in top_ports]
 
-    # จัดกลุ่มอุปกรณ์ตาม "ความเสี่ยงจริง" (worst CVE severity) แทนจำนวน port ที่เปิด
-    # ป้องกันการเข้าใจผิดว่า port เยอะ = เสี่ยงเยอะ — อุปกรณ์ที่ยังไม่เคยสแกนหาช่องโหว่
-    # จะถูกจัดเป็น "unscanned" (เป็นกลาง ไม่ตัดสินว่าเสี่ยงหรือปลอดภัย) แทนที่จะเดาจาก port count
-    # หนึ่งอุปกรณ์ = หนึ่งกลุ่ม ตาม CVE ที่แย่ที่สุด; สี 6 กลุ่มนี้ dashboard.html อ่านจากตรงนี้ (device_tier_color) ที่เดียว
-    # Critical / High are the bright red and orange the owner prefers. A deep red + light orange pair (#991b1b / #fb923c) was tried
-    # because these two look alike; the owner chose these back.
-    DEVICE_TIER_COLOR = {
-        'critical': '#dc3545',
-        'high': '#fd7e14',
-        'medium': '#ffc107',
-        'low': '#9bc53d',
-        'clean': GOOD_GREEN,
-        'unscanned': '#6c757d',
-    }
+    # Device Status donut: one slice per physical device, by worst CVE from its newest vuln_scan.
     device_port_data = []
-    for ip, ports in sorted(all_device_map.items()):
-        count = len(ports)
-        severity = device_worst_severity.get(ip)
-        vuln_scanned = ip in device_vuln_scanned_ips
+    for dev in inventory:
+        severity = dev['worst_severity']
+        vuln_scanned = dev['vuln_scanned']
         if severity == 'CRITICAL':
             tier = 'critical'
         elif severity == 'HIGH':
             tier = 'high'
         elif severity == 'MEDIUM':
             tier = 'medium'
-        elif severity in ('LOW', 'UNKNOWN'):      # an unlabelled CVE ranks with Low (see SEVERITY_RANK)
+        elif severity in ('LOW', 'UNKNOWN'):
             tier = 'low'
         elif vuln_scanned:
             tier = 'clean'
         else:
             tier = 'unscanned'
-        # แถวนี้ต้องลิงก์ไปที่ scan ที่ให้ข้อมูลที่แถวพูดถึงจริง ๆ ไม่ใช่แค่ scan ล่าสุดที่เจอ IP นี้:
-        # "Worst CVE" -> scan ที่พบ CVE นั้น, "No CVEs" -> vuln scan ล่าสุด, ที่เหลือ -> scan ล่าสุดที่เจอ
-        if tier in ('critical', 'high', 'medium', 'low'):
-            scan_id = device_worst_scan_id.get(ip)
-        elif tier == 'clean':
-            scan_id = device_vuln_scan_id.get(ip)
+        if tier in ('critical', 'high', 'medium', 'low', 'clean'):
+            scan_id = dev['vuln_scan_id']
         else:
             scan_id = None
         device_port_data.append({
-            'ip': ip, 'count': count, 'color': DEVICE_TIER_COLOR[tier],
+            'ip': dev['ip'], 'count': len(dev['open_labels']), 'color': DEVICE_TIER_COLOR[tier],
             'tier': tier, 'severity': severity, 'vuln_scanned': vuln_scanned,
-            'cvss_score': device_worst_cvss.get(ip), 'scan_id': scan_id or device_last_scan_id.get(ip),
+            'cvss_score': dev['worst_cvss'], 'scan_id': scan_id or dev['last_scan_id'],
         })
 
-    from collections import Counter as _Counter
-    target_scan_counts = _Counter(j.target for j in history if j.status == 'Completed')
+    target_scan_counts = Counter(j.target for j in history if j.status == 'Completed')
 
-    all_jobs = visible_scans_query().all()
+    # Scan job totals: actual ScanJobs only (matching Tasks and History pages); active schedules are shown separately.
     schedules_all = visible_schedules_query().all()
-    task_completed = sum(1 for j in all_jobs if j.status == 'Completed')
-    task_running   = sum(1 for j in all_jobs if j.status in ACTIVE_STATUSES)      # a scan waiting for a worker counts with the running ones
-    task_failed    = sum(1 for j in all_jobs if j.status == 'Failed')
+    task_completed = sum(1 for j in history if j.status == 'Completed')
+    task_running   = sum(1 for j in history if j.status in ACTIVE_STATUSES)
+    task_cancelled = sum(1 for j in history if j.status == 'Cancelled')
+    task_failed    = sum(1 for j in history if j.status == 'Failed')
     task_wait      = sum(1 for s in schedules_all if s.is_active)
-    total_tasks    = len(all_jobs) + task_wait
+    total_tasks    = len(history)
 
-    all_ports_global = set()
-    total_cves_found = 0
-    cves_by_id = {}        # one entry per CVE for the CVE detail modal (newest scan first, so its data comes from the newest scan)
-    cve_host_keys = {}     # cve_id -> {(ip, port)} already listed under that CVE
-    MAX_CVE_HOSTS = 8      # affected devices listed per CVE in the modal; any others are only counted
-    for job in history:
-        if not job.result_data:
-            continue
-        try:
-            job_data = json.loads(job.result_data)
-        except Exception:
-            continue
-        for d in job_data:
-            for p in d.get('ports', []):
-                if str(p.get('state', '')).lower() != 'open':
-                    continue
-                if port_key(p):
-                    all_ports_global.add(port_key(p))
-                for cve in p.get('cves', []):
-                    cve_id = cve if isinstance(cve, str) else cve.get('cve_id', '')
-                    if not cve_id:
-                        continue
-                    info = cve if isinstance(cve, dict) else {}
-                    entry = cves_by_id.get(cve_id)
-                    if entry is None:
-                        total_cves_found += 1
-                        entry = cves_by_id[cve_id] = {
-                            'id': cve_id,
-                            'severity': info.get('severity') or 'unknown',
-                            'port': p.get('port', ''),
-                            'protocol': port_proto(p),
-                            'service': p.get('name', ''),
-                            'ip': d.get('ip', ''),
-                            'cvss': info.get('cvss_score'),
-                            'cwe': (cwe_info(info) or {}).get('label', ''),
-                            'description': info.get('description') or '',
-                            'kev': info.get('kev') is True,
-                            'hosts': [],
-                            'more_hosts': 0,
-                        }
-                        cve_host_keys[cve_id] = set()
-                    else:   # fill whatever the newest scan lacked from older ones
-                        if entry['cvss'] is None and info.get('cvss_score') is not None:
-                            entry['cvss'] = info['cvss_score']
-                        entry['cwe'] = entry['cwe'] or (cwe_info(info) or {}).get('label', '')
-                        entry['description'] = entry['description'] or info.get('description') or ''
-                        entry['kev'] = entry['kev'] or info.get('kev') is True
-                    host_key = (d.get('ip', ''), p.get('port', ''), port_proto(p))
-                    if d.get('ip') and host_key not in cve_host_keys[cve_id]:
-                        cve_host_keys[cve_id].add(host_key)
-                        if len(entry['hosts']) < MAX_CVE_HOSTS:
-                            # scan_id is the newest scan that found this CVE on this device, for the link to its report
-                            entry['hosts'].append({'ip': d['ip'], 'port': p.get('port', ''), 'protocol': port_proto(p),
-                                                   'service': p.get('name', ''), 'scan_id': job.id})
-                        else:
-                            entry['more_hosts'] += 1
-    # the pop-up shows the same label as the Vulnerabilities page. Done after the loop, because an entry's CVSS score can be
-    # filled in from an older scan than the one its label came from (see scanner.effective_severity)
-    for entry in cves_by_id.values():
-        record = {'severity': entry['severity'], 'cvss_score': entry['cvss']}
-        if severity_adjusted(record):
-            entry['severity'] = effective_severity(record)
-            entry['severity_note'] = severity_note(entry['cvss'])
-    all_cves_list = list(cves_by_id.values())
-    total_open_ports = len(all_ports_global)
+    # Active CVE findings (one per device x CVE from each device's newest vuln_scan — identical to Vulnerabilities page).
+    lang_now = ui_lang_now()
+    all_cves_list = []
+    for dev in inventory:
+        for finding in dev['active_cves'].values():
+            entry = {
+                'id': finding['cve_id'],
+                'severity': finding['severity'],
+                'port': finding['port'],
+                'protocol': finding['protocol'],
+                'service': finding['service'],
+                'ip': finding['ip'],
+                'cvss': finding['cvss_score'],
+                'cwe': (cwe_info(finding['raw_cve']) or {}).get('label', ''),
+                'description': finding['description'],
+                'kev': finding['kev'],
+                'hosts': [{'ip': finding['ip'], 'port': finding['port'], 'protocol': finding['protocol'],
+                           'service': finding['service'], 'scan_id': finding['job_id']}],
+                'more_hosts': 0,
+            }
+            if finding['severity_adjusted']:
+                entry['severity_note'] = severity_note(finding['cvss_score'], lang=lang_now)
+            all_cves_list.append(entry)
+    total_cves_found = len(all_cves_list)
+    total_open_ports = len({k for dev in inventory for k in dev['open_port_keys']})
 
-    # footer trend of the Open Ports and CVE Found cards: the totals now against the totals without the newest completed scan
+    # Footer trend of Open Ports and CVE Found: latest state now vs. latest state before the newest completed scan.
     latest_done = next((j for j in history if j.status == 'Completed'), None)
     before_jobs = history[history.index(latest_done) + 1:] if latest_done else []
     ports_before, cves_before = _open_port_and_cve_counts(before_jobs)
     ports_trend = _kpi_trend(total_open_ports, ports_before)
     cve_trend = _kpi_trend(total_cves_found, cves_before)
-    # the CVE Found card says how much of what the vulnerability scans looked at could actually be evaluated (the Overview's coverage, in one line)
-    ov = _vuln_overview([j for j in history if j.scan_type == 'vuln_scan'])
+
+    ov = _vuln_overview_from_inventory(inventory)
     cve_coverage = ({'services': ov['services'], 'evaluated': ov['found'] + ov['none'], 'found': ov['found'], 'none': ov['none'],
                      'not_evaluated': ov['not_evaluated']} if ov['services'] else None)
 
-    # คำนวณ owner_seq ของ latest_scan เพื่อโชว์ #N ที่ถูกต้องใน dashboard
-    latest_owner_seq = None
-    if latest_scan and latest_scan.owner_id is not None:
-        owner_jobs_sorted = ScanJob.query.filter_by(owner_id=latest_scan.owner_id).order_by(ScanJob.timestamp).all()
-        latest_owner_seq = next((i+1 for i, j in enumerate(owner_jobs_sorted) if j.id == latest_scan.id), latest_scan.id)
-
-    # เหมือนกับ history_page/api_jobs: ให้ "Job #N" ตรงกับ owner_seq (ไม่ใช่ global id)
-    owner_seq_map = {}
-    unique_owner_ids = {j.owner_id for j in history if j.owner_id is not None}
-    for oid in unique_owner_ids:
-        owner_all = ScanJob.query.filter_by(owner_id=oid).order_by(ScanJob.timestamp).all()
-        for idx, tj in enumerate(owner_all, 1):
-            owner_seq_map[tj.id] = idx
+    # Job # on screen uses job.id everywhere so it always matches /scan/<id> and never shifts when old jobs are deleted.
+    latest_owner_seq = latest_scan.id if latest_scan else None
+    owner_seq_map = {j.id: j.id for j in history}
 
     # ข้อมูลจริงสำหรับ Task Status (แทนที่ placeholder "Job #1, #2, ...")
     def _job_row(j):
@@ -1098,47 +1842,20 @@ def dashboard():
             'id': j.id,
             'seq': owner_seq_map.get(j.id, j.id),
             'target': j.target,
-            'type_label': SCAN_TYPE_LABELS.get(j.scan_type, j.scan_type or ''),
+            'type_label': scan_labels().get(j.scan_type, j.scan_type or ''),
             'timestamp': j.timestamp.strftime('%Y-%m-%d %H:%M') if j.timestamp else '—',
         }
-    task_complete_jobs = [_job_row(j) for j in history if j.status == 'Completed']
-    task_running_jobs = [_job_row(j) for j in history if j.status in ACTIVE_STATUSES]
-    task_failed_jobs = [_job_row(j) for j in history if j.status == 'Failed']
-    task_wait_schedules = [{
-        'id': s.id,
-        'seq': idx,
-        'name': s.name,
-        'target': s.target,
-        'repeat': s.repeat,
-        'next_run': s.next_run.strftime('%Y-%m-%d %H:%M') if s.next_run else '—',
-    } for idx, s in enumerate((s for s in schedules_all if s.is_active), 1)]
+    task_complete_jobs  = [_job_row(j) for j in history if j.status == 'Completed']
+    task_running_jobs   = [_job_row(j) for j in history if j.status in ACTIVE_STATUSES]
+    task_cancelled_jobs = [_job_row(j) for j in history if j.status == 'Cancelled']
+    task_failed_jobs    = [_job_row(j) for j in history if j.status == 'Failed']
 
-    task_ring_total = task_completed + task_wait + task_running + task_failed
+    task_ring_total = total_tasks
     task_categories = [
-        {
-            'key': 'complete', 'label': 'Complete', 'thai': 'สแกนเสร็จสิ้น',
-            'count': task_completed, 'color': GOOD_GREEN, 'kind': 'job',
-            'timestamp_label': 'Completed', 'rows': task_complete_jobs,
-            'view_all_url': url_for('history_page'), 'view_all_label': 'more completed scans',
-        },
-        {
-            'key': 'wait', 'label': 'Wait Schedule', 'thai': 'รอตามกำหนด',
-            'count': task_wait, 'color': '#3b82f6', 'kind': 'schedule',
-            'timestamp_label': 'Next Run', 'rows': task_wait_schedules,
-            'view_all_url': url_for('tasks_page'), 'view_all_label': 'more scheduled scans',
-        },
-        {
-            'key': 'running', 'label': 'Running', 'thai': 'กำลังทำงานหรือรอคิว',
-            'count': task_running, 'color': '#ffc107', 'kind': 'job',
-            'timestamp_label': 'Started', 'rows': task_running_jobs,
-            'view_all_url': url_for('history_page'), 'view_all_label': 'more running scans',
-        },
-        {
-            'key': 'failed', 'label': 'Failed', 'thai': 'ล้มเหลว',
-            'count': task_failed, 'color': '#dc2626', 'kind': 'job',
-            'timestamp_label': 'Failed At', 'rows': task_failed_jobs,
-            'view_all_url': url_for('history_page'), 'view_all_label': 'more failed scans',
-        },
+        {'key': 'complete',  'count': task_completed, 'color': GOOD_GREEN, 'kind': 'job', 'rows': task_complete_jobs,  'view_all_url': url_for('history_page')},
+        {'key': 'running',   'count': task_running,   'color': '#ffc107',  'kind': 'job', 'rows': task_running_jobs,   'view_all_url': url_for('tasks_page')},
+        {'key': 'cancelled', 'count': task_cancelled, 'color': '#64748b',  'kind': 'job', 'rows': task_cancelled_jobs, 'view_all_url': url_for('history_page')},
+        {'key': 'failed',    'count': task_failed,    'color': '#dc2626',  'kind': 'job', 'rows': task_failed_jobs,    'view_all_url': url_for('history_page')},
     ]
 
     latest_changes = None
@@ -1164,6 +1881,7 @@ def dashboard():
         target_scan_counts=target_scan_counts,
         total_tasks=total_tasks,
         task_completed=task_completed,
+        task_cancelled=task_cancelled,
         task_failed=task_failed,
         task_categories=task_categories,
         task_ring_total=task_ring_total,
@@ -1187,19 +1905,57 @@ def dashboard():
 #  NETWORK TOPOLOGY PAGE
 # ─────────────────────────────────────────
 
+_TOPO_NO_OS = ('', 'up', 'down', 'unknown')      # a Discovery scan's "up" and a missing OS are not an OS (the page's isUnknownOs)
+
+
+def _topology_os_family(h):
+    """OS family of a host's OS guess, for the diagram's filter. '' when this record has no real OS name (the page then reads it as Unknown): the
+    family is taken from the SAME record that gave the OS name, so it can never belong to an older, different guess."""
+    name = str(h.get('os', h.get('status', '')) or '')
+    return '' if name.strip().lower() in _TOPO_NO_OS else _os_family(name)
+
+
+def _topology_os_accuracy(h):
+    """nmap's confidence (0-100) in the OS guess of this record, or None when the scan did not keep it (never a guess)."""
+    v = h.get('os_accuracy')
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100 else None
+
+
+def _topology_risk(h, scan_type):
+    """{'tier', 'cve_count'} for one host of ONE vulnerability scan, and {} for every other scan type (only a vulnerability scan looks for CVEs).
+    The rules are report_builder's, the same as the device page's risk pill: 'critical' / 'high' / 'medium' / 'low' = the worst CVE (through
+    effective_severity), 'clean' = every open service was looked up and none has a CVE, 'unknown' = the scan could not say (a failed lookup, a
+    service nmap could not name, no open port). Never 'clean' on a guess."""
+    if scan_type != 'vuln_scan':
+        return {}
+    ports_known = isinstance(h.get('ports'), list)
+    open_ports = [p for p in (h.get('ports') or []) if report_builder._is_open(p)]
+    cves = report_builder._host_cves(open_ports)
+    level, _why = report_builder._host_risk(open_ports, cves, scan_type, ports_known)
+    if level == 'none':
+        tier = 'clean'
+    elif level == 'unknown':
+        tier = 'unknown'
+    else:
+        tier = {'CRITICAL': 'critical', 'HIGH': 'high', 'MEDIUM': 'medium'}.get(cves[0]['severity'], 'low')
+    return {'tier': tier, 'cve_count': len(cves)}
+
+
+def _topology_group(job):
+    """A text key: two scans with the same key may be compared with each other (scan_diff.comparable_key: same target, same scan type, same options).
+    '' for an XML import, which is never compared. The page uses it to say "new in the latest scan" only against a scan of the same kind."""
+    if job.scan_type in (None, 'xml_upload'):
+        return ''
+    return '|'.join(str(x) for x in scan_diff.comparable_key(job.scan_type, job.target, job.skip_ping, job.custom_args, job.all_ports,
+                                                               job.host_probes, job.gentle, job.udp))
+
+
 @app.route('/topology')
 @login_required
 def topology_page():
     history = visible_scans_query().order_by(ScanJob.timestamp.desc()).all()
 
-    # เหมือนกับ history_page/dashboard: ให้ "Job #N" ตรงกับ owner_seq (ไม่ใช่ global id)
-    # ที่จะมีช่องว่างเมื่อ job เก่าถูกลบไปแล้ว
-    owner_seq_map = {}
-    unique_owner_ids = {j.owner_id for j in history if j.owner_id is not None}
-    for oid in unique_owner_ids:
-        owner_all = ScanJob.query.filter_by(owner_id=oid).order_by(ScanJob.timestamp).all()
-        for idx, tj in enumerate(owner_all, 1):
-            owner_seq_map[tj.id] = idx
+    owner_seq_map = {j.id: j.id for j in history}
 
     scans_data = []
     for job in history:
@@ -1245,15 +2001,21 @@ def topology_page():
                 # the path nmap's traceroute found (only an Intense / Vulnerability scan that reached the host stores one): the diagram names
                 # the hop before the host as that subnet's router (SubnetTopology.detectGateway, evidence 3)
                 'trace_hops': [x for x in (h.get('trace_hops') or [])[:30] if isinstance(x, dict)],
+                # for the diagram's OS filter and the pop-up (the family and the confidence come from the same record as the OS name), and the dot colour by risk
+                'os_family':   _topology_os_family(h),
+                'os_accuracy': _topology_os_accuracy(h),
+                **_topology_risk(h, job.scan_type),
             })
 
         date_str = job.timestamp.strftime('%Y-%m-%d') if job.timestamp else '1970-01-01'
         scans_data.append({
             'job_id':    job.id,
-            'job_name':  job.scan_name or f'Job #{owner_seq_map.get(job.id, job.id)}',
+            'job_name':  job.scan_name or job_label(owner_seq_map.get(job.id, job.id)),
             'scan_type': job.scan_type or '',
             'date':      date_str,
             'target':    job.target,
+            'group':     _topology_group(job),
+            'public_ip': scan_run_info(job).get('public_ip') or '',
             'hosts':     hosts_list
         })
 
@@ -1262,7 +2024,14 @@ def topology_page():
     # < keeps it valid JSON while making "</script>" impossible
     scans_json = _json.dumps(scans_data).replace('<', '\\u003c')
     system_gw = get_system_default_gateway()
-    return render_template('network_topology.html', scans_json=scans_json, system_gateway=system_gw)
+    return render_template('network_topology.html', scans_json=scans_json, system_gateway=system_gw, device_tier_color=DEVICE_TIER_COLOR)
+
+
+@app.route('/api/network/public-ip')
+@login_required
+def api_network_public_ip():
+    """Return this machine's cached outbound public (WAN) IP asynchronously for the Topology diagram."""
+    return jsonify({'public_ip': get_public_ip(max_age=600) or ''})
 
 
 # ─────────────────────────────────────────
@@ -1270,7 +2039,7 @@ def topology_page():
 @app.route('/history')
 @login_required
 def history_page():
-    history = visible_scans_query().order_by(ScanJob.timestamp.desc()).all()
+    history = visible_scans_query().order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).all()
     from collections import defaultdict
 
     # คำนวณลำดับ scan ของ target เดียวกัน (count badge)
@@ -1283,20 +2052,12 @@ def history_page():
         for idx, tj in enumerate(sorted_list, 1):
             scan_seq_map[tj.id] = (idx, len(sorted_list))
 
-    # คำนวณลำดับ scan ของแต่ละ owner แยกกัน (#1, #2, #3 ...)
-    # ดึงจาก DB โดยตรงตาม owner_id จริงๆ ไม่ผ่าน visible_scans_query
-    # เพื่อให้นับถูก: admin สแกนครั้งแรก = #1 เสมอ ไม่สนว่า global id เป็นเท่าไหร่
-    owner_seq_map = {}
-    unique_owner_ids = {j.owner_id for j in history if j.owner_id is not None}
-    for oid in unique_owner_ids:
-        owner_all = ScanJob.query.filter_by(owner_id=oid).order_by(ScanJob.timestamp).all()
-        for idx, tj in enumerate(owner_all, 1):
-            owner_seq_map[tj.id] = idx
+    owner_seq_map = {j.id: j.id for j in history}
 
     return render_template('history.html', history=history,
                            scan_seq_map=scan_seq_map,
                            owner_seq_map=owner_seq_map,
-                           adv_fields=[dict(key=k, **v) for k, v in ADV_FIELDS.items()])      # a list: JSON would sort a dict's keys
+                           adv_fields=adv_fields_for())      # a list: JSON would sort a dict's keys
 
 
 # ─────────────────────────────────────────
@@ -1317,7 +2078,7 @@ ADV_FIELDS = {
     'status':       {'label': 'Status',                 'kind': 'enum', 'level': 'scan',
                      'options': [['Completed', 'Completed'], ['Queued', 'Queued'], ['Running', 'Running'], ['Failed', 'Failed'], ['Cancelled', 'Cancelled']]},
     'triggered_by': {'label': 'Triggered By',           'kind': 'enum', 'level': 'scan',
-                     'options': [['manual', 'Manual'], ['schedule', 'Schedule'], ['rescan', 'Rescan'], ['drilldown', 'Drill-down']]},
+                     'options': [['manual', 'Manual'], ['schedule', 'Schedule'], ['rescan', 'Rescan'], ['drilldown', 'Drill-down'], ['chatbot', 'Assistant']]},
     'date':         {'label': 'วันที่สแกน',               'kind': 'date', 'level': 'scan'},
     'host':         {'label': 'อุปกรณ์ (IP)',             'kind': 'text', 'level': 'result', 'hint': '192.168.1.41 หรือ 192.168.1.0/24'},
     'port':         {'label': 'พอร์ต / บริการที่เปิด',      'kind': 'text', 'level': 'result', 'hint': '445, 1-1024, 161/udp หรือ ssh'},
@@ -1467,19 +2228,52 @@ def scan_matches(job, hosts, criteria):
     return True
 
 
-def describe_criteria(criteria):
-    """One line that says what a query looks for, e.g. "Type: Fast Scan · พอร์ต: 445 · ยกเว้น Status: Failed"."""
+def _adv_enum_names(field, lang):
+    labels = SCAN_TYPE_LABELS if lang == 'en' else SCAN_TYPE_LABELS_TH
+    if field == 'type':
+        return {k: labels.get(k, v) for k, v in ADV_FIELDS['type']['options']}
+    if field == 'status':
+        return {k: i18n.t('status.' + k.lower(), lang) for k, _ in ADV_FIELDS['status']['options']}
+    if field == 'triggered_by':
+        return {k: i18n.t('history.trig.' + k, lang) for k, _ in ADV_FIELDS['triggered_by']['options']}
+    if field == 'severity':
+        return {k: sev_label(k, lang) for k, _ in ADV_FIELDS['severity']['options']}
+    return dict(ADV_FIELDS[field]['options'])
+
+
+def adv_fields_for(lang=None):
+    """Localized list of Advanced Filter fields for history.html."""
+    lang = lang if lang in i18n.LANGS else ui_lang_now()
+    out = []
+    for key, meta in ADV_FIELDS.items():
+        item = dict(meta, key=key, label=i18n.t('history.f.' + key, lang))
+        if 'hint' in meta:
+            hint_key = 'history.h.' + key
+            tr_hint = i18n.t(hint_key, lang)
+            item['hint'] = meta['hint'] if tr_hint == hint_key else tr_hint
+        if meta['kind'] == 'enum':
+            names = _adv_enum_names(key, lang)
+            item['options'] = [[k, names.get(k, v)] for k, v in meta['options']]
+        out.append(item)
+    return out
+
+
+def describe_criteria(criteria, lang=None):
+    """One line that says what a query looks for, e.g. 'Type: Fast Scan · Port: 445 · Exclude Status: Failed'."""
+    lang = lang if lang in i18n.LANGS else ui_lang_now()
     def row_text(row):
         meta = ADV_FIELDS[row['field']]
         vals = row['values']
         if meta['kind'] == 'enum':
-            names = dict(meta['options'])
+            names = _adv_enum_names(row['field'], lang)
             vals = [names.get(v, v) for v in vals]
         elif meta['kind'] == 'date':
-            vals = [(vals[0] or '…') + ' – ' + (vals[1] or '…')]
-        return meta['label'] + ': ' + ', '.join(vals)
-    parts = [row_text(r) for r in criteria['include']] + ['ยกเว้น ' + row_text(r) for r in criteria['exclude']]
-    return ' · '.join(parts) if parts else 'ไม่มีเงื่อนไข'
+            d0 = vals[0] if lang == 'en' else ui_year(vals[0])
+            d1 = vals[1] if lang == 'en' else ui_year(vals[1])
+            vals = [(d0 or '…') + ' – ' + (d1 or '…')]
+        return i18n.t('history.f.' + row['field'], lang) + ': ' + ', '.join(vals)
+    parts = [row_text(r) for r in criteria['include']] + [i18n.t('adv.exclude', lang, text=row_text(r)) for r in criteria['exclude']]
+    return ' · '.join(parts) if parts else i18n.t('adv.none', lang)
 
 
 def _query_item(q):
@@ -1597,7 +2391,6 @@ def _delete_finished_scans(ids):
     return deleted, len(ids) - deleted
 
 
-SKIPPED_ACTIVE_TEXT = 'ข้าม {n} งานที่กำลังทำงานหรือรอคิว (ต้องยกเลิกงานก่อนจึงจะลบได้)'
 
 
 @app.route('/history/<int:scan_id>/delete', methods=['POST'])
@@ -1610,9 +2403,9 @@ def delete_scan(scan_id):
     seq = _job_seq(job)                                # the number the pages print ("Job #N"), not the database id
     deleted, skipped = _delete_finished_scans([job.id])
     if deleted:
-        flash(f'ลบงานสแกน #{seq} เรียบร้อยแล้ว', 'success')
+        flash(tr('flash.delete_one_done', n=seq), 'success')
     else:
-        flash(f'ลบงานสแกน #{seq} ไม่ได้ เพราะงานนี้กำลังทำงานหรือรอคิว กรุณายกเลิกงานก่อน', 'warning')
+        flash(tr('flash.delete_one_active', n=seq), 'warning')
     return redirect(url_for('history_page'))
 
 
@@ -1624,16 +2417,16 @@ def delete_scans_by_target():
         abort(403)
     target = request.form.get('target', '').strip()
     if not target:
-        flash('ไม่พบเป้าหมายที่ระบุ', 'danger')
+        flash(tr('flash.target_missing'), 'danger')
         return redirect(url_for('history_page'))
     ids = [row[0] for row in visible_scans_query().filter_by(target=target).with_entities(ScanJob.id).all()]
     deleted, skipped = _delete_finished_scans(ids)
     if deleted and skipped:
-        flash(f'ลบงานสแกนของ {target} {deleted} รายการเรียบร้อยแล้ว ' + SKIPPED_ACTIVE_TEXT.format(n=skipped), 'warning')
+        flash(tr('flash.delete_target_partial', target=target, n=deleted) + ' ' + tr('flash.skipped_active', n=skipped), 'warning')
     elif deleted:
-        flash(f'ลบงานสแกนของ {target} ทั้งหมด {deleted} รายการเรียบร้อยแล้ว', 'success')
+        flash(tr('flash.delete_target_all', target=target, n=deleted), 'success')
     else:
-        flash(f'ไม่มีงานสแกนของ {target} ที่ลบได้ ' + (SKIPPED_ACTIVE_TEXT.format(n=skipped) if skipped else 'งานเหล่านี้ถูกลบไปแล้ว'), 'warning')
+        flash(tr('flash.delete_target_none', target=target) + ' ' + (tr('flash.skipped_active', n=skipped) if skipped else tr('flash.already_deleted')), 'warning')
     return redirect(url_for('history_page'))
 
 
@@ -1657,18 +2450,18 @@ def delete_scans_bulk():
             continue
 
     if not clean_ids:
-        flash('ไม่ได้เลือกรายการที่จะลบ', 'warning')
+        flash(tr('flash.nothing_selected'), 'warning')
         return redirect(url_for('history_page'))
 
     # only the scans this user may see, and never one that is waiting or running (the database decides, in the DELETE itself)
     in_scope = [row[0] for row in visible_scans_query().filter(ScanJob.id.in_(clean_ids)).with_entities(ScanJob.id).all()]
     deleted, skipped = _delete_finished_scans(in_scope)
     if deleted and skipped:
-        flash(f'ลบงานสแกน {deleted} รายการเรียบร้อยแล้ว ' + SKIPPED_ACTIVE_TEXT.format(n=skipped), 'warning')
+        flash(tr('flash.delete_bulk_partial', n=deleted) + ' ' + tr('flash.skipped_active', n=skipped), 'warning')
     elif deleted:
-        flash(f'ลบงานสแกนทั้งหมด {deleted} รายการเรียบร้อยแล้ว', 'success')
+        flash(tr('flash.delete_bulk_all', n=deleted), 'success')
     else:
-        flash('ไม่มีงานสแกนที่ลบได้ ' + (SKIPPED_ACTIVE_TEXT.format(n=skipped) if skipped else 'ไม่พบรายการที่เลือก'), 'warning')
+        flash(tr('flash.delete_bulk_none') + ' ' + (tr('flash.skipped_active', n=skipped) if skipped else tr('flash.selection_not_found')), 'warning')
     return redirect(url_for('history_page'))
 
 # ─────────────────────────────────────────
@@ -1727,106 +2520,33 @@ def _os_family(os_name):
 @app.route('/devices')
 @login_required
 def devices_page():
-    """รวมอุปกรณ์ที่ไม่ซ้ำกันจากประวัติการสแกนทั้งหมด (เรียงจากล่าสุดไปเก่าสุด)"""
-    history = visible_scans_query().order_by(ScanJob.timestamp.desc()).all()
-    # One row per physical device: keyed by MAC when the scan saw one (DHCP can hand the same
-    # device a new IP, and an old IP to a different device), otherwise by IP.
-    devices = {}
-    for job in history:
-        if not job.result_data:
-            continue
-        try:
-            job_data = json.loads(job.result_data)
-        except Exception:
-            continue
-        for d in job_data:
-            ip = d.get('ip', '')
-            if not ip:
-                continue
-            mac = d.get('mac', '')
-            mac = mac.upper() if mac and mac != 'Unknown' else ''
-            key = ('mac', mac) if mac else ('ip', ip)
-            if key not in devices:
-                devices[key] = {
-                    'ips': [],
-                    'mac': mac,
-                    'mac_vendor': d.get('mac_vendor', ''),
-                    'os': d.get('os', ''),
-                    'hostname': d.get('hostname', ''),
-                    'ports': set(),
-                    'open_ports': set(),
-                    'open_labels': set(),         # "port/service" of the ports seen in state open: what "Open Ports" counts
-                    'services': set(),
-                    'scan_count': 0,
-                    'last_seen': job.timestamp,
-                    'last_scan_id': job.id,
-                    'last_scan_ip': ip,           # the address it had in that scan (may differ from ips[0] after a merge)
-                }
-            entry = devices[key]
-            if ip not in entry['ips']:
-                entry['ips'].append(ip)           # newest scan first, so ips[0] is the current address
-            entry['scan_count'] += 1
-            # newest scan wins, but fill gaps from older scans (e.g. newest scan had no MAC / OS)
-            if not entry['mac'] and mac:
-                entry['mac'], entry['mac_vendor'] = mac, d.get('mac_vendor', '')
-            if (not entry['os'] or entry['os'] == 'Unknown') and d.get('os') and d.get('os') != 'Unknown':
-                entry['os'] = d['os']
-            if not entry['hostname'] and d.get('hostname'):
-                entry['hostname'] = d['hostname']
-            for p in d.get('ports', []):
-                entry['ports'].add(port_text(p))
-                if str(p.get('state', 'open')).lower() == 'open':
-                    if port_proto(p) == 'tcp':      # guess_device_type() reads TCP port numbers; a UDP 161 is not a TCP 161
-                        entry['open_ports'].add(p.get('port'))
-                    entry['open_labels'].add(port_text(p))
-                answered = port_proto(p) == 'tcp' or str(p.get('state', 'open')).lower() == 'open'      # nmap names an unanswered UDP port by its number only
-                if p.get('name') and answered:
-                    entry['services'].add(p['name'])
-                if p.get('version_info') and p['version_info'] != 'Unknown Version' and answered:
-                    entry['services'].add(p['version_info'])
-            entry['services'].update(discovery_service_text(d.get('discovery')))
-
-    # a record with no MAC belongs to the device that owns its IP -- but only if exactly one does
-    for key in [k for k in devices if k[0] == 'ip']:
-        owners = [k for k in devices if k[0] == 'mac' and key[1] in devices[k]['ips']]
-        if len(owners) != 1:
-            continue
-        src, dst = devices.pop(key), devices[owners[0]]
-        dst['ports'] |= src['ports']
-        dst['open_ports'] |= src['open_ports']
-        dst['open_labels'] |= src['open_labels']
-        dst['services'] |= src['services']
-        dst['scan_count'] += src['scan_count']
-        if (not dst['os'] or dst['os'] == 'Unknown') and src['os'] and src['os'] != 'Unknown':
-            dst['os'] = src['os']
-        dst['hostname'] = dst['hostname'] or src['hostname']
-        if src['last_seen'] and (not dst['last_seen'] or src['last_seen'] > dst['last_seen']):
-            dst['last_seen'], dst['last_scan_id'], dst['last_scan_ip'] = src['last_seen'], src['last_scan_id'], src['last_scan_ip']
+    """รวมอุปกรณ์ที่ไม่ซ้ำกันจากประวัติการสแกนทั้งหมด (ใช้ตรรกะเดียวกับ Dashboard และ Device Detail)"""
+    history = visible_scans_query().order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).all()
+    inventory = _build_device_inventory(history)
 
     gateway_ip = (get_system_default_gateway(max_age=30) or {}).get('ip')
     device_list = []
-    for e in devices.values():
+    for e in inventory:
         services_text = ' '.join(e['services'])
         # with several IPs, the gateway / this-PC address is the one the classifier must see
         rule_ip = gateway_ip if gateway_ip in e['ips'] else next((i for i in e['ips'] if is_local_ip(i)), e['ips'][0])
         device_list.append({
-            'ip': e['ips'][0],
-            'other_ips': e['ips'][1:],
+            'ip': e['ip'],
+            'other_ips': e['other_ips'],
             'mac': e['mac'] or '—',
             'mac_vendor': e['mac_vendor'],
             'os': e['os'] or 'Unknown',
             'os_family': _os_family(e['os']),
-            'device_type': guess_device_type(rule_ip, e['mac_vendor'], e['os'], e['open_ports'], gateway_ip,
+            'device_type': guess_device_type(rule_ip, e['mac_vendor'], e['os'], e['open_tcp_ports'], gateway_ip,
                                               services=services_text, hostname=e['hostname'], mac=e['mac']),
-            'port_count': len(e['open_labels']),          # open ports only: a filtered port is not an open one
+            'port_count': len(e['open_labels']),          # open ports from the newest port scan (matching Dashboard & Device Detail)
             'open_ports_list': sorted(e['open_labels']),
-            'ports': sorted(e['ports']),                  # every port seen, in any state: the search box looks through these
+            'ports': sorted(e['all_ports_seen']),         # every port seen, in any state: the search box looks through these
             'scan_count': e['scan_count'],
             'last_seen': e['last_seen'].strftime('%Y-%m-%d %H:%M') if e['last_seen'] else '—',
             'last_scan_id': e['last_scan_id'],
             'last_scan_ip': e['last_scan_ip'],
         })
-    device_list.sort(key=lambda x: _ip_sort_key(x['ip']))
 
     # options for the filter bar: only values that actually appear, with how many devices each has
     type_counts, os_counts = {}, {}
@@ -1847,48 +2567,25 @@ VULN_BANDS = (('0-3.9', 0.0, 4.0), ('4-6.9', 4.0, 7.0), ('7-8.9', 7.0, 9.0), ('9
 OV_STRIP_MAX = 40            # devices listed under one service row of the Vulnerabilities Overview (the row still says how many there are)
 
 
-def _vuln_overview(history):
-    """The numbers behind the Vulnerabilities page's Overview, from the same vulnerability scans (newest first) as the CVE table.
-    COVERAGE counts every OPEN service the scans looked up in NVD, by what its NEWEST scan says (the stored `cve_status`):
-      found          it has CVEs
-      none           NVD was asked and knows none ('ok')
-      not_evaluated  nothing can be said about it: the lookup 'failed', nmap named no product ('no_product'), or the scan is older than the
-                     status field ('legacy': a service with no CVEs and no status). An old record whose version_info is 'Unknown Version' is
-                     still 'no_product': the stored record itself shows there was nothing to search for, so that is a fact, not a guess.
-    A CVE is counted once per (device, CVE id), like the table; the severity goes through effective_severity().
-    BANDS count those CVEs by their CVSS score; a CVE with no score is `unscored`, never put in a band.
-    A service row also carries the devices that have it (`device_list`: address and its CVE count for that service, most CVEs first, at most
-    OV_STRIP_MAX), so the page can answer "which device?" under the row."""
-    services, cve_rows = {}, {}
-    for job in history:
-        if not job.result_data:
-            continue
-        try:
-            data = json.loads(job.result_data)
-        except Exception:
-            continue
-        if not isinstance(data, list):
-            continue
-        for d in data:
-            ip = d.get('ip', '') if isinstance(d, dict) else ''
-            if not ip:
-                continue
-            for p in d.get('ports', []) or []:
-                if str(p.get('state', '')).lower() != 'open':
-                    continue
-                cves = p.get('cves') or []
-                key = (ip, str(p.get('port', '')), port_proto(p))
-                if key not in services:                       # newest scan first: the first record of a service is its newest
-                    services[key] = {'cves': len(cves), 'status': p.get('cve_status'), 'version': str(p.get('version_info') or '')}
-                for cve in cves:
-                    cve_id = cve.get('cve_id', '')
-                    if cve_id and (ip, cve_id) not in cve_rows:
-                        cve_rows[(ip, cve_id)] = {'ip': ip, 'cve_id': cve_id, 'sev': effective_severity(cve) or 'UNKNOWN',
-                                                  'score': cvss_number(cve.get('cvss_score')), 'product': re.sub(r'\s+', ' ', str(p.get('version_info') or '')).strip()}
+def _vuln_overview_from_inventory(inventory):
+    """The numbers behind the Vulnerabilities page's Overview and the Dashboard's CVE coverage caption, computed strictly
+    from each device's newest completed vuln_scan (open ports only) so patched CVEs and closed services do not linger."""
+    services = []
+    cve_rows = []
+    for dev in inventory:
+        services.extend(dev['vuln_open_services'])
+        for finding in dev['active_cves'].values():
+            cve_rows.append({
+                'ip': finding['ip'],
+                'cve_id': finding['cve_id'],
+                'sev': finding['severity'],
+                'score': finding['cvss_num'],
+                'product': finding['product'],
+            })
 
     found = none = 0
     reasons = {'failed': 0, 'no_product': 0, 'legacy': 0}
-    for s in services.values():
+    for s in services:
         if s['cves'] > 0:
             found += 1
         elif s['status'] == 'ok':
@@ -1904,7 +2601,7 @@ def _vuln_overview(history):
 
     per_dev, per_prod = {}, {}
     bands, unscored = [{'label': label, 'count': 0} for label, _lo, _hi in VULN_BANDS], 0
-    for r in cve_rows.values():
+    for r in cve_rows:
         rank = _VULN_SEV_RANK.get(r['sev'], 0)
         e = per_dev.setdefault(r['ip'], {'ip': r['ip'], 'count': 0, 'rank': -1, 'worst': 'UNKNOWN'})
         e['count'] += 1
@@ -1927,7 +2624,7 @@ def _vuln_overview(history):
     return {
         'services': len(services), 'found': found, 'none': none,
         'not_evaluated': sum(reasons.values()), 'not_evaluated_reasons': reasons,
-        'status_recorded': any(s['status'] for s in services.values()),     # False = every scan here is older than the status field
+        'status_recorded': any(s['status'] for s in services),     # False = every scan here is older than the status field
         'cve_total': len(cve_rows), 'device_total': len(per_dev),
         'top_devices': [{'ip': e['ip'], 'count': e['count'], 'worst': e['worst']}
                         for e in sorted(per_dev.values(), key=lambda e: (-e['count'], -e['rank'], _ip_sort_key(e['ip'])))[:5]],
@@ -1939,54 +2636,46 @@ def _vuln_overview(history):
     }
 
 
+def _vuln_overview(history):
+    """Compatibility wrapper: builds the Vulnerabilities Overview from the newest vuln_scan per device."""
+    return _vuln_overview_from_inventory(_build_device_inventory(history))
+
+
 @app.route('/vulnerabilities')
 @login_required
 def vulnerabilities_page():
-    """รวม CVE ที่ไม่ซ้ำกัน (ตาม IP + CVE ID) จาก Vulnerability Scan ทั้งหมด"""
-    history = visible_scans_query().filter_by(scan_type='vuln_scan').order_by(ScanJob.timestamp.desc()).all()
-    seen = set()
+    """แสดง CVE ที่ยังพบอยู่ใน Vulnerability Scan ล่าสุดของแต่ละอุปกรณ์เท่านั้น (ไม่รวม CVE ที่ถูกแก้ไขไปแล้วจากสแกนเก่า)"""
+    history = visible_scans_query().order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).all()
+    inventory = _build_device_inventory(history)
+
+    lang_now = ui_lang_now()
     cve_list = []
     severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'UNKNOWN': 0}
 
-    for job in history:
-        if not job.result_data:
-            continue
-        try:
-            job_data = json.loads(job.result_data)
-        except Exception:
-            continue
-        for d in job_data:
-            ip = d.get('ip', '')
-            for p in d.get('ports', []):
-                for cve in (p.get('cves') or []):
-                    cve_id = cve.get('cve_id', '')
-                    key = (ip, cve_id)
-                    if not cve_id or key in seen:
-                        continue
-                    seen.add(key)
-                    sev = effective_severity(cve) or 'UNKNOWN'
-                    severity_counts[sev] = severity_counts.get(sev, 0) + 1
-                    cve_list.append({
-                        'cve_id': cve_id,
-                        'severity': sev,
-                        # set only when sev is not the label NVD gave: the page shows an (i) with this as its tooltip
-                        'severity_note': severity_note(cve.get('cvss_score')) if severity_adjusted(cve) else '',
-                        'cvss_score': cve.get('cvss_score'),
-                        'cwe_name': cve.get('cwe_name', ''),
-                        'cwe': cwe_info(cve),
-                        'description': cve.get('description', ''),
-                        'ip': ip,
-                        'port': p.get('port', ''),
-                        'protocol': port_proto(p),
-                        'service': p.get('name', ''),
-                        'job_id': job.id,
-                        'found_at': job.timestamp.strftime('%Y-%m-%d') if job.timestamp else '',
-                        'kev': cve.get('kev') is True,      # on CISA's Known Exploited list, as NVD said when the scan looked it up; absent in older scans = not recorded
-                        'kev_added': str(cve.get('kev_added') or '')[:10] if cve.get('kev') is True else '',
-                    })
+    for dev in inventory:
+        for finding in dev['active_cves'].values():
+            sev = finding['severity']
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+            cve_list.append({
+                'cve_id': finding['cve_id'],
+                'severity': sev,
+                'severity_note': severity_note(finding['cvss_score'], lang=lang_now) if finding['severity_adjusted'] else '',
+                'cvss_score': finding['cvss_score'],
+                'cwe_name': finding['cwe_name'],
+                'cwe': cwe_info(finding['raw_cve'], lang=lang_now),
+                'description': finding['description'],
+                'ip': finding['ip'],
+                'port': finding['port'],
+                'protocol': finding['protocol'],
+                'service': finding['service'],
+                'job_id': finding['job_id'],
+                'found_at': finding['timestamp'].strftime('%Y-%m-%d') if finding['timestamp'] else '',
+                'kev': finding['kev'],
+                'kev_added': finding['kev_added'],
+            })
 
     sev_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
-    cve_list.sort(key=lambda c: sev_order.get(c['severity'], 5))
+    cve_list.sort(key=lambda c: (sev_order.get(c['severity'], 5), _ip_sort_key(c['ip']), c['cve_id']))
 
     # options for the filter bar: only the hosts / CWEs that actually appear, with how many rows each has
     host_counts, cwe_counts = {}, {}
@@ -2002,7 +2691,42 @@ def vulnerabilities_page():
     return render_template('vulnerabilities.html', cves=cve_list, kev_count=sum(1 for c in cve_list if c['kev']),
                            severity_counts=severity_counts, total_cves=len(cve_list),
                            host_options=host_options, cwe_options=cwe_options,
-                           overview=_vuln_overview(history))
+                           overview=_vuln_overview_from_inventory(inventory))
+
+
+def _report_row_stats(job):
+    """The figures one row of the Reports page shows about a completed scan, so a person can tell which report is worth exporting.
+    None means "not known", never zero: a scan that never listed ports has no port count, only a vulnerability scan whose open ports
+    were all really looked up (cve_status "ok") may say 0 CVEs, and a scan type that does not look for CVEs has none."""
+    out = {'hosts': None, 'ports': None, 'ports_partial': 0, 'cves': None, 'worst': None, 'sev_text': ''}
+    try:
+        data = json.loads(job.result_data) if job.result_data else None
+    except ValueError:
+        return out
+    if not isinstance(data, list):
+        return out
+    rows = [h for h in data if isinstance(h, dict)]
+    if not rows or rows[0].get('error'):
+        return out
+    out['hosts'] = len(rows)
+    with_ports = [h for h in rows if isinstance(h.get('ports'), list)]
+    if not with_ports:
+        return out
+    open_ports = [p for h in with_ports for p in h['ports'] if isinstance(p, dict) and str(p.get('state') or '').lower() == 'open']
+    out['ports'] = len(open_ports)                      # state exactly open, host x port, like the scan report
+    # hosts whose ports are not fully known (no list, timed out, nmap left open ports unlisted, or the UDP result is unknown): the figure is
+    # "at least N" and 0 CVE is not established
+    out['ports_partial'] = sum(1 for h in rows if scan_diff._ports_unknown(h) or scan_diff._udp_unknown(h))
+    if job.scan_type == 'vuln_scan':
+        sev = [(s, n) for s, n in cve_severity_counts(rows) if n]
+        total = sum(n for _, n in sev)
+        if total:
+            out['cves'] = total
+            out['worst'] = sev[0][0]
+            out['sev_text'] = ' \u00b7 '.join('%s %d' % (sev_label(s), n) for s, n in sev)
+        elif open_ports and not out['ports_partial'] and all(p.get('cve_status') == 'ok' for p in open_ports):
+            out['cves'] = 0
+    return out
 
 
 @app.route('/reports')
@@ -2011,23 +2735,20 @@ def reports_page():
     """รายการ scan ที่เสร็จสมบูรณ์ พร้อมลิงก์ export CSV / PDF"""
     history = visible_scans_query().filter_by(status='Completed').order_by(ScanJob.timestamp.desc()).all()
 
-    # เหมือนกับ history_page/dashboard: ให้ "Job #N" ตรงกับ owner_seq (ไม่ใช่ global id)
-    # ที่จะมีช่องว่างเมื่อ job เก่าถูกลบไปแล้ว
-    owner_seq_map = {}
-    unique_owner_ids = {j.owner_id for j in history if j.owner_id is not None}
-    for oid in unique_owner_ids:
-        owner_all = ScanJob.query.filter_by(owner_id=oid).order_by(ScanJob.timestamp).all()
-        for idx, tj in enumerate(owner_all, 1):
-            owner_seq_map[tj.id] = idx
+    owner_seq_map = {j.id: j.id for j in history}
 
-    return render_template('reports.html', history=history, owner_seq_map=owner_seq_map)
+    from collections import Counter
+    stats = {j.id: _report_row_stats(j) for j in history}
+    type_options = sorted(Counter(j.scan_type for j in history).items(), key=lambda kv: (-kv[1], str(kv[0])))
+    return render_template('reports.html', history=history, owner_seq_map=owner_seq_map, stats=stats, type_options=type_options)
 
 
 @app.route('/settings')
 @login_required
 def settings_page():
     ai = _ai_usage_summary() if current_user.is_any_admin else None
-    return render_template('settings.html', ai=ai, can_change_ai=current_user.is_superadmin)
+    nvd = _nvd_summary() if current_user.is_any_admin else None
+    return render_template('settings.html', ai=ai, nvd=nvd, can_change_ai=current_user.is_superadmin)
 
 
 # ─────────────────────────────────────────
@@ -2131,7 +2852,7 @@ def api_job_details(job_id):
         'started': began.strftime('%Y-%m-%d %H:%M:%S') if began else '',
         'finished': job.finished_at.strftime('%Y-%m-%d %H:%M:%S') if job.finished_at else '',
         'duration': duration,
-        'hosts': hosts, 'open_ports': open_ports, 'cves': cves, 'error': error,
+        'hosts': hosts, 'open_ports': open_ports, 'cves': cves, 'error': localized_job_error(error),
         'settings': describe_scan_settings(job.scan_type, job.timing, job.version_intensity, custom_args, job.multicast, job.skip_ping, job.all_ports, job.no_dns, job.host_probes, job.gentle, job.udp),
         'run': describe_run(job),
     })
@@ -2217,7 +2938,8 @@ def api_jobs_progress():
 @app.route('/api/jobs')
 @login_required
 def api_jobs():
-    jobs = visible_scans_query().order_by(ScanJob.timestamp.desc()).limit(100).all()
+    total_jobs = visible_scans_query().count()
+    jobs = visible_scans_query().order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).limit(100).all()
     from collections import defaultdict
     target_jobs = defaultdict(list)
     for j in jobs:
@@ -2228,14 +2950,7 @@ def api_jobs():
         for idx, tj in enumerate(sorted_list, 1):
             target_seq[tj.id] = (idx, len(sorted_list))
 
-    # คำนวณลำดับ scan ของแต่ละ owner แยกกัน (#1, #2, #3 ...)
-    # เหมือนกับที่ history และ dashboard ใช้
-    owner_seq_map = {}
-    unique_owner_ids = {j.owner_id for j in jobs if j.owner_id is not None}
-    for oid in unique_owner_ids:
-        owner_all = ScanJob.query.filter_by(owner_id=oid).order_by(ScanJob.timestamp).all()
-        for idx, tj in enumerate(owner_all, 1):
-            owner_seq_map[tj.id] = idx
+    owner_seq_map = {j.id: j.id for j in jobs}
 
     result = []
     for j in jobs:
@@ -2262,12 +2977,13 @@ def api_jobs():
             'udp': bool(j.udp),
             # for the "scan finished" toast. Only values that do NOT change between two polls: the Tasks page rebuilds its table when this JSON
             # differs from the last poll, so something like "seconds since it finished" would rebuild it every 3 seconds.
-            'scan_label': SCAN_TYPE_LABELS.get(j.scan_type, j.scan_type),
+            'scan_label': scan_labels().get(j.scan_type, j.scan_type),
             'finished_at': finished.strftime('%Y-%m-%d %H:%M:%S') if finished else '',
             'duration_s': max(0, int((finished - j.timestamp).total_seconds())) if finished and j.timestamp else None,
         })
     resp = jsonify(result)
     resp.headers['X-Server-Time'] = now_th().strftime('%Y-%m-%d %H:%M:%S')       # same clock and format as finished_at, so the page can compare them
+    resp.headers['X-Total-Jobs'] = str(total_jobs)
     return resp
 
 
@@ -2325,36 +3041,36 @@ def scan_detail(scan_id):
     # ?host=<ip> (dashboard device rows, Devices page): show just that device. Only honoured when the IP is
     # really in this scan, so a stale or hand-edited link falls back to the whole report.
     focus_ip = (request.args.get('host') or '').strip()
-    total_hosts = len(scan_data)
+    total_hosts = sum(1 for h in scan_data if isinstance(h, dict) and h.get('ip'))
     focused = [h for h in scan_data if isinstance(h, dict) and h.get('ip') == focus_ip] if focus_ip else []
     if focused:
         scan_data = focused
     else:
         focus_ip = ''
+    host_count = sum(1 for h in scan_data if isinstance(h, dict) and h.get('ip'))
     same_target_jobs = visible_scans_query().filter_by(target=job.target).order_by(ScanJob.timestamp).all()
     target_scan_count = len(same_target_jobs)
     scan_seq = next((i+1 for i, j in enumerate(same_target_jobs) if j.id == job.id), 1)
 
-    # คำนวณลำดับของ job นี้ในบรรดา scan ทั้งหมดของ owner จริงๆ (ดึงตรงจาก DB)
-    all_owner_jobs = ScanJob.query.filter_by(owner_id=job.owner_id).order_by(ScanJob.timestamp).all()
-    owner_seq = next((i+1 for i, j in enumerate(all_owner_jobs) if j.id == job.id), job.id)
+    owner_seq = job.id
 
     system_gw = get_system_default_gateway()
+    scan_public_ip = scan_run_info(job).get('public_ip') or ''
     template = 'vuln_scan_detail.html' if job.scan_type == 'vuln_scan' else 'scan_detail.html'
     changes = scan_changes(job) if not focus_ip else None       # one device (?host=) is a different question: no whole-scan comparison
     return render_template(template, job=job, scan_data=scan_data, run=describe_run(job), changes=changes,
                            target_scan_count=target_scan_count, scan_seq=scan_seq,
-                           owner_seq=owner_seq, system_gateway=system_gw,
-                           focus_ip=focus_ip, total_hosts=total_hosts)
+                           owner_seq=owner_seq, system_gateway=system_gw, scan_public_ip=scan_public_ip,
+                           focus_ip=focus_ip, total_hosts=total_hosts, host_count=host_count)
 
 
 def _owner_seq_map(owner_ids):
-    """Job id -> the number the app shows as "Job #N" (the job's place in its owner's list by time), as scan_detail and History count it."""
+    """Job id -> displayed Job # (always job.id so screen numbers match /scan/<id> URLs)."""
     seq = {}
     for oid in owner_ids:
-        rows = ScanJob.query.filter_by(owner_id=oid).order_by(ScanJob.timestamp, ScanJob.id).with_entities(ScanJob.id).all()
-        for i, r in enumerate(rows, 1):
-            seq[r.id] = i
+        rows = ScanJob.query.filter_by(owner_id=oid).with_entities(ScanJob.id).all()
+        for r in rows:
+            seq[r.id] = r.id
     return seq
 
 
@@ -2384,7 +3100,7 @@ def device_detail(ip):
             hosts = []
         scans.append({'id': j.id, 'seq': seq.get(j.id, j.id), 'scan_type': j.scan_type, 'status': j.status, 'scan_name': j.scan_name,
                       'timestamp': j.timestamp, 'hosts': hosts if isinstance(hosts, list) else []})
-    dev = device_builder.build_device(ip, scans, SCAN_TYPE_LABELS)
+    dev = device_builder.build_device(ip, scans, scan_labels())
     if dev is None:
         abort(404)
     return render_template('device_detail.html', dev=dev)
@@ -2398,11 +3114,20 @@ def device_detail(ip):
 @login_required
 @admin_required
 def create_schedule():
-    name = request.form.get('name')
-    target = request.form.get('target')
-    scan_type = request.form.get('scan_type')
-    repeat = request.form.get('repeat', 'daily')
-    time_str = request.form.get('time', '00:00')
+    target = (request.form.get('target') or '').strip()
+    if not target or len(target) > 100 or not is_valid_target(target):
+        flash(tr('flash.target_invalid', target=target or '—'), 'danger')
+        return redirect(url_for('tasks_page'))
+    name = (request.form.get('name') or '').strip()[:100] or target
+    scan_type = (request.form.get('scan_type') or '').strip()
+    if scan_type not in ALLOWED_FORM_SCAN_TYPES:
+        flash(tr('flash.scan_type_invalid'), 'danger')
+        return redirect(url_for('tasks_page'))
+    repeat = (request.form.get('repeat') or 'daily').strip()
+    if repeat not in ('daily', 'weekly', 'monthly'):
+        flash(tr('flash.repeat_invalid'), 'danger')
+        return redirect(url_for('tasks_page'))
+    time_str = (request.form.get('time') or '').strip()
     custom_args = request.form.get('custom_args', '').strip() or None
     timing, version_intensity = clamp_scan_knobs(request.form.get('timing'), request.form.get('version_intensity'), scan_type=scan_type)
     skip_ping = job_skip_ping(scan_type, custom_args, request.form.get('skip_ping'))
@@ -2419,15 +3144,35 @@ def create_schedule():
         return redirect(url_for('tasks_page'))
 
     try:
-        hour, minute = map(int, time_str.split(':'))
+        parts = time_str.split(':')
+        if len(parts) != 2:
+            raise ValueError(time_str)
+        hour, minute = int(parts[0]), int(parts[1])
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
             raise ValueError(time_str)
-    except ValueError:
-        flash('Invalid time format', 'danger')
+    except (TypeError, ValueError):
+        flash(tr('flash.time_invalid'), 'danger')
         return redirect(url_for('tasks_page'))
 
-    day_of_week = int(request.form.get('day_of_week', 0)) if repeat == 'weekly' else None
-    day_of_month = int(request.form.get('day_of_month', 1)) if repeat == 'monthly' else None
+    day_of_week = None
+    if repeat == 'weekly':
+        try:
+            day_of_week = int(request.form.get('day_of_week', 0))
+            if not 0 <= day_of_week <= 6:
+                raise ValueError(day_of_week)
+        except (TypeError, ValueError):
+            flash(tr('flash.weekday_invalid'), 'danger')
+            return redirect(url_for('tasks_page'))
+
+    day_of_month = None
+    if repeat == 'monthly':
+        try:
+            day_of_month = int(request.form.get('day_of_month', 1))
+            if not 1 <= day_of_month <= 31:
+                raise ValueError(day_of_month)
+        except (TypeError, ValueError):
+            flash(tr('flash.day_invalid'), 'danger')
+            return redirect(url_for('tasks_page'))
 
     schedule = ScheduledScan(
         name=name, target=target, scan_type=scan_type,
@@ -2443,7 +3188,7 @@ def create_schedule():
     db.session.commit()
     register_apscheduler_job(schedule)
 
-    flash(f'Schedule "{name}" created! Next run: {schedule.next_run.strftime("%Y-%m-%d %H:%M")}', 'success')
+    flash(tr('flash.schedule_created', name=name, when=fmt_dt(schedule.next_run)), 'success')
     return redirect(url_for('tasks_page'))
 
 
@@ -2471,7 +3216,7 @@ def delete_schedule(schedule_id):
         scheduler.remove_job(job_id)
     db.session.delete(schedule)
     db.session.commit()
-    flash(f'Schedule "{schedule.name}" deleted.', 'success')
+    flash(tr('flash.schedule_deleted', name=schedule.name), 'success')
     return redirect(url_for('tasks_page'))
 
 
@@ -2501,13 +3246,13 @@ def rescan_job(job_id):
 
     # ห้าม rescan ถ้า scan มาจาก XML Upload
     if original.scan_type == 'xml_upload':
-        flash('❌ ไม่สามารถ Rescan ได้ เนื่องจาก scan นี้มาจาก XML Upload', 'danger')
+        flash(tr('flash.rescan_xml'), 'danger')
         return redirect(url_for('tasks_page'))
 
     # ห้าม rescan ถ้า target นี้กำลังรอคิวหรือ Running อยู่
     running = visible_scans_query().filter(ScanJob.target == original.target, ScanJob.status.in_(ACTIVE_STATUSES)).first()
     if running:
-        flash(f'❌ Target "{original.target}" กำลังสแกนอยู่ กรุณารอให้เสร็จก่อน', 'danger')
+        flash(tr('flash.target_busy', target=original.target), 'danger')
         return redirect(url_for('tasks_page'))
 
     scan_type   = request.form.get('scan_type', original.scan_type)
@@ -2572,7 +3317,13 @@ def drilldown_scan(scan_id):
         timing = None      # Gentle sets the speed itself
 
     if not host_ip:
-        flash('กรุณาระบุ IP ที่ต้องการสแกน', 'danger')
+        flash(tr('flash.ip_required'), 'danger')
+        return redirect(url_for('scan_detail', scan_id=scan_id))
+    if len(host_ip) > 100 or not is_valid_target(host_ip):
+        flash(tr('flash.target_invalid', target=host_ip), 'danger')
+        return redirect(url_for('scan_detail', scan_id=scan_id))
+    if scan_type not in ALLOWED_FORM_SCAN_TYPES:
+        flash(tr('flash.scan_type_invalid'), 'danger')
         return redirect(url_for('scan_detail', scan_id=scan_id))
 
     refusal = scan_option_refusal(host_ip, skip_ping, all_ports, host_probes, gentle, udp)
@@ -2583,12 +3334,13 @@ def drilldown_scan(scan_id):
     # ตรวจว่า IP นี้กำลังสแกนอยู่หรือไม่
     running = visible_scans_query().filter(ScanJob.target == host_ip, ScanJob.status.in_(ACTIVE_STATUSES)).first()
     if running:
-        flash(f'❌ Target "{host_ip}" กำลังสแกนอยู่ กรุณารอให้เสร็จก่อน', 'danger')
+        flash(tr('flash.target_busy', target=host_ip), 'danger')
         return redirect(url_for('scan_detail', scan_id=scan_id))
 
     # สร้าง scan name ที่อ้างอิง parent scan
-    parent_label = parent_job.scan_name or f'Scan #{_job_seq(parent_job)}'      # the number the app shows, not the database id
-    scan_name = f'Drill-down: {host_ip} (from {parent_label})'
+    parent_label = parent_job.scan_name or job_label(_job_seq(parent_job))
+    scan_name = (f'สแกนเจาะลึก: {host_ip} (จาก {parent_label})' if ui_lang_now() != 'en'
+                 else f'Drill-down: {host_ip} (from {parent_label})')
 
     new_job = ScanJob(
         target=host_ip,
@@ -2618,7 +3370,7 @@ def drilldown_scan(scan_id):
 def run_schedule_now(schedule_id):
     schedule = visible_schedules_query().filter_by(id=schedule_id).first_or_404()
     execute_scheduled_scan(schedule.id)
-    flash(f'Schedule "{schedule.name}" triggered manually!', 'success')
+    flash(tr('flash.schedule_triggered', name=schedule.name), 'success')
     return redirect(url_for('tasks_page'))
 
 
@@ -2652,15 +3404,15 @@ def create_user():
 
     # admin ธรรมดาสร้างได้แค่ user เท่านั้น
     if current_user.role == 'admin' and role != 'user':
-        flash('Admin สามารถสร้างได้เฉพาะ User เท่านั้น', 'danger')
+        flash(tr('flash.admin_creates_users_only'), 'danger')
         return redirect(url_for('user_management'))
 
     if not username or not password:
-        flash('กรุณากรอก username และ password', 'danger')
+        flash(tr('flash.credentials_required'), 'danger')
         return redirect(url_for('user_management'))
 
     if User.query.filter_by(username=username).first():
-        flash(f'Username "{username}" มีอยู่แล้ว', 'danger')
+        flash(tr('flash.username_taken', username=username), 'danger')
         return redirect(url_for('user_management'))
 
     new_user = User(
@@ -2671,7 +3423,7 @@ def create_user():
     )
     db.session.add(new_user)
     db.session.commit()
-    flash(f'สร้าง {role} "{username}" สำเร็จ', 'success')
+    flash(tr('flash.account_created', role=tr('role.' + role), username=username), 'success')
     return redirect(url_for('user_management'))
 
 
@@ -2682,12 +3434,12 @@ def delete_user(user_id):
     user = User.query.get_or_404(user_id)
 
     if user.id == current_user.id:
-        flash('ไม่สามารถลบตัวเองได้', 'danger')
+        flash(tr('flash.cannot_delete_self'), 'danger')
         return redirect(url_for('user_management'))
 
     # superadmin ลบได้ทุกคน ยกเว้น superadmin ด้วยกัน
     if user.role == 'superadmin':
-        flash('ไม่สามารถลบ Superadmin ได้', 'danger')
+        flash(tr('flash.cannot_delete_superadmin'), 'danger')
         return redirect(url_for('user_management'))
 
     # admin ลบได้เฉพาะ user ใต้สังกัดตัวเอง
@@ -2697,33 +3449,58 @@ def delete_user(user_id):
     deleted_username = user.username
     deleted_role = user.role
 
-    # ถ้าลบ admin ให้ลบ ScanJob + ScheduledScan + user ใต้สังกัดทั้งหมดก่อน
-    if user.role == 'admin':
-        sub_users = User.query.filter_by(created_by=user.id).all()
-        for sub_user in sub_users:
-            # ลบ ScanJob และ ScheduledScan ของ sub_user ด้วย
-            ScanJob.query.filter_by(owner_id=sub_user.id).delete()
-            ScheduledScan.query.filter_by(owner_id=sub_user.id).delete()
-            db.session.delete(sub_user)
-        # ลบ ScanJob และ ScheduledScan ของ admin เอง
-        ScanJob.query.filter_by(owner_id=user.id).delete()
-        ScheduledScan.query.filter_by(owner_id=user.id).delete()
-    else:
-        # ลบ ScanJob และ ScheduledScan ของ user ธรรมดา
-        ScanJob.query.filter_by(owner_id=user.id).delete()
-        ScheduledScan.query.filter_by(owner_id=user.id).delete()
+    # ถ้าลบ admin ให้ลบข้อมูลและบัญชีของ user ใต้สังกัดทั้งหมดด้วย
+    sub_users = User.query.filter_by(created_by=user.id).all() if user.role == 'admin' else []
+    victims = [user] + sub_users
+    forgotten = [u.id for u in victims]
+    forgotten_names = [u.username for u in victims]
 
-    forgotten = [user.id] + ([u.id for u in sub_users] if user.role == 'admin' else [])
+    _purge_user_data(forgotten, forgotten_names)
+    for sub_user in sub_users:
+        db.session.delete(sub_user)
     db.session.delete(user)
     db.session.commit()
     for uid in forgotten:
         _forget_user_key(uid)
 
     if deleted_role == 'admin':
-        flash(f'ลบ Admin "{deleted_username}" และ User ใต้สังกัดทั้งหมดแล้ว', 'success')
+        flash(tr('flash.admin_deleted', username=deleted_username), 'success')
     else:
-        flash(f'ลบ "{deleted_username}" แล้ว', 'success')
+        flash(tr('flash.user_deleted', username=deleted_username), 'success')
     return redirect(url_for('user_management'))
+
+
+def _set_suspended(user_id, suspend):
+    """Suspends or reactivates an account without deleting anything it owns. Who may: a superadmin, any admin or user except a superadmin; an
+    admin, only the users they created; nobody, their own account."""
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash(tr('flash.cannot_suspend_self'), 'danger')
+        return redirect(url_for('user_management'))
+    if user.role == 'superadmin':
+        flash(tr('flash.cannot_suspend_superadmin'), 'danger')
+        return redirect(url_for('user_management'))
+    if current_user.role == 'admin' and user.created_by != current_user.id:
+        abort(403)
+    user.is_suspended = bool(suspend)
+    user.suspended_at = now_th() if suspend else None
+    db.session.commit()
+    flash(tr('flash.user_suspended' if suspend else 'flash.user_unsuspended', username=user.username), 'success')
+    return redirect(url_for('user_management'))
+
+
+@app.route('/users/<int:user_id>/suspend', methods=['POST'])
+@login_required
+@user_management_required
+def suspend_user(user_id):
+    return _set_suspended(user_id, True)
+
+
+@app.route('/users/<int:user_id>/unsuspend', methods=['POST'])
+@login_required
+@user_management_required
+def unsuspend_user(user_id):
+    return _set_suspended(user_id, False)
 
 
 @app.route('/users/<int:user_id>/reassign', methods=['POST'])
@@ -2736,23 +3513,29 @@ def reassign_user(user_id):
 
     # โยกได้เฉพาะ user ธรรมดาเท่านั้น ไม่ใช่ admin/superadmin
     if user.role != 'user':
-        flash('ย้ายสังกัดได้เฉพาะ User เท่านั้น', 'danger')
+        flash(tr('flash.move_users_only'), 'danger')
         return redirect(url_for('user_management'))
 
     new_admin_id = request.form.get('new_admin_id', '').strip()
     if not new_admin_id:
-        flash('กรุณาเลือก Admin ปลายทาง', 'danger')
+        flash(tr('flash.pick_target_admin'), 'danger')
         return redirect(url_for('user_management'))
 
-    new_admin = User.query.get(int(new_admin_id))
+    try:
+        new_admin_pk = int(new_admin_id)
+    except (TypeError, ValueError):
+        flash(tr('flash.target_admin_missing'), 'danger')
+        return redirect(url_for('user_management'))
+
+    new_admin = User.query.get(new_admin_pk)
     if not new_admin or new_admin.role not in ('admin', 'superadmin'):
-        flash('ไม่พบ Admin ปลายทางที่เลือก', 'danger')
+        flash(tr('flash.target_admin_missing'), 'danger')
         return redirect(url_for('user_management'))
 
     old_admin_name = user.creator.username if user.creator else '—'
     user.created_by = new_admin.id
     db.session.commit()
-    flash(f'ย้าย User "{user.username}" จาก "{old_admin_name}" ไปสังกัด "{new_admin.username}" สำเร็จ', 'success')
+    flash(tr('flash.user_moved', user=user.username, old=old_admin_name, new=new_admin.username), 'success')
     return redirect(url_for('user_management'))
 
 
@@ -2772,12 +3555,13 @@ def reset_password(user_id):
 
     new_pw = request.form.get('new_password', '').strip()
     if not new_pw:
-        flash('กรุณากรอก password ใหม่', 'danger')
+        flash(tr('flash.new_password_required'), 'danger')
         return redirect(url_for('user_management'))
 
     user.password_hash = generate_password_hash(new_pw)
+    _clear_user_login_throttle(user.username)
     db.session.commit()
-    flash(f'Reset password ของ "{user.username}" สำเร็จ', 'success')
+    flash(tr('flash.password_reset', user=user.username), 'success')
     return redirect(url_for('user_management'))
 
 
@@ -2795,11 +3579,11 @@ def upload_xml():
 
     file = request.files.get('nmap_xml')
     if not file or file.filename == '':
-        flash('กรุณาเลือกไฟล์ XML', 'danger')
+        flash(tr('flash.xml_required'), 'danger')
         return redirect(url_for('tasks_page'))
 
     if not file.filename.lower().endswith('.xml'):
-        flash('ไฟล์ต้องเป็น .xml เท่านั้น', 'danger')
+        flash(tr('flash.xml_extension'), 'danger')
         return redirect(url_for('tasks_page'))
 
     scan_name = request.form.get('xml_scan_name', '').strip() or os.path.splitext(file.filename)[0]
@@ -2807,14 +3591,14 @@ def upload_xml():
     try:
         xml_content = file.read()
         root = ET.fromstring(xml_content)
-    except ET.ParseError:
-        flash('ไฟล์ XML ไม่ถูกต้อง', 'danger')
+    except (ET.ParseError, ValueError, UnicodeDecodeError):
+        flash(tr('flash.xml_invalid'), 'danger')
         return redirect(url_for('tasks_page'))
 
     scan_results = []
     hosts_el = root.findall('host')
     if not hosts_el:
-        flash('ไม่พบข้อมูล host ในไฟล์ XML', 'danger')
+        flash(tr('flash.xml_no_hosts'), 'danger')
         return redirect(url_for('tasks_page'))
 
     targets_found = []
@@ -2856,8 +3640,16 @@ def upload_xml():
             version = service_el.get('version', '') if service_el is not None else ''
             extrainfo = service_el.get('extrainfo', '') if service_el is not None else ''
             full_version = f"{product} {version} {extrainfo}".strip() or 'Unknown Version'
+            raw_port = (port_el.get('portid') or '').strip()
+            try:
+                port_num = int(raw_port)
+                if not 1 <= port_num <= 65535:
+                    raise ValueError(raw_port)
+            except (TypeError, ValueError):
+                flash(tr('flash.xml_invalid_port', port=raw_port[:30] or '—'), 'danger')
+                return redirect(url_for('tasks_page'))
             entry = {
-                'port': int(port_el.get('portid', 0)),
+                'port': port_num,
                 'protocol': port_el.get('protocol', 'tcp'),
                 'state': state_el.get('state', 'unknown'),
                 'name': name,
@@ -2873,10 +3665,15 @@ def upload_xml():
         scan_results.append(record)
 
     if not scan_results:
-        flash('ไม่พบ host ที่มี IP address ถูกต้องในไฟล์ XML' if skipped_hosts else 'ไม่พบ host ที่ online ในไฟล์ XML', 'danger')
+        flash(tr('flash.xml_no_valid_ip') if skipped_hosts else tr('flash.xml_no_online'), 'danger')
         return redirect(url_for('tasks_page'))
 
-    target_display = targets_found[0] if len(targets_found) == 1 else f"{targets_found[0]} (+{len(targets_found)-1} more)"
+    if len(targets_found) == 1:
+        target_display = targets_found[0]
+    elif ui_lang_now() != 'en':
+        target_display = f"{targets_found[0]} (และอีก {len(targets_found)-1} เป้าหมาย)"
+    else:
+        target_display = f"{targets_found[0]} (+{len(targets_found)-1} more)"
 
     new_job = ScanJob(
         scan_name=scan_name, target=target_display,
@@ -2885,14 +3682,13 @@ def upload_xml():
         owner_id=current_user.id
     )
     db.session.add(new_job)
-    for ip in set(targets_found):
-        if not SavedTarget.query.filter_by(target=ip).first():
-            db.session.add(SavedTarget(target=ip))
+    # An imported file's hosts were not scanned by this app, so they are NOT added to the shared saved-target list
+    # (a 500-device file used to add 500 rows, and the list has no bulk delete).
     db.session.commit()
     session['scan_just_finished'] = new_job.id
-    flash(f'นำเข้าไฟล์ XML สำเร็จ! พบ {len(scan_results)} host', 'success')
+    flash(tr('flash.xml_imported', n=len(scan_results)), 'success')
     if skipped_hosts:
-        flash(f'ข้าม {skipped_hosts} host ที่ IP address ไม่ถูกต้อง', 'warning')
+        flash(tr('flash.xml_skipped', n=skipped_hosts), 'warning')
     return redirect(url_for('scan_detail', scan_id=new_job.id))
 
 
@@ -2913,7 +3709,35 @@ def export_csv(scan_id):
     writer.writerow([job.id, job.target, SCAN_TYPE_LABELS.get(job.scan_type, job.scan_type),
                      job.timestamp.strftime('%Y-%m-%d %H:%M:%S') if job.timestamp else ''])
     writer.writerow([])
-    writer.writerow(['IP Address', 'MAC Address', 'OS / Status', 'Port', 'Protocol', 'State', 'Service', 'Version'])
+    # The CVE columns (added 2026-11-17, a reviewer noted the CSV held less than the PDF): one row per port and CVE, so a spreadsheet can filter
+    # or sort by severity; a port with no CVE keeps ONE row. "CVE Check" says what the lookup could say about the port, so an empty CVE cell is
+    # never read as "clean" when it only means "not looked up" (the same unknown-stays-unknown rule as the report). The old 8 columns are unchanged.
+    writer.writerow(['IP Address', 'MAC Address', 'OS / Status', 'Port', 'Protocol', 'State', 'Service', 'Version',
+                     'CVE ID', 'Severity', 'CVSS Score', 'CWE', 'CISA KEV', 'CVE Check', 'CVE Description'])
+    is_vuln = job.scan_type == 'vuln_scan'
+
+    def csv_text(value):
+        """Text from a scan or from NVD for a spreadsheet cell: one line, and never starting with = + - @ (a spreadsheet would run it as a formula)."""
+        s = re.sub(r'\s+', ' ', str(value if value is not None else '')).strip()
+        return ("'" + s) if s[:1] in ('=', '+', '-', '@') else s
+
+    def cve_check(port):
+        if not is_vuln:
+            return 'Not checked (not a vulnerability scan)'
+        if str(port.get('state') or '').lower() != 'open':
+            return ''
+        status = port.get('cve_status')
+        if status == 'ok':
+            return 'Checked'
+        if status == 'failed':
+            return 'NVD lookup failed'
+        if status == 'no_product':
+            return 'Not searched (no product name)'
+        return 'Not recorded (older scan)'
+
+    def cve_rank(c):
+        score = cvss_number(c.get('cvss_score')) if isinstance(c, dict) else None
+        return (-(score if score is not None else -1), str(c.get('cve_id') or ''))
 
     for device in scan_data:
         ip = device.get('ip', '')
@@ -2928,11 +3752,23 @@ def export_csv(scan_id):
             for port in ports:
                 ver = port.get('version_info', '')
                 if ver == 'Unknown Version': ver = ''
-                writer.writerow([ip, mac_display, os_info,
-                                  port.get('port', ''), (port.get('protocol', 'tcp') or '').lower(),
-                                  port.get('state', 'unknown') or 'unknown', port.get('name', '') or '—', ver])
+                base = [ip, mac_display, os_info,
+                        port.get('port', ''), (port.get('protocol', 'tcp') or '').lower(),
+                        port.get('state', 'unknown') or 'unknown', port.get('name', '') or '—', ver]
+                cves = [c for c in (port.get('cves') or []) if isinstance(c, dict)]
+                if cves:
+                    for c in sorted(cves, key=cve_rank):
+                        cwe = cwe_info(c)
+                        score = cvss_number(c.get('cvss_score'))
+                        writer.writerow(base + [csv_text(c.get('cve_id')), effective_severity(c) or 'UNKNOWN',
+                                                ('%.1f' % score) if score is not None else '',
+                                                csv_text(cwe['label']) if cwe else '',
+                                                'Yes' if c.get('kev') is True else ('No' if c.get('kev') is False else ''),
+                                                cve_check(port), csv_text(c.get('description'))])
+                else:
+                    writer.writerow(base + ['', '', '', '', '', cve_check(port), ''])
         else:
-            writer.writerow([ip, mac_display, os_info, '—', '—', '—', 'No ports', '—'])
+            writer.writerow([ip, mac_display, os_info, '—', '—', '—', 'No ports', '—', '', '', '', '', '', '' if is_vuln else 'Not checked (not a vulnerability scan)', ''])
 
     output.seek(0)
     from flask import Response
@@ -2943,19 +3779,22 @@ def export_csv(scan_id):
         filename = custom_name + '.csv'
     else:
         filename = f"scan_{job.id}_{job.target.replace('/', '_').replace(' ', '_')}_{job.timestamp.strftime('%Y%m%d_%H%M%S') if job.timestamp else 'export'}.csv"
-    return Response(output.getvalue(), mimetype='text/csv', headers=_attachment_headers(filename))
+    # The UTF-8 byte order mark ("﻿") makes Excel read the file as UTF-8. Without it Excel on Windows assumes Windows-1252 and shows the
+    # em dash placeholder as "â€”" and any Thai text (OS, hostname, a scan name) as rubbish.
+    return Response('﻿' + output.getvalue(), mimetype='text/csv', headers=_attachment_headers(filename))
 
 
-def _attachment_headers(filename):
-    """Content-Disposition for a download. A name with Thai (or any non-Latin-1) letters cannot go into a plain header value, so: an ASCII
-    fallback name plus the RFC 5987 UTF-8 form that browsers prefer."""
+def _attachment_headers(filename, inline=False):
+    """Content-Disposition for a download (or inline PDF view when inline=True). A name with Thai (or any non-Latin-1) letters
+    cannot go into a plain header value, so: an ASCII fallback name plus the RFC 5987 UTF-8 form that browsers prefer."""
     from urllib.parse import quote
     stem, dot, ext = filename.rpartition('.')
     if not dot:
         stem, ext = filename, ''
     ascii_stem = re.sub(r'[\\/:*?"<>|\r\n;]', '_', stem.encode('ascii', 'ignore').decode('ascii')).strip() or 'report'
     ascii_name = ascii_stem + ('.' + ext if ext else '')
-    return {'Content-Disposition': f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"}
+    disp = 'inline' if inline else 'attachment'
+    return {'Content-Disposition': f"{disp}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"}
 
 
 def _export_filename(job, ext):
@@ -2981,18 +3820,25 @@ def _report_context(job):
     custom_args = job.custom_args
     if not custom_args and job.scan_type == 'custom':          # jobs from before the column existed keep the arguments in every result row
         custom_args = next((h.get('custom_args') for h in hosts if isinstance(h, dict) and h.get('custom_args')), None)
-    scan = {'id': job.id, 'number': _owner_seq_map({job.owner_id}).get(job.id, job.id) if job.owner_id is not None else job.id,      # id = the database id (URLs); number = the "Job #N" every page shows
+    scan = {'id': job.id, 'number': job.id,      # screen Job # and URL /scan/<id> always use the same job.id
             'scan_type': job.scan_type, 'scan_name': job.scan_name, 'target': job.target, 'status': job.status,
             'started': job.timestamp, 'finished': job.finished_at, 'timing': job.timing, 'version_intensity': job.version_intensity,
-            'custom_args': custom_args, 'multicast': job.multicast, 'skip_ping': job.skip_ping, 'all_ports': job.all_ports, 'nmap_version': scan_run_info(job).get('nmap'),
-            'run': describe_run(job), 'run_facts': scan_run_info(job), 'owner': job.owner.username if job.owner else '', 'triggered_by': job.triggered_by or 'manual'}
+            'custom_args': custom_args, 'multicast': job.multicast, 'skip_ping': job.skip_ping, 'all_ports': job.all_ports, 'no_dns': job.no_dns, 'host_probes': job.host_probes, 'gentle': job.gentle, 'udp': job.udp,
+            'nmap_version': scan_run_info(job).get('nmap'),
+            'run': describe_run(job, lang='th'), 'run_facts': scan_run_info(job), 'owner': job.owner.username if job.owner else '', 'triggered_by': job.triggered_by or 'manual'}
     try:
         scan['changes'] = scan_changes(job)      # what changed since the earlier scan of the same kind; None = nothing to compare with
     except Exception:                            # the report must never fail because of the comparison: say it could not be made
         app.logger.exception('Report: could not compare scan %s with the one before it', job.id)
         scan['changes'], scan['changes_failed'] = None, True
-    r = report_builder.build_report(scan, hosts, now_th(), SCAN_TYPE_LABELS)
+    r = report_builder.build_report(scan, hosts, now_th(), SCAN_TYPE_LABELS_TH)      # the PDF report is always Thai
     return r, [h for h in hosts if isinstance(h, dict) and h.get('ip')]
+
+
+def _report_orientation():
+    """The page orientation the report is drawn and printed in: 'portrait' (A4, the default since 2026-11-17) or 'landscape' (A4, the older
+    layout), from ?orientation=. Anything else is portrait."""
+    return 'landscape' if request.args.get('orientation') == 'landscape' else 'portrait'
 
 
 @app.route('/scan/<int:scan_id>/report')
@@ -3002,7 +3848,7 @@ def scan_report(scan_id):
     job = visible_scans_query().filter_by(id=scan_id).first_or_404()
     r, scan_data = _report_context(job)
     return render_template('scan_report.html', r=r, scan_data=scan_data, system_gateway=get_system_default_gateway(), print_mode=False,
-                           asset=lambda p: url_for('static', filename=p))
+                           orientation=_report_orientation(), asset=lambda p: url_for('static', filename=p))
 
 
 @app.route('/scan/<int:scan_id>/export/pdf')
@@ -3011,24 +3857,25 @@ def export_pdf(scan_id):
     """The PDF report: the report page printed by a headless Edge / Chrome (report_pdf.py). If no browser can do it (not installed, the
     package missing, a timeout) the old xhtml2pdf export below is used instead, so the button never just fails."""
     from flask import Response
+    inline = request.args.get('inline') == '1'
     job = visible_scans_query().filter_by(id=scan_id).first_or_404()
     r, scan_data = _report_context(job)
     static_root = pathlib.Path(app.static_folder)
     html = render_template('scan_report.html', r=r, scan_data=scan_data, system_gateway=get_system_default_gateway(), print_mode=True,
-                           asset=lambda p: (static_root / p).as_uri())
+                           orientation=_report_orientation(), asset=lambda p: (static_root / p).as_uri())
     try:
         pdf = html_to_pdf(html)
     except ReportPdfError as e:
         app.logger.warning('PDF report: the browser engine failed for scan %s (%s); using the old exporter', scan_id, e)
-        resp = _export_pdf_legacy(scan_id)
+        resp = _export_pdf_legacy(scan_id, inline=inline)
         resp.headers['X-Report-Engine'] = 'legacy'
         return resp
-    resp = Response(pdf, mimetype='application/pdf', headers=_attachment_headers(_export_filename(job, 'pdf')))
+    resp = Response(pdf, mimetype='application/pdf', headers=_attachment_headers(_export_filename(job, 'pdf'), inline=inline))
     resp.headers['X-Report-Engine'] = 'browser'
     return resp
 
 
-def _export_pdf_legacy(scan_id):
+def _export_pdf_legacy(scan_id, inline=False):
     """The old xhtml2pdf export (English, one table, no Thai): kept only as the fallback of export_pdf."""
     job = visible_scans_query().filter_by(id=scan_id).first_or_404()
     scan_data = json.loads(job.result_data) if job.result_data else []
@@ -3207,158 +4054,286 @@ table.rt tbody td {{ padding: 3px 4px; vertical-align: top; border-bottom: 1px s
             safe_target = job.target.replace('/', '_').replace(' ', '_').replace('\\', '_')
             ts_str = job.timestamp.strftime('%Y%m%d_%H%M%S') if job.timestamp else 'export'
             filename = f"scan_{job.id}_{safe_target}_{ts_str}.pdf"
-        return Response(pdf_buffer.read(), mimetype='application/pdf', headers=_attachment_headers(filename))
+        return Response(pdf_buffer.read(), mimetype='application/pdf', headers=_attachment_headers(filename, inline=inline))
     except ImportError:
         filename = f"scan_{job.id}_report.html"
-        return Response(html_content, mimetype='text/html', headers=_attachment_headers(filename))
+        return Response(html_content, mimetype='text/html', headers=_attachment_headers(filename, inline=inline))
 
 
 # ─────────────────────────────────────────
 #  AI CHATBOT API  (Google AI Studio / Gemini)
 # ─────────────────────────────────────────
 
-def _build_app_context():
+# How many scans, devices and CVEs the AI is shown IN DETAIL (the totals and the Critical / High / Medium / Low counts always cover everything; a device or CVE the
+# person asks about by IP or CVE id is added in full whatever the limit). The local model's window is 8192 tokens in all (local_llm.NUM_CTX), so it gets fewer;
+# Gemini reads far more, and these are only a size we keep for speed and cost (raised 2026-11-24 from 25 / 100 / 80 at the owner's request).
+AI_CONTEXT_LIMITS = {'online': {'scans': 50, 'devices': 200, 'cves': 150},
+                     'local': {'scans': 15, 'devices': 50, 'cves': 40}}
+
+
+def _build_app_context(user_text=''):
     """
-    รวบรวมข้อมูลจริงของแอพ (scan history, jobs, schedules, targets)
-    สำหรับ current_user เพื่อส่งเป็น context ให้ Gemini
+    รวบรวมข้อมูลจริงของแอพ (ภาพรวม, อุปกรณ์พร้อม OS/ชนิด, ช่องโหว่ปัจจุบัน, ประวัติสแกน, ตารางเวลา)
+    สำหรับ current_user โดยใช้ _build_device_inventory() ชุดเดียวกับ Dashboard / อุปกรณ์ / ช่องโหว่
+    เพื่อให้ตัวเลขตรงกัน 100% ไม่นับ CVE ที่แก้ไปแล้ว และดึงรายละเอียดครบถ้วนเมื่อถามเจาะจง IP/CVE/ระดับความเสี่ยง
     """
     try:
-        # --- Scan History (ล่าสุด 20 รายการ) ---
-        scans = visible_scans_query().order_by(ScanJob.timestamp.desc()).limit(20).all()
-        scan_summaries = []
-        all_ips = {}   # ip → set of "port/service"
-        all_ports_global = set()
-        vuln_summary = []
-        seen_vulns = set()
+        all_jobs = visible_scans_query().order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).all()
+        inventory = _build_device_inventory(all_jobs)
+        gateway_ip = (get_system_default_gateway(max_age=30) or {}).get('ip')
 
-        for job in scans:
-            entry = {
+        compact = (ai_engine() == 'local')
+        lim = AI_CONTEXT_LIMITS['local' if compact else 'online']
+        max_scans, max_devs, max_cves = lim['scans'], lim['devices'], lim['cves']
+
+        # --- คำนวณภาพรวมครบทุกการสแกน (ตรงกับ Dashboard, Devices และ Vulnerabilities 100%) ---
+        total_ports_global = set()
+        sev_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'UNKNOWN': 0}
+        kev_count = 0
+        tiers = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'clean': 0, 'unscanned': 0}
+        device_rows = []
+        all_findings = []
+
+        for dev in inventory:
+            total_ports_global.update(dev['open_port_keys'])
+            services_text = ' '.join(dev['services'])
+            rule_ip = gateway_ip if gateway_ip in dev['ips'] else next((i for i in dev['ips'] if is_local_ip(i)), dev['ips'][0])
+            dtype = guess_device_type(
+                rule_ip, dev['mac_vendor'], dev['os'], dev['open_tcp_ports'], gateway_ip,
+                services=services_text, hostname=dev['hostname'], mac=dev['mac'],
+            )
+            os_name = dev['os'] or 'Unknown'
+            os_fam = _os_family(dev['os'])
+            w = dev['worst_severity']
+            tier = {'CRITICAL': 'critical', 'HIGH': 'high', 'MEDIUM': 'medium', 'LOW': 'low', 'UNKNOWN': 'low'}.get(w) or (
+                'clean' if dev['vuln_scanned'] else 'unscanned'
+            )
+            tiers[tier] += 1
+
+            dev_findings = []
+            dev_kev = 0
+            for finding in dev['active_cves'].values():
+                sev = finding['severity'] or 'UNKNOWN'
+                sev_counts[sev] = sev_counts.get(sev, 0) + 1
+                if finding['kev']:
+                    kev_count += 1
+                    dev_kev += 1
+                item = {
+                    'ip': finding['ip'],
+                    'primary_ip': dev['ip'],
+                    'cve_id': finding['cve_id'],
+                    'severity': sev,
+                    'severity_label': sev + (' (NVD: HIGH, CVSS v2)' if finding['severity_adjusted'] else ''),
+                    'cvss': finding['cvss_num'],
+                    'kev': finding['kev'],
+                    'port': f"{finding['port']}/{finding['protocol']}" if finding['port'] else '',
+                    'service': finding['service'] or '',
+                    'product': finding['product'] or '',
+                    'cwe': finding['cwe_name'] or '',
+                    'description': (finding['description'] or '').strip(),
+                }
+                dev_findings.append(item)
+                all_findings.append(item)
+
+            dev_findings.sort(key=lambda f: (
+                0 if f['kev'] else 1,
+                -_VULN_SEV_RANK.get(f['severity'], 0),
+                -(f['cvss'] if f['cvss'] is not None else -1.0),
+                f['cve_id'],
+            ))
+
+            base_type = dtype['label'].replace(' (likely)', '')
+            type_th = _VOICE_TYPE_TH.get(base_type, '')
+            type_disp = f"{dtype['label']} ({type_th})" if type_th else dtype['label']
+            device_rows.append({
+                'ip': dev['ip'],
+                'ips': dev['ips'],
+                'other_ips': dev['other_ips'],
+                'hostname': dev['hostname'] or '',
+                'os': os_name,
+                'os_family': os_fam,
+                'os_accuracy': dev['os_accuracy'],
+                'type': dtype['label'],
+                'type_disp': type_disp,
+                'type_reason': dtype.get('reason') or '',
+                'mac': dev['mac'] or '',
+                'mac_vendor': dev['mac_vendor'] or '',
+                'open_ports': dev.get('open_ports_detail') or sorted(dev['open_labels']),
+                'scan_count': dev['scan_count'],
+                'last_seen': dev['last_seen'].strftime('%Y-%m-%d %H:%M') if dev['last_seen'] else '-',
+                'vuln_scanned': dev['vuln_scanned'],
+                'worst_severity': w or ('CLEAN' if dev['vuln_scanned'] else 'UNSCANNED'),
+                'cve_count': len(dev_findings),
+                'kev_count': dev_kev,
+                'findings': dev_findings,
+            })
+
+        all_findings.sort(key=lambda f: (
+            0 if f['kev'] else 1,
+            -_VULN_SEV_RANK.get(f['severity'], 0),
+            -(f['cvss'] if f['cvss'] is not None else -1.0),
+            _ip_sort_key(f['ip']),
+            f['cve_id'],
+        ))
+
+        # --- ประวัติสแกนล่าสุด ---
+        scan_summaries = []
+        for job in all_jobs[:max_scans]:
+            hosts_ok = _parse_job_hosts(job) if job.status == 'Completed' else []
+            scan_summaries.append({
                 'id': job.id,
-                'name': job.scan_name or f'Scan #{job.id}',
+                'name': job.scan_name or f'งาน #{job.id}',
                 'target': job.target,
                 'type': job.scan_type,
                 'status': job.status,
+                'host_count': len(hosts_ok) if job.status == 'Completed' else 0,
                 'timestamp': job.timestamp.strftime('%Y-%m-%d %H:%M') if job.timestamp else '-',
-                'triggered_by': job.triggered_by,
-            }
-            if job.result_data:
-                try:
-                    hosts = json.loads(job.result_data)
-                    host_count = len(hosts)
-                    entry['host_count'] = host_count
-
-                    # รวบรวม IP / port
-                    for h in hosts:
-                        ip = h.get('ip', '')
-                        if ip:
-                            if ip not in all_ips:
-                                all_ips[ip] = set()
-                            for p in h.get('ports', []):
-                                label = port_text(p)
-                                if str(p.get('state', '')).lower() == 'open':
-                                    all_ips[ip].add(label)
-                                    if port_key(p):
-                                        all_ports_global.add(port_key(p))
-
-                        # CVE / Vuln
-                        for p in h.get('ports', []):
-                            for cve in (p.get('cves') or []):
-                                cve_id = cve.get('cve_id', '')
-                                if not cve_id or (ip, cve_id) in seen_vulns:
-                                    continue
-                                seen_vulns.add((ip, cve_id))
-                                vuln_summary.append({
-                                    'ip': ip,
-                                    'cve': cve_id,
-                                    # same label the pages show; says so when it differs from NVD's, so the bot can explain it
-                                    'severity': effective_severity(cve) + (' (NVD: HIGH, CVSS v2)' if severity_adjusted(cve) else ''),
-                                    'description': (cve.get('description', '') or '')[:120],
-                                })
-                except Exception:
-                    entry['host_count'] = 0
-            scan_summaries.append(entry)
+            })
 
         # --- Schedules ---
         schedules = visible_schedules_query().all()
-        sched_summaries = []
-        for s in schedules:
-            sched_summaries.append({
-                'id': s.id,
-                'name': s.name,
-                'target': s.target,
-                'type': s.scan_type,
-                'repeat': s.repeat,
-                'active': s.is_active,
-                'last_run': s.last_run.strftime('%Y-%m-%d %H:%M') if s.last_run else 'ยังไม่เคย',
-                'next_run': s.next_run.strftime('%Y-%m-%d %H:%M') if s.next_run else '-',
-            })
+        sched_summaries = [{
+            'id': s.id, 'name': s.name, 'target': s.target, 'type': s.scan_type,
+            'repeat': s.repeat, 'active': s.is_active,
+            'last_run': s.last_run.strftime('%Y-%m-%d %H:%M') if s.last_run else 'ยังไม่เคย',
+            'next_run': s.next_run.strftime('%Y-%m-%d %H:%M') if s.next_run else '-',
+        } for s in schedules]
 
-        # --- Saved Targets ---
         saved_targets = SavedTarget.query.order_by(SavedTarget.created_at.desc()).limit(30).all()
         targets_list = [{'target': t.target, 'label': t.label or ''} for t in saved_targets]
 
-        # --- สถิติรวม ---
-        all_jobs = visible_scans_query().all()
+        other_sev = sum(n for k, n in sev_counts.items() if k not in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'))
         stats = {
             'total_scans': len(all_jobs),
             'completed': sum(1 for j in all_jobs if j.status == 'Completed'),
             'failed': sum(1 for j in all_jobs if j.status == 'Failed'),
             'running': sum(1 for j in all_jobs if j.status in ACTIVE_STATUSES),
-            'total_unique_ips': len(all_ips),
-            'total_open_ports': len(all_ports_global),
+            'cancelled': sum(1 for j in all_jobs if j.status == 'Cancelled'),
+            'total_devices': len(device_rows),
+            'total_open_ports': len(total_ports_global),
+            'total_cves': len(all_findings),
             'total_schedules': len(schedules),
             'active_schedules': sum(1 for s in schedules if s.is_active),
-            'total_vulns_found': len(vuln_summary),
         }
 
-        # --- สร้าง context string ---
         ctx_lines = [
-            f"=== ข้อมูลระบบ CLYLAR ณ ปัจจุบัน (ผู้ใช้: {current_user.username}, role: {current_user.role}) ===",
-            "",
-            f"📊 สถิติภาพรวม:",
-            f"  - Scan ทั้งหมด: {stats['total_scans']} (สำเร็จ {stats['completed']}, ล้มเหลว {stats['failed']}, กำลังทำ {stats['running']})",
-            f"  - IP ที่พบทั้งหมด: {stats['total_unique_ips']} เครื่อง",
-            f"  - Port ที่เปิดอยู่ (unique): {stats['total_open_ports']} port",
-            f"  - Scheduled Scan: {stats['total_schedules']} รายการ (active {stats['active_schedules']})",
-            f"  - ช่องโหว่ CVE ที่พบ: {stats['total_vulns_found']} รายการ",
+            f"=== สรุปภาพรวมทั้งหมดของระบบ CLYLAR (ผู้ใช้: {current_user.username}, role: {current_user.role}) ===",
+            "ตัวเลขด้านล่างคำนวณจากฐานข้อมูลทั้งหมดและตรงกับหน้า Dashboard, อุปกรณ์ และช่องโหว่ 100%:",
+            f"  - งานสแกนทั้งหมด: {stats['total_scans']} (เสร็จสิ้น {stats['completed']}, ล้มเหลว {stats['failed']}, กำลังทำ/รอคิว {stats['running']}, ยกเลิก {stats['cancelled']})",
+            f"  - อุปกรณ์ที่พบทั้งหมด (จากทุกการสแกน): {stats['total_devices']} เครื่อง",
+            f"  - พอร์ตที่เปิดอยู่ (ไม่ซ้ำ): {stats['total_open_ports']} พอร์ต",
+            f"  - ช่องโหว่ CVE ที่ยังพบอยู่ปัจจุบัน (ไม่รวมที่แก้ไปแล้ว): {stats['total_cves']} รายการ",
+            f"    * แยกตามระดับความรุนแรง: Critical={sev_counts['CRITICAL']}, High={sev_counts['HIGH']}, Medium={sev_counts['MEDIUM']}, Low={sev_counts['LOW']}"
+            + (f", อื่นๆ={other_sev}" if other_sev else '')
+            + f", CISA KEV (ถูกโจมตีจริง)={kev_count}",
+            f"  - อุปกรณ์แยกตามความเสี่ยงสูงสุด: Critical={tiers['critical']}, High={tiers['high']}, Medium={tiers['medium']}, Low={tiers['low']}, สแกนช่องโหว่แล้วไม่พบ={tiers['clean']}, ยังไม่เคยสแกนช่องโหว่={tiers['unscanned']}",
+            f"  - Scheduled Scan: {stats['total_schedules']} รายการ (เปิดใช้งาน {stats['active_schedules']})",
             "",
         ]
 
+        # --- Query-focused full details (never miss the specific host, CVE, or severity the user asked about) ---
+        q_text = str(user_text or '')
+        asked_ips = list(dict.fromkeys(re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', q_text)))
+        asked_cves = list(dict.fromkeys(c.upper() for c in re.findall(r'cve-\d{4}-\d{4,7}', q_text, re.I)))
+        focused_devs = [d for d in device_rows if any(ip in d['ips'] for ip in asked_ips)] if asked_ips else []
+        if focused_devs:
+            ctx_lines.append("=== รายละเอียดครบถ้วนของอุปกรณ์ที่ผู้ใช้ถามถึง ===")
+            for d in focused_devs[:5]:
+                alt = f" (IP อื่น: {', '.join(d['other_ips'])})" if d['other_ips'] else ''
+                hn = f" | hostname={d['hostname']}" if d['hostname'] else ''
+                acc = f" ({d['os_accuracy']}%)" if d['os_accuracy'] is not None else ''
+                mac_s = f"{d['mac']} ({d['mac_vendor']})" if d['mac'] and d['mac_vendor'] else (d['mac'] or 'ไม่ทราบ')
+                ports_s = ', '.join(d['open_ports']) if d['open_ports'] else 'ไม่มีพอร์ตเปิด'
+                ctx_lines.append(
+                    f"  อุปกรณ์ {d['ip']}{alt}{hn}\n"
+                    f"    - ชนิดอุปกรณ์ (Device Type): {d['type_disp']}" + (f" [เหตุผล: {d['type_reason']}]" if d['type_reason'] else '') + "\n"
+                    f"    - ระบบปฏิบัติการ (OS): {d['os']}{acc} (กลุ่ม: {d['os_family']})\n"
+                    f"    - MAC: {mac_s} | สแกนแล้ว {d['scan_count']} ครั้ง | ล่าสุด {d['last_seen']}\n"
+                    f"    - พอร์ตเปิดทั้งหมด ({len(d['open_ports'])}): {ports_s}\n"
+                    f"    - ช่องโหว่ปัจจุบัน: {d['cve_count']} รายการ (ความเสี่ยงสูงสุด: {d['worst_severity']}" + (f", KEV={d['kev_count']}" if d['kev_count'] else '') + ")"
+                )
+                for f in d['findings']:
+                    cvss_s = f"CVSS {f['cvss']:.1f}" if f['cvss'] is not None else 'CVSS -'
+                    kev_s = ' [KEV]' if f['kev'] else ''
+                    ctx_lines.append(f"      * {f['cve_id']} | {f['severity_label']} | {cvss_s}{kev_s} | {f['port']} {f['service']} {f['product']} | {f['description'][:140]}")
+            ctx_lines.append("")
+
+        if asked_cves:
+            matched_cves = [f for f in all_findings if f['cve_id'].upper() in asked_cves]
+            if matched_cves:
+                ctx_lines.append("=== รายละเอียดช่องโหว่ CVE ที่ผู้ใช้ถามถึง ===")
+                for f in matched_cves:
+                    cvss_s = f"CVSS {f['cvss']:.1f}" if f['cvss'] is not None else 'CVSS -'
+                    kev_s = ' [CISA KEV]' if f['kev'] else ''
+                    ctx_lines.append(f"  {f['cve_id']} | host={f['ip']} | {f['severity_label']} | {cvss_s}{kev_s} | {f['port']} {f['service']} {f['product']} | {f['description'][:220]}")
+                ctx_lines.append("")
+
+        # --- รายการอุปกรณ์ทั้งหมด (พร้อม OS, ชนิดอุปกรณ์, MAC, พอร์ตเปิด, สรุป CVE) ---
+        if device_rows:
+            shown_devs = device_rows[:max_devs]
+            note = f" (แสดง {len(shown_devs)} จากทั้งหมด {len(device_rows)} เครื่อง)" if len(device_rows) > len(shown_devs) else f" ({len(device_rows)} เครื่อง ครบทั้งหมด)"
+            ctx_lines.append(f"รายการอุปกรณ์ทั้งหมด{note}:")
+            for d in shown_devs:
+                ports_s = ', '.join(d['open_ports'][:10]) + (f' (+{len(d["open_ports"]) - 10})' if len(d['open_ports']) > 10 else '') if d['open_ports'] else 'ไม่มีพอร์ตเปิด'
+                mac_s = f" | MAC={d['mac']}" + (f" ({d['mac_vendor']})" if d['mac_vendor'] else '') if d['mac'] else ''
+                hn_s = f" | host={d['hostname']}" if d['hostname'] else ''
+                cve_s = f" | CVE={d['cve_count']} (max={d['worst_severity']}" + (f", KEV={d['kev_count']}" if d['kev_count'] else '') + ")" if d['cve_count'] else (
+                    " | CVE=0 (สแกนแล้ว)" if d['vuln_scanned'] else " | CVE=ยังไม่เคยสแกนช่องโหว่"
+                )
+                ctx_lines.append(f"  {d['ip']} | type={d['type_disp']} | OS={d['os']} [{d['os_family']}]{hn_s}{mac_s} | ports={ports_s}{cve_s}")
+            ctx_lines.append("")
+
+        # --- รายการช่องโหว่ปัจจุบัน เรียงจากสำคัญที่สุดก่อน (KEV -> Critical -> High -> Medium -> Low) ---
+        if all_findings:
+            shown_cves = all_findings[:max_cves]
+            shown_keys = {(f['ip'], f['cve_id']) for f in shown_cves}
+            q_low = q_text.lower()
+            want_sevs = set()
+            if any(w in q_low for w in ('critical', 'วิกฤต', 'สูงมาก', 'คริติคอล')):
+                want_sevs.add('CRITICAL')
+            if any(w in q_low for w in ('high', 'ระดับสูง', 'ความเสี่ยงสูง')):
+                want_sevs.add('HIGH')
+            if any(w in q_low for w in ('medium', 'ปานกลาง', 'มีเดียม')):
+                want_sevs.add('MEDIUM')
+            if any(w in q_low for w in ('low', 'ระดับต่ำ', 'ความเสี่ยงต่ำ', 'โลว์')):
+                want_sevs.add('LOW')
+            extra_cves = [f for f in all_findings[max_cves:] if (f['severity'] in want_sevs or (f['kev'] and any(w in q_low for w in ('kev', 'cisa', 'โจมตีจริง'))))][:40]
+            display_cves = shown_cves + [f for f in extra_cves if (f['ip'], f['cve_id']) not in shown_keys]
+            cve_note = (
+                f" (แสดง {len(display_cves)} รายการสำคัญสูงสุดจากทั้งหมด {len(all_findings)} รายการ — ยึดตัวเลขสรุปด้านบนเป็นหลัก)"
+                if len(all_findings) > len(display_cves) else f" ({len(all_findings)} รายการ ครบทั้งหมด)"
+            )
+            ctx_lines.append(f"ช่องโหว่ CVE ที่ยังพบอยู่ปัจจุบัน{cve_note}:")
+            for f in display_cves:
+                cvss_s = f"CVSS {f['cvss']:.1f}" if f['cvss'] is not None else 'CVSS -'
+                kev_s = ' [KEV]' if f['kev'] else ''
+                desc = f['description'][:95] if compact else f['description'][:120]
+                ctx_lines.append(f"  {f['ip']} | {f['cve_id']} | {f['severity_label']} | {cvss_s}{kev_s} | {f['port']} {f['service']} | {desc}")
+            ctx_lines.append("")
+
         if scan_summaries:
-            ctx_lines.append("📋 ประวัติ Scan ล่าสุด (20 รายการ):")
+            scan_note = f" ({len(scan_summaries)} ล่าสุดจากทั้งหมด {stats['total_scans']})" if stats['total_scans'] > len(scan_summaries) else f" ({len(scan_summaries)} งานทั้งหมด)"
+            ctx_lines.append(f"ประวัติงานสแกน{scan_note}:")
             for s in scan_summaries:
                 ctx_lines.append(
-                    f"  [{s['id']}] {s['name']} | target={s['target']} | type={s['type']} "
-                    f"| status={s['status']} | hosts={s.get('host_count','?')} | {s['timestamp']}"
+                    f"  [งาน #{s['id']}] {s['name']} | target={s['target']} | type={s['type']} "
+                    f"| status={s['status']} | devices={s['host_count']} | {s['timestamp']}"
                 )
             ctx_lines.append("")
 
-        if all_ips:
-            ctx_lines.append(f"🖥️ IP ที่ค้นพบ ({len(all_ips)} เครื่อง):")
-            for ip, ports in sorted(all_ips.items())[:40]:  # จำกัด 40 IP
-                ports_str = ', '.join(sorted(ports)[:10]) if ports else 'ไม่พบ port'
-                ctx_lines.append(f"  {ip}: {ports_str}")
-            ctx_lines.append("")
-
-        if vuln_summary:
-            ctx_lines.append(f"⚠️ ช่องโหว่ CVE ที่พบ (สูงสุด 20 รายการ):")
-            for v in vuln_summary[:20]:
-                ctx_lines.append(f"  {v['ip']} | {v['cve']} | severity={v['severity']} | {v['description']}")
-            ctx_lines.append("")
-
         if sched_summaries:
-            ctx_lines.append(f"⏰ Scheduled Scans ({len(sched_summaries)} รายการ):")
+            ctx_lines.append(f"Scheduled Scans ({len(sched_summaries)} รายการ):")
             for s in sched_summaries:
-                status_icon = '✅' if s['active'] else '⏸️'
+                st = 'เปิด' if s['active'] else 'ปิด'
                 ctx_lines.append(
-                    f"  {status_icon} [{s['id']}] {s['name']} | target={s['target']} "
+                    f"  [{s['id']}] ({st}) {s['name']} | target={s['target']} "
                     f"| {s['repeat']} | last={s['last_run']} | next={s['next_run']}"
                 )
             ctx_lines.append("")
 
         if targets_list:
-            ctx_lines.append(f"🎯 Saved Targets ({len(targets_list)} รายการ):")
-            for t in targets_list:
+            ctx_lines.append(f"Saved Targets ({len(targets_list)} รายการ):")
+            for t in targets_list[:15]:
                 label = f" ({t['label']})" if t['label'] else ''
                 ctx_lines.append(f"  {t['target']}{label}")
             ctx_lines.append("")
@@ -3389,6 +4364,10 @@ def set_setting(key, value):
 
 def chat_button_key(user_id):
     return 'chat_button_hidden.%d' % user_id
+
+
+def chat_hint_key(user_id):
+    return 'chat_hint_seen.%d' % user_id
 
 
 # "Scan at once" (2026-11-09, the owner asked for it): an admin may skip the confirmation card of a voice or typed scan command, but only for a target that
@@ -3426,18 +4405,41 @@ class AIDisabled(Exception):
     pass
 
 
+# The two engines of the assistant: 'gemini' (Google's API, the default) or 'local' (a model run by Ollama on this computer, see local_llm.py).
+# One choice for the whole system, made by a superadmin; speech to text is not part of it (that stays with Whisper).
+def ai_engine():
+    try:
+        return 'local' if get_setting('ai_engine', 'gemini') == 'local' else 'gemini'
+    except Exception:
+        return 'gemini'
+
+
+def local_llm_settings():
+    """{url, model, gpu_layers}: what the Settings page saved, else the defaults. gpu_layers None = automatic (the saved text is empty)."""
+    url = local_llm.clean_url(get_setting('local_llm_url', '')) or local_llm.DEFAULT_URL
+    model = local_llm.clean_model(get_setting('local_llm_model', '')) or local_llm.DEFAULT_MODEL
+    saved = get_setting('local_llm_gpu_layers', None)
+    ok, layers = local_llm.clean_gpu_layers(saved) if saved is not None else (True, local_llm.DEFAULT_GPU_LAYERS)
+    return {'url': url, 'model': model, 'gpu_layers': layers if ok else local_llm.DEFAULT_GPU_LAYERS}
+
+
+def _local_model_label(model):
+    """What the usage table stores in GeminiCall.model for a local call (no new column: 'ollama:' marks it)."""
+    return ('ollama:' + model)[:60]
+
+
 AI_OFF_TEXT = {
-    'chat': 'ปิดการใช้ AI (Gemini) อยู่ จึงยังตอบข้อความที่พิมพ์ในแชทไม่ได้ กรุณากดปุ่มไมโครโฟนเพื่อสั่งสแกน เปิดหน้า หรือถามจำนวนอุปกรณ์/ช่องโหว่ '
+    'chat': 'ปิดการใช้ AI อยู่ จึงยังตอบข้อความที่พิมพ์ในแชทไม่ได้ กรุณากดปุ่มไมโครโฟนเพื่อสั่งสแกน เปิดหน้า หรือถามจำนวนอุปกรณ์/ช่องโหว่ '
             'หรือให้ผู้ดูแลระบบระดับสูงสุด (Superadmin) เปิดใช้ AI ที่หน้าตั้งค่า',
-    'th': 'ปิดการใช้ AI (Gemini) อยู่ ระบบตอบได้เฉพาะคำสั่งสแกน การเปิดหน้า และคำถามจำนวนอุปกรณ์/พอร์ต/ช่องโหว่ ผู้ดูแลระบบระดับสูงสุด (Superadmin) เปิดใช้ AI ได้ที่หน้าตั้งค่า',
-    'en': 'AI (Gemini) is switched off, so I can only handle scan commands, opening pages and questions about counts. '
+    'th': 'ปิดการใช้ AI อยู่ ระบบตอบได้เฉพาะคำสั่งสแกน การเปิดหน้า และคำถามจำนวนอุปกรณ์/พอร์ต/ช่องโหว่ ผู้ดูแลระบบระดับสูงสุด (Superadmin) เปิดใช้ AI ได้ที่หน้าตั้งค่า',
+    'en': 'The AI is switched off, so I can only handle scan commands, opening pages and questions about counts. '
           'A superadmin can switch it on in Settings.',
 }
 
 
 GEMINI_KEY_FILE = 'gemini_key'                       # instance/gemini_key: the SHARED key typed on the Settings page (git-ignored)
 GEMINI_USER_KEY_DIR = 'gemini_user_keys'             # instance/gemini_user_keys/<user id>: one admin's OWN key (git-ignored)
-GEMINI_MODEL_DEFAULT = 'gemini-1.5-flash'
+GEMINI_MODEL_DEFAULT = 'gemini-2.5-flash'           # was gemini-1.5-flash, which Google has retired (2026-11-24); only used when neither Settings nor GEMINI_MODEL names a model
 _GEMINI_KEY_RE = re.compile(r'[A-Za-z0-9_.~\-]{20,200}')      # newer AI Studio keys start "AQ." (a dot), older ones "AIza": a dot must be allowed
 _GEMINI_MODEL_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._\-]{0,59}')
 
@@ -3516,14 +4518,14 @@ def _redact_key(text):
     return text
 
 
-def _record_gemini_call(source, ok, status, usage):
-    """One GeminiCall row per call. Never lets a counting problem break the chat."""
+def _record_gemini_call(source, ok, status, usage, model=None):
+    """One GeminiCall row per call (Gemini or the local model; `model` says which). Never lets a counting problem break the chat."""
     try:
         u = usage or {}
         db.session.add(GeminiCall(
             user_id=current_user.id if current_user and current_user.is_authenticated else None,
             source=source, ok=ok, status=_redact_key(status)[:200],
-            model=gemini_model(),
+            model=model or gemini_model(),
             prompt_tokens=u.get('promptTokenCount'), output_tokens=u.get('candidatesTokenCount'),
             thinking_tokens=u.get('thoughtsTokenCount'), total_tokens=u.get('totalTokenCount')))
         db.session.commit()
@@ -3541,15 +4543,24 @@ def _ai_usage_summary():
         if uid is not None:
             q = q.filter(GeminiCall.user_id == uid)
         rows = q.all()
+        is_local = lambda r: str(r.model or '').startswith('ollama:')
+        gem = [r for r in rows if not is_local(r)]            # the token rows are Google's quota: a local call spends none of it
         return {'calls': len(rows), 'failed': sum(1 for r in rows if not r.ok), 'voice': sum(1 for r in rows if r.source == 'voice'),
-                'prompt_tokens': sum(r.prompt_tokens or 0 for r in rows), 'output_tokens': sum(r.output_tokens or 0 for r in rows),
-                'total_tokens': sum(r.total_tokens or 0 for r in rows)}
+                'local': sum(1 for r in rows if is_local(r)),
+                'prompt_tokens': sum(r.prompt_tokens or 0 for r in gem), 'output_tokens': sum(r.output_tokens or 0 for r in gem),
+                'total_tokens': sum(r.total_tokens or 0 for r in gem)}
 
     last = GeminiCall.query.order_by(GeminiCall.id.desc()).first()
     key, source = gemini_key()
     out = {'enabled': ai_enabled(), 'today': since(day0), 'month': since(day0.replace(day=1)),
            'total_calls': GeminiCall.query.count(), 'last': last.timestamp.strftime('%Y-%m-%d %H:%M') if last else None,
            'model': gemini_model(), 'key_set': bool(key), 'key_source': source}
+    lm = local_llm_settings()
+    out['engine'] = ai_engine()
+    out['local_model'] = lm['model']
+    # the address and layer count are the superadmin's to see and change; every admin sees which engine answers and with which model
+    out['local'] = {'url': lm['url'], 'gpu_layers': lm['gpu_layers'], 'default_layers': local_llm.DEFAULT_GPU_LAYERS,
+                    'default_model': local_llm.DEFAULT_MODEL} if current_user.is_authenticated and current_user.is_superadmin else None
     # The key itself is never sent to a browser. Its last 4 characters go only to a superadmin, to tell two keys apart.
     out['key_tail'] = key[-4:] if key and current_user.is_authenticated and current_user.is_superadmin else None
     # What applies to THIS person: their own key (their last 4 characters are theirs to see), else the shared one.
@@ -3760,6 +4771,100 @@ def api_ai_personal():
     return jsonify(_ai_usage_summary())
 
 
+# The model list of the Settings dropdown (2026-11-24): Google's own list for the shared key, so a model that Google has retired, or that this key cannot use,
+# is never offered, and no model name has to be kept up to date in the code. Names that are not chat models are left out. When Google cannot be asked
+# (no key, no internet, a refused key) the built-in list below is shown and the page says why.
+GEMINI_MODEL_FALLBACK = ('gemini-2.5-flash', 'gemini-2.5-flash-lite')
+# What the dropdown SUGGESTS: only the Flash and Flash-Lite families (a name written as gemini-[version-]flash[-lite][-latest | -NNN | -preview...]). The assistant
+# answers short questions over figures that are already in the prompt, so a Pro model only costs more and answers slower, and Google's list also holds image,
+# omni and code-named models (2026-11-24: gemini-nano-banana-*, gemini-omni-*, gemini-4-argon / carbon / hydrogen / neon) that this app has no use for. Any other
+# name can still be typed ("Enter a model name"); a model that Google lists but the dropdown does not suggest is not called "missing" (see `known`).
+_GEMINI_SUGGEST_RE = re.compile(r'gemini-(?:\d+(?:\.\d+)?-)?flash(?:-lite)?(?:-latest|-\d{3})?')      # no "-preview": a preview model can change or go away without notice (the owner, 2026-11-24)
+_GEMINI_NOT_CHAT = ('embedding', 'tts', 'image', 'live', 'audio', 'imagen', 'veo', 'aqa', 'robotics', 'computer-use', 'learnlm', 'vision')
+GEMINI_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
+
+
+def _gemini_http_status(r):
+    """The status word (as in GEMINI_PROBE_TEXT) for a Google response that is not a 200."""
+    code = r.status_code
+    try:
+        body = (r.text or '').lower()
+    except Exception:
+        body = ''
+    if 'leaked' in body:
+        return 'leaked'
+    return {400: 'invalid', 401: 'invalid', 403: 'forbidden', 404: 'model', 429: 'quota'}.get(code, 'other')
+
+
+def _fetch_gemini_models(key):
+    """(status, items): every model Google lists for this key ('ok'), or the reason it could not be listed. The key goes in a header, never the URL."""
+    import requests as req_lib
+    items, token = [], None
+    for _ in range(8):                                        # 100 a page: more than a few pages would mean something is wrong
+        params = {'pageSize': 100}
+        if token:
+            params['pageToken'] = token
+        try:
+            r = req_lib.get(GEMINI_MODELS_URL, headers={'x-goog-api-key': key}, params=params, timeout=15)
+        except Exception:
+            return 'network', None
+        if r.status_code != 200:
+            return _gemini_http_status(r), None
+        try:
+            body = r.json()
+        except Exception:
+            return 'other', None
+        items.extend(body.get('models') or [])
+        token = body.get('nextPageToken')
+        if not token:
+            break
+    return 'ok', items
+
+
+def _gemini_version(model_id):
+    m = _GEMINI_VERSION_RE.match(model_id)
+    return (int(m.group(1)), int(m.group(2) or 0)) if m else (0, 0)
+
+
+def _gemini_model_choices(items, suggested_only=True):
+    """The models among Google's list, newest version first: [{id, name, preview}]. With suggested_only (the dropdown) only the Flash / Flash-Lite
+    families; without it every Gemini model that can write text (used to know which names Google still has)."""
+    out, seen = [], set()
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        name = str(it.get('name') or '')
+        mid = name[7:] if name.startswith('models/') else name
+        if mid in seen or not mid.startswith('gemini-') or not _GEMINI_MODEL_RE.fullmatch(mid):
+            continue
+        if 'generateContent' not in (it.get('supportedGenerationMethods') or []) or any(w in mid for w in _GEMINI_NOT_CHAT):
+            continue
+        if suggested_only and not _GEMINI_SUGGEST_RE.fullmatch(mid):
+            continue
+        seen.add(mid)
+        out.append({'id': mid, 'name': str(it.get('displayName') or mid)[:60], 'preview': 'preview' in mid or '-exp' in mid})
+    out.sort(key=lambda x: (tuple(-v for v in _gemini_version(x['id'])), x['id']))
+    return out
+
+
+@app.route('/api/ai/models')
+@login_required
+@superadmin_required
+def api_ai_models():
+    """The models the shared key can use, for the Settings dropdown. Costs no tokens. `source` is 'google' for Google's list and 'builtin' for the fallback."""
+    key = gemini_key()[0]
+    status, items = _fetch_gemini_models(key) if key else ('no_key', None)
+    models = _gemini_model_choices(items) if status == 'ok' else []
+    known = [m['id'] for m in _gemini_model_choices(items, suggested_only=False)] if status == 'ok' else []
+    if status == 'ok' and not models:
+        models = _gemini_model_choices(items, suggested_only=False)       # a key with no Flash model at all: better every model than none
+    if status == 'ok' and not models:
+        status = 'empty'
+    if not models:
+        models = [{'id': m, 'name': m, 'preview': False} for m in GEMINI_MODEL_FALLBACK]
+    return jsonify({'ok': status == 'ok', 'status': status, 'source': 'google' if status == 'ok' else 'builtin', 'models': models, 'known': known, 'current': gemini_model()})
+
+
 @app.route('/api/ai/model', methods=['POST'])
 @login_required
 @superadmin_required
@@ -3776,6 +4881,175 @@ def api_ai_model():
     return jsonify(_ai_usage_summary())
 
 
+# ───────────── The local engine (Ollama): choose it, point it at a model, test it. Superadmin only, JSON only. ─────────────
+def _local_error_text(code, lang=None):
+    """The sentence for a local_llm error code, in the interface language (or `lang`). A code with no sentence of its own gets the general one."""
+    known = ('unreachable', 'timeout', 'model_missing', 'not_ollama', 'bad_answer', 'empty')
+    key = 'ai.local.err.' + (code if code in known else 'other')
+    return i18n.t(key, lang or ui_lang_now(), code=code)
+
+
+def _local_probe_response(url, model):
+    r = local_llm.probe(url, model)
+    st = r['status']
+    out = {'ok': st == 'ok', 'status': st, 'models': r['models'], 'gpu_percent': r['gpu_percent']}
+    known = ('ok', 'model_missing', 'unreachable', 'timeout', 'not_ollama')
+    out['message'] = tr('ai.local.probe.' + (st if st in known else 'other'), model=model[:60], code=st)
+    if st == 'ok' and r['gpu_percent'] is not None:
+        out['message'] += tr('ai.local.probe.gpu', gpu=r['gpu_percent'])
+    return out
+
+
+# ─────────────────────────────────────────
+#  The NVD API key (the CVE lookup of the Vulnerability Scan)
+#  2026-11-23: it used to be hardcoded in scanner.py. Now: the key a superadmin types here (instance/nvd_key, git-ignored, not in the
+#  database), else NVD_API_KEY in .env, else none (NVD still answers, but allows only 5 requests per 30 s, so scanner.py paces the lookups).
+# ─────────────────────────────────────────
+from scanner import NVD_KEY_RE, set_nvd_key_provider
+
+NVD_KEY_FILE = 'nvd_key'
+NVD_PROBE_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=1'
+
+
+def nvd_key():
+    """(key, source): the key typed on the Settings page ('settings'), else NVD_API_KEY in .env ('env'); ('', None) when there is none.
+    A value that is not shaped like an NVD key (a UUID) is ignored. Read on every call, so a change applies at once."""
+    k = _read_key_file(pathlib.Path(app.instance_path) / NVD_KEY_FILE)
+    if NVD_KEY_RE.fullmatch(k):
+        return k, 'settings'
+    k = (os.environ.get('NVD_API_KEY') or '').strip()
+    return (k, 'env') if NVD_KEY_RE.fullmatch(k) else ('', None)
+
+
+set_nvd_key_provider(lambda: _read_key_file(pathlib.Path(app.instance_path) / NVD_KEY_FILE))      # the scanner asks for the key at every lookup
+
+
+def _nvd_summary():
+    """What the Settings page may know about the key: whether there is one and where it comes from. Only a superadmin gets its last 4 characters; the key itself never leaves."""
+    key, source = nvd_key()
+    superadmin = bool(current_user.is_authenticated and current_user.is_superadmin)
+    return {'key_set': bool(key), 'key_source': source, 'key_tail': key[-4:] if key and superadmin else None, 'can_change': superadmin}
+
+
+def _nvd_probe(key):
+    """Ask NVD for one CVE with this key. ('ok' | 'invalid' | 'busy' | 'network' | 'other', HTTP code). NVD answers 404 for a key it does not know
+    (also a new key that has not been confirmed through the link in NVD's email yet), and 403 / 429 / 503 when it refuses or is busy."""
+    import requests as req_lib
+    try:
+        r = req_lib.get(NVD_PROBE_URL, headers={'apiKey': key, 'User-Agent': 'NetworkScanner/1.0'}, timeout=10)
+    except req_lib.RequestException:
+        return 'network', None
+    code = r.status_code
+    if code == 200:
+        return 'ok', code
+    if code in (401, 404):
+        return 'invalid', code
+    if code in (403, 429, 503):
+        return 'busy', code
+    return 'other', code
+
+
+@app.route('/api/nvd/status')
+@login_required
+@admin_required
+def api_nvd_status():
+    return jsonify(_nvd_summary())
+
+
+@app.route('/api/nvd/key', methods=['POST'])
+@login_required
+@superadmin_required
+def api_nvd_key():
+    """Save the NVD key: {key: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}. JSON only. Written to instance/nvd_key (git-ignored), never sent back."""
+    key = _json_dict().get('key')
+    if not isinstance(key, str) or not NVD_KEY_RE.fullmatch(key.strip()):
+        return jsonify({'error': 'bad_key', 'message': tr('nvd.msg.bad_format')}), 400
+    err = _save_key_file(pathlib.Path(app.instance_path) / NVD_KEY_FILE, key.strip())
+    return err or jsonify(_nvd_summary())
+
+
+@app.route('/api/nvd/key/clear', methods=['POST'])
+@login_required
+@superadmin_required
+def api_nvd_key_clear():
+    """Delete the key saved on the Settings page. NVD_API_KEY in .env then applies again, if there is one."""
+    err = _delete_key_file(pathlib.Path(app.instance_path) / NVD_KEY_FILE)
+    return err or jsonify(_nvd_summary())
+
+
+@app.route('/api/nvd/key/test', methods=['POST'])
+@login_required
+@superadmin_required
+def api_nvd_key_test():
+    """Test a typed key {key}, else the key that applies now. One small request to NVD; nothing is saved."""
+    key = _json_dict().get('key')
+    key = key.strip() if isinstance(key, str) else ''
+    if key and not NVD_KEY_RE.fullmatch(key):
+        return jsonify({'ok': False, 'status': 'bad_format', 'message': tr('nvd.msg.bad_format')})
+    if not key:
+        key = nvd_key()[0]
+    if not key:
+        return jsonify({'ok': False, 'status': 'no_key', 'message': tr('nvd.probe.no_key')})
+    status, code = _nvd_probe(key)
+    return jsonify({'ok': status == 'ok', 'status': status, 'message': tr('nvd.probe.' + status, code=code)})
+
+
+@app.route('/api/ai/engine', methods=['POST'])
+@login_required
+@superadmin_required
+def api_ai_engine():
+    """Choose who answers: {engine: "gemini" | "local"}. Nothing else changes (keys, model and the local settings stay saved)."""
+    engine = _json_dict().get('engine')
+    if engine not in ('gemini', 'local'):
+        return jsonify({'error': 'bad_engine', 'message': tr('ai.local.bad_engine')}), 400
+    set_setting('ai_engine', engine)
+    return jsonify(_ai_usage_summary())
+
+
+@app.route('/api/ai/local', methods=['POST'])
+@login_required
+@superadmin_required
+def api_ai_local():
+    """Save the local engine's settings: {url?, model?, gpu_layers?}. A field that is not in the request is left as it was. An empty gpu_layers
+    means automatic. The address must be this computer."""
+    data = _json_dict()
+    todo = {}
+    if 'url' in data:
+        url = local_llm.clean_url(data['url'])
+        if not url:
+            return jsonify({'error': 'bad_url', 'message': tr('ai.local.bad_url')}), 400
+        todo['local_llm_url'] = url
+    if 'model' in data:
+        model = local_llm.clean_model(data['model'])
+        if not model:
+            return jsonify({'error': 'bad_model', 'message': tr('ai.local.bad_model')}), 400
+        todo['local_llm_model'] = model
+    if 'gpu_layers' in data:
+        ok, layers = local_llm.clean_gpu_layers(data['gpu_layers'])
+        if not ok:
+            return jsonify({'error': 'bad_layers', 'message': tr('ai.local.bad_layers', max=local_llm.MAX_GPU_LAYERS)}), 400
+        todo['local_llm_gpu_layers'] = '' if layers is None else str(layers)
+    for k, v in todo.items():
+        set_setting(k, v)
+    return jsonify(_ai_usage_summary())
+
+
+@app.route('/api/ai/local/test', methods=['POST'])
+@login_required
+@superadmin_required
+def api_ai_local_test():
+    """Ask the local server what it has: {url?, model?} (what is typed, else what is saved). Costs no tokens, loads nothing and is not counted."""
+    data = _json_dict()
+    saved = local_llm_settings()
+    url = local_llm.clean_url(data['url']) if data.get('url') else saved['url']
+    model = local_llm.clean_model(data['model']) if data.get('model') else saved['model']
+    if not url:
+        return jsonify({'ok': False, 'status': 'bad_url', 'models': [], 'gpu_percent': None, 'message': tr('ai.local.bad_url')})
+    if not model:
+        return jsonify({'ok': False, 'status': 'bad_model', 'models': [], 'gpu_percent': None, 'message': tr('ai.local.bad_model')})
+    return jsonify(_local_probe_response(url, model))
+
+
 @app.route('/api/ui/chat-button', methods=['POST'])
 @login_required
 @admin_required
@@ -3786,6 +5060,19 @@ def api_chat_button():
         return jsonify({'error': 'visible must be true or false'}), 400
     set_setting(chat_button_key(current_user.id), '0' if data['visible'] else '1')
     return jsonify({'visible': data['visible']})
+
+
+@app.route('/api/ui/chat-hint', methods=['POST'])
+@login_required
+@admin_required
+def api_chat_hint():
+    """Remember that THIS admin has seen the one-time hint beside the speed dial ("you can hide this button in Settings"): {seen: true}. Kept per user on the
+    server, so the hint does not come back in another browser. Only `true` is accepted: nothing here can bring the hint back."""
+    data = request.get_json(silent=True) or {}
+    if data.get('seen') is not True:
+        return jsonify({'error': 'seen must be true'}), 400
+    set_setting(chat_hint_key(current_user.id), '1')
+    return jsonify({'seen': True})
 
 
 @app.route('/api/ui/voice-autorun', methods=['POST'])
@@ -3800,12 +5087,34 @@ def api_voice_autorun():
     return jsonify({'on': data['on']})
 
 
+def _call_local(system_prompt, messages, max_tokens, source):
+    """The same job as the Gemini branch of _call_gemini, done by the local model. Raises local_llm.LocalLLMError (the callers say why in Thai)."""
+    lm = local_llm_settings()
+    label = _local_model_label(lm['model'])
+    try:
+        text, usage, note = local_llm.chat(lm['url'], lm['model'], system_prompt, messages, max_tokens, lm['gpu_layers'],
+                                           cancel=getattr(_answer_ctx, 'event', None))
+    except local_llm.LocalLLMError as e:
+        if e.code != 'cancelled':                         # Stop is the person's choice, not a failure of the model
+            _record_gemini_call(source, False, 'local: %s' % e, None, model=label)
+        raise
+    cut = bool((usage or {}).get('truncated'))
+    g.ai_cut = cut
+    notes = [n for n in (note, 'cut: token limit' if cut else None) if n]
+    _record_gemini_call(source, True, 'OK' if not notes else 'OK (%s)' % '; '.join(notes), usage, model=label)
+    return text
+
+
 def _call_gemini(system_prompt, messages, max_tokens=800, source='typed'):
-    """The one way to reach Gemini: refuses when the Settings switch is off, and keeps a GeminiCall row for the usage counter."""
+    """The one way to reach the assistant's model: refuses when the Settings switch is off, uses the engine the superadmin chose (Gemini, or the
+    local model through _call_local), and keeps a GeminiCall row for the usage counter. The name is from before the local engine existed."""
     if not ai_enabled():
         raise AIDisabled()
+    g.ai_cut = False                                      # set again below when this answer is cut at the token limit (see _cut_notice)
+    if ai_engine() == 'local':
+        return _call_local(system_prompt, messages, max_tokens, source)
     try:
-        text, usage = _gemini_request(system_prompt, messages, max_tokens)
+        text, usage, cut = _gemini_request(system_prompt, messages, max_tokens)
     except ValueError as e:
         if 'NO_API_KEY' not in str(e):         # no key = nothing was sent, so nothing to count
             _record_gemini_call(source, False, e, None)
@@ -3813,12 +5122,74 @@ def _call_gemini(system_prompt, messages, max_tokens=800, source='typed'):
     except Exception as e:
         _record_gemini_call(source, False, e, None)
         raise
-    _record_gemini_call(source, True, 'OK', usage)
+    g.ai_cut = cut
+    _record_gemini_call(source, True, 'OK (cut: token limit)' if cut else 'OK', usage)
     return text
 
 
+# How long an answer may be, in tokens of the answer itself (Thai takes about two characters per token, so 1,536 is about 3,000 characters). It was 900 and 600,
+# and an answer that needs more than that (a list of devices with their CVEs) stopped in the middle of a sentence. The local model writes about 14 tokens a second
+# on the owner's laptop, so even the whole allowance is about two minutes, inside its 240 s read limit; the Stop button is there for a slow one.
+CHAT_MAX_TOKENS_TYPED = 2048
+CHAT_MAX_TOKENS_VOICE = 1536
+
+
+def _ai_was_cut():
+    """True when the answer of the last _call_gemini() in this request stopped at the token limit."""
+    try:
+        return bool(g.ai_cut)
+    except Exception:
+        return False
+
+
+def _cut_notice(lang=None):
+    """The line added under an answer that was cut, so nobody reads half an answer as a whole one."""
+    return i18n.t('chat.truncated', lang or ui_lang_now())
+
+
+GEMINI_PRO_THINKING = 512            # gemini-2.5-pro cannot switch thinking off (its smallest budget is 128): it gets this much, on top of the answer
+
+
+GEMINI_MINIMAL_THINKING = 256        # Gemini 3 and later: "minimal" does not guarantee that thinking is off (Google's own words), so the limit gets a little room
+_GEMINI_VERSION_RE = re.compile(r'gemini-(\d+)(?:\.(\d+))?-')
+_gemini_thinking_refused = set()      # models whose thinking field Google refused with HTTP 400: asked again without it, and never sent it again (until a restart)
+
+
+def _gemini_major(model):
+    """The major version in a model name ("gemini-3.5-flash" gives 3), 0 when the name carries none ("gemini-flash-latest")."""
+    m = _GEMINI_VERSION_RE.match((model or '').lower())
+    return int(m.group(1)) if m else 0
+
+
+def _gemini_generation_config(model, max_tokens):
+    """The generationConfig of a Gemini request. `maxOutputTokens` counts the model's THINKING tokens as well as the words of the answer, and the
+    2.5 models think by default: a real call on this system spent 574 of its 600 tokens thinking and wrote 22 tokens of answer (2026-11-19, the table
+    of calls), which is how an answer ends in the middle of a sentence. So the Flash models are told not to think (a chat answer over figures that are
+    already in the prompt needs no reasoning, and it is faster and cheaper), Pro gets a fixed thinking allowance added to the limit, and an older
+    model (1.5, 2.0) is sent no thinking field at all because it would refuse the request.
+    Gemini 3 and later (and the "-latest" names, which point at them) take `thinkingLevel` instead of `thinkingBudget` (sending both is an HTTP 400): Pro
+    cannot go below "low", the others take "minimal". This field was written from Google's pages, not from a real call: if Google answers 400 about
+    thinking, `_gemini_request` asks again without it (see `_gemini_thinking_refused`)."""
+    m = (model or '').lower()
+    cfg = {'maxOutputTokens': int(max_tokens)}
+    if m.startswith('gemini-2.5-pro'):
+        cfg['thinkingConfig'] = {'thinkingBudget': GEMINI_PRO_THINKING}
+        cfg['maxOutputTokens'] = int(max_tokens) + GEMINI_PRO_THINKING
+    elif m.startswith('gemini-2.5-'):
+        cfg['thinkingConfig'] = {'thinkingBudget': 0}
+    elif (_gemini_major(m) >= 3 or m.endswith('-latest')) and m not in _gemini_thinking_refused:
+        if '-pro' in m:
+            cfg['thinkingConfig'] = {'thinkingLevel': 'low'}
+            cfg['maxOutputTokens'] = int(max_tokens) + GEMINI_PRO_THINKING
+        else:
+            cfg['thinkingConfig'] = {'thinkingLevel': 'minimal'}
+            cfg['maxOutputTokens'] = int(max_tokens) + GEMINI_MINIMAL_THINKING
+    return cfg
+
+
 def _gemini_request(system_prompt, messages, max_tokens=800):
-    """Helper: เรียก Gemini API และคืน (reply string, usageMetadata) หรือ raise Exception"""
+    """Helper: เรียก Gemini API และคืน (reply string, usageMetadata, cut) หรือ raise Exception. `cut` is True when Gemini stopped because it
+    reached the token limit (finishReason MAX_TOKENS): the text is then only the start of the answer."""
     import os, time
     import requests as req_lib
     from dotenv import load_dotenv
@@ -3837,7 +5208,7 @@ def _gemini_request(system_prompt, messages, max_tokens=800):
     payload = {
         'system_instruction': {'parts': [{'text': system_prompt}]},
         'contents': gemini_contents,
-        'generationConfig': {'maxOutputTokens': max_tokens}
+        'generationConfig': _gemini_generation_config(model, max_tokens)
     }
     # The key goes in a header, not in the URL: a connection error quotes the URL, and that text is stored and shown.
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
@@ -3853,6 +5224,19 @@ def _gemini_request(system_prompt, messages, max_tokens=800):
             continue
         break
 
+    if resp is not None and resp.status_code == 400 and 'thinkingConfig' in payload['generationConfig']:
+        # Google refused the thinking field of this model (a newer model that wants another form of it, or an older one that has none): ask once more
+        # without it, and remember it, so a wrong guess about a model costs one extra request and not an unusable assistant.
+        try:
+            about_thinking = 'thinking' in str((resp.json().get('error') or {}).get('message', '')).lower()
+        except Exception:
+            about_thinking = False
+        if about_thinking:
+            _gemini_thinking_refused.add(model.lower())
+            payload['generationConfig'] = {'maxOutputTokens': int(max_tokens)}
+            resp = req_lib.post(url, json=payload, headers=headers, timeout=30)
+            last_status = resp.status_code
+
     if last_status == 429:
         raise Exception('QUOTA_429')
     if resp is not None and not resp.ok:
@@ -3866,7 +5250,152 @@ def _gemini_request(system_prompt, messages, max_tokens=800):
             resp.raise_for_status()
 
     body = resp.json()
-    return body['candidates'][0]['content']['parts'][0]['text'], body.get('usageMetadata')
+    cand = (body.get('candidates') or [{}])[0]
+    parts = (cand.get('content') or {}).get('parts') or []
+    # every text part that is the answer (a part marked `thought` is the model's own notes, never shown)
+    text = ''.join(p.get('text', '') for p in parts if isinstance(p, dict) and not p.get('thought'))
+    cut = cand.get('finishReason') == 'MAX_TOKENS'
+    if not text.strip() and not cut:
+        raise Exception('EMPTY_ANSWER (finishReason %s)' % cand.get('finishReason'))      # blocked, or nothing came: say so, not "KeyError: parts"
+    return text, body.get('usageMetadata'), cut
+
+
+# ───────────── Answers that finish in the background (2026-11-19) ─────────────
+# A chat answer used to be written INSIDE the request that asked for it, so leaving the page (which cancels the request) lost it, and a local answer can take
+# minutes. Now the chat page sends `async: true`: the request only STARTS the answer (a ChatAnswer row, a ticket, a thread) and the page asks for the result
+# with the ticket, from any page, as often as it likes. The thread calls the SAME view the synchronous request would have called, as the same signed-in person
+# (a test request context and login_user), so the answering rules, the usage rows and the typed chat's scan command stay ONE code path.
+ANSWER_KEEP = timedelta(days=1)                   # rows older than this are deleted when a new answer starts
+ANSWER_STALE = timedelta(minutes=15)              # still 'pending' after this long: no thread is behind it any more (three local answers in a row is the longest honest wait)
+ANSWER_MAX_PENDING = 3                            # per person: the local model answers one at a time, so a longer queue is only a longer wait
+_answer_gate_local = threading.Semaphore(1)       # one graphics card: one local answer at a time (Ollama would queue them anyway; waiting here keeps the ticket honest)
+_answer_gate_online = threading.Semaphore(4)
+_answer_events = {}                               # ticket -> threading.Event, set when the person pressed Stop (see api_chat_answer_cancel)
+_answer_events_lock = threading.Lock()
+_answer_ctx = threading.local()                   # the event of the answer the current thread is working on
+
+
+def _answer_cancelled():
+    """True when Stop was pressed for the answer this thread is working on (always False for an ordinary request)."""
+    ev = getattr(_answer_ctx, 'event', None)
+    return ev is not None and ev.is_set()
+
+
+def start_background_answer(view, body):
+    """Starts `view` (a chat view such as api_chat) in the background with `body` as its JSON, as the signed-in person, and answers 202 with the ticket.
+    Answers 429 when this person already has ANSWER_MAX_PENDING answers on the way."""
+    uid = current_user.id
+    try:
+        ChatAnswer.query.filter(ChatAnswer.created_at < now_th() - ANSWER_KEEP).delete(synchronize_session=False)
+        waiting = (ChatAnswer.query.filter_by(user_id=uid, status='pending')
+                   .filter(ChatAnswer.created_at >= now_th() - ANSWER_STALE).count())
+        if waiting >= ANSWER_MAX_PENDING:
+            db.session.commit()
+            return jsonify({'status': 'busy', 'message': tr('chat.busy')}), 429
+        engine = ai_engine()
+        row = ChatAnswer(id=secrets.token_hex(16), user_id=uid, status='pending', engine=engine)
+        db.session.add(row)
+        db.session.commit()
+        ticket = row.id
+    except Exception:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': tr('chat.answer_start_failed')}), 500
+    ev = threading.Event()
+    with _answer_events_lock:
+        _answer_events[ticket] = ev
+    threading.Thread(target=_run_background_answer, args=(ticket, uid, view, dict(body), engine, ev), daemon=True, name='chat-answer').start()
+    return jsonify({'status': 'pending', 'ticket': ticket}), 202
+
+
+def _finish_answer(ticket, status, result=None):
+    """Writes the end of a ticket once: only a ticket that is still pending changes (a restart or the stale check may have closed it already)."""
+    try:
+        ChatAnswer.query.filter_by(id=ticket, status='pending').update(
+            {'status': status, 'finished_at': now_th(), 'result': json.dumps(result, ensure_ascii=False) if result is not None else None},
+            synchronize_session=False)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _run_background_answer(ticket, uid, view, body, engine, ev):
+    gate = _answer_gate_local if engine == 'local' else _answer_gate_online
+    try:
+        with gate:
+            if ev.is_set():                               # Stop was pressed while it waited for its turn: nothing to do
+                return
+            _answer_ctx.event = ev
+            try:
+                with app.test_request_context('/api/chat/background', method='POST', json=body):
+                    user = User.query.get(uid)
+                    if user is None or not login_user(user) or not user.is_any_admin:
+                        raise PermissionError('this account cannot ask any more')
+                    resp = app.make_response(view())
+                    result = resp.get_json(silent=True)
+                    if resp.status_code >= 500 or not isinstance(result, dict):
+                        raise RuntimeError('the answer view returned %s' % resp.status_code)
+                    _finish_answer(ticket, 'done', result)       # does nothing when Stop closed the ticket first
+            except Exception as e:
+                with app.app_context():
+                    if not ev.is_set():
+                        print('background answer %s failed: %s' % (ticket[:8], _redact_key(e)))
+                    _finish_answer(ticket, 'error')
+            finally:
+                _answer_ctx.event = None
+    finally:
+        with _answer_events_lock:
+            _answer_events.pop(ticket, None)
+
+
+@app.route('/api/chat/answer/<ticket>')
+@login_required
+@admin_required
+def api_chat_answer(ticket):
+    """Where a background answer is: {status: pending | done | error | interrupted, result?}. Only the person who asked can read it (anything else is a 404)."""
+    row = ChatAnswer.query.filter_by(id=str(ticket)[:32], user_id=current_user.id).first()
+    if row is None:
+        return jsonify({'status': 'gone'}), 404
+    if row.status == 'pending' and row.created_at < now_th() - ANSWER_STALE:
+        ChatAnswer.query.filter_by(id=row.id, status='pending').update({'status': 'interrupted', 'finished_at': now_th()}, synchronize_session=False)
+        db.session.commit()
+        row = ChatAnswer.query.filter_by(id=row.id).first()
+    out = {'status': row.status}
+    if row.status == 'done':
+        try:
+            out['result'] = json.loads(row.result or 'null')
+        except ValueError:
+            out['status'] = 'error'
+        if not isinstance(out.get('result'), dict):
+            out = {'status': 'error'}
+    return jsonify(out)
+
+
+@app.route('/api/chat/answer/<ticket>/cancel', methods=['POST'])
+@login_required
+@admin_required
+def api_chat_answer_cancel(ticket):
+    """The Stop button. A pending answer is closed as 'cancelled' and its thread is told to stop: the call to the local model is cut (its connection closes, which makes
+    Ollama stop writing, so the graphics card is free again), and an online answer is left to finish and thrown away. An answer that is already done stays done, and
+    the person gets it. Answers {status} (the ticket's status after the call); only the person who asked can stop it."""
+    row = ChatAnswer.query.filter_by(id=str(ticket)[:32], user_id=current_user.id).first()
+    if row is None:
+        return jsonify({'status': 'gone'}), 404
+    ChatAnswer.query.filter_by(id=row.id, status='pending').update({'status': 'cancelled', 'finished_at': now_th(), 'result': None}, synchronize_session=False)
+    db.session.commit()
+    row = ChatAnswer.query.filter_by(id=row.id).first()
+    if row.status == 'cancelled':
+        with _answer_events_lock:
+            ev = _answer_events.get(row.id)
+        if ev is not None:
+            ev.set()
+    return jsonify({'status': row.status})
+
+
+def recover_interrupted_answers():
+    """The same idea as recover_interrupted_jobs(): a ticket still 'pending' when a process starts serving can only be one that a restart cut off."""
+    n = ChatAnswer.query.filter_by(status='pending').update({'status': 'interrupted', 'finished_at': now_th()}, synchronize_session=False)
+    db.session.commit()
+    return n
 
 
 # ─────────────────────────────────────────
@@ -3875,43 +5404,57 @@ def _gemini_request(system_prompt, messages, max_tokens=800):
 
 VALID_SCAN_TYPES = ['fast_scan', 'discovery', 'intense', 'vuln_scan']
 
+
+def _make_chat_scan_proposal(target, scan_type, scan_name=None, lang='th'):
+    """Build a signed confirmation card payload for an AI-proposed scan, enforcing the exact same
+    target validation and confirmation guardrail as voice commands (never auto-runs)."""
+    st = str(scan_type or 'fast_scan').strip()
+    if st not in VALID_SCAN_TYPES:
+        st = 'fast_scan'
+    chk = voice_commands.check_scan_target(target, lang)
+    if not chk['ok']:
+        return {
+            'intent': 'scan', 'status': 'bad_target', 'reason': chk['reason'],
+            'target': str(target or '').strip(), 'message': chk['message'], 'from_chat': True,
+        }
+    clean_name = str(scan_name or '').strip()[:100]
+    token = _voice_signer.dumps({
+        'u': current_user.id, 't': chk['target'], 'k': st,
+        'n': secrets.token_hex(8), 'src': 'chat', 'sn': clean_name,
+    })
+    return {
+        'intent': 'scan', 'status': 'ok', 'target': chk['target'],
+        'scan_type': st, 'scan_label': scan_labels(lang)[st],
+        'scan_name': clean_name, 'public': chk['public'],
+        'expires_in': VOICE_CONFIRM_SECONDS, 'token': token,
+        'autorun': False, 'from_chat': True,
+    }
+
+
 @app.route('/api/chat/scan', methods=['POST'])
 @login_required
 def api_chat_scan():
-    """รับ target + scan_type แล้วรัน scan จริง — เรียกจาก chatbot"""
+    """Deprecated direct-scan bypass: validates the target and requires explicit confirmation via /api/voice/scan."""
     if not current_user.is_any_admin:
-        return jsonify({'error': 'permission_denied', 'message': 'เฉพาะผู้ดูแลระบบเท่านั้นที่สั่งสแกนได้'}), 403
+        return jsonify({'error': 'permission_denied', 'message': tr('chat.admin_only')}), 403
 
-    data = request.get_json()
-    target    = (data.get('target') or '').strip()
+    data = request.get_json(silent=True) or {}
+    target = (data.get('target') or '').strip()
     scan_type = (data.get('scan_type') or 'fast_scan').strip()
     scan_name = (data.get('scan_name') or '').strip() or None
+    lang = ui_lang_now()
 
     if not target:
-        return jsonify({'error': 'no_target', 'message': 'กรุณาระบุ Target (IP หรือ hostname)'}), 400
-    if scan_type not in VALID_SCAN_TYPES:
-        scan_type = 'fast_scan'
-
-    try:
-        new_job = ScanJob(
-            target=target, scan_type=scan_type, scan_name=scan_name,
-            status='Queued', triggered_by='chatbot',
-            owner_id=current_user.id,
-            multicast=False if scan_type == 'discovery' else None
-        )
-        db.session.add(new_job)
-        if not SavedTarget.query.filter_by(target=target).first():
-            db.session.add(SavedTarget(target=target))
-        db.session.commit()
-
-        # The scan runs in the background, so the reply can no longer carry its results: it says the scan was accepted and where to follow it.
-        if not enqueue_scan(new_job):
-            return jsonify({'status': 'failed', 'job_id': new_job.id, 'message': 'เริ่มสแกนไม่ได้ กรุณาลองใหม่อีกครั้ง'}), 200
-        return jsonify({'status': 'started', 'job_id': new_job.id, 'target': target, 'scan_type': scan_type,
-                        'message': f'รับคำสั่งสแกน {target} แล้ว (งาน #{_job_seq(new_job)}) ดูความคืบหน้าได้ที่หน้างานสแกน'}), 200
-
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': f'เกิดข้อผิดพลาด: {str(e)}'}), 200
+        return jsonify({'error': 'no_target', 'message': tr('chat.no_target')}), 400
+    chk = voice_commands.check_scan_target(target, lang)
+    if not chk['ok']:
+        return jsonify({'error': 'invalid_target', 'message': chk['message']}), 400
+    proposal = _make_chat_scan_proposal(target, scan_type, scan_name=scan_name, lang=lang)
+    return jsonify({
+        'error': 'confirmation_required',
+        'message': 'กรุณายืนยันคำสั่งสแกนก่อนเริ่มทำงาน' if lang != 'en' else 'Please confirm the scan before starting.',
+        'scan_proposal': proposal,
+    }), 400
 
 
 # ─────────────────────────────────────────
@@ -3948,8 +5491,9 @@ def api_voice_command():
         cmd, _, used = voice_commands.understand_best(texts, lang)
     cmd['heard_text'] = used                                    # the reading that was understood (may be one of the engine's alternatives)
     cmd['alt_used'] = used != (texts[0] if texts else '')       # the card says so: the engine's other reading was used
+    page_path = str(data.get('page_path') or '')[:200]
     if cmd['intent'] == 'scan' and cmd['status'] == 'ok':
-        cmd['scan_label'] = SCAN_TYPE_LABELS[cmd['scan_type']]
+        cmd['scan_label'] = scan_labels()[cmd['scan_type']]
         cmd['expires_in'] = VOICE_CONFIRM_SECONDS
         cmd['token'] = _voice_signer.dumps({'u': current_user.id, 't': cmd['target'], 'k': cmd['scan_type'], 'n': secrets.token_hex(8)})
         # "scan at once": the SERVER decides, from this admin's own setting and the target; the page only follows. A refusal is said on the card.
@@ -3958,11 +5502,13 @@ def api_voice_command():
             cmd['autorun_refused'] = not cmd['autorun']
     elif cmd['intent'] == 'fact':
         cmd.update(_voice_answer(cmd, lang))                    # our own code: no AI, no tokens
+    elif cmd['intent'] == 'export' and cmd['status'] == 'ok':
+        cmd.update(_voice_build_export(cmd, lang, page_path))
     elif cmd['intent'] == 'navigate' and cmd['status'] == 'ok':
-        cmd['url'] = url_for(_VOICE_PAGE_ENDPOINT[cmd['page']])   # the page key is ours, so the spoken words can never choose a URL
+        cmd.update(_voice_build_nav(cmd, lang, page_path))      # URLs are always constructed server-side via url_for()
     elif cmd['intent'] == 'unknown':
         cmd['ai_enabled'] = ai_enabled()                        # the page decides whether to ask the AI
-        cmd['worth_ai'] = voice_commands.worth_asking_ai(used)  # noise ("2nd 1.01.208.") is never sent to the AI: it only costs tokens
+        cmd['worth_ai'] = voice_commands.worth_asking_ai(used, data.get('typed') is True)  # noise ("2nd 1.01.208.") is never sent to the AI: it only costs tokens; typed text gets the relaxed rule
         if not cmd['worth_ai']:
             cmd['message'] = voice_commands.not_understood(used, lang)['message']
     return jsonify(cmd)
@@ -4300,64 +5846,253 @@ _VOICE_PAGE_ENDPOINT = {'dashboard': 'dashboard', 'tasks': 'tasks_page', 'histor
 _VOICE_SEV_RANK = {'LOW': 1, 'UNKNOWN': 1, 'MEDIUM': 2, 'HIGH': 3, 'CRITICAL': 4}
 _VOICE_SEV_LABEL = {'critical': 'Critical', 'high': 'High', 'medium': 'Medium', 'low': 'Low'}
 _VOICE_STATUS_TH = {'Completed': 'เสร็จสิ้น', 'Failed': 'ล้มเหลว', 'Running': 'กำลังทำงาน', 'Queued': 'รอคิว', 'Cancelled': 'ถูกยกเลิก'}
+_VOICE_VALID_SEVS = ('critical', 'high', 'medium', 'low')
+_VOICE_VALID_OS = ('Windows', 'Linux', 'Android', 'Apple', 'Other', 'Unknown')
+_VOICE_VALID_TYPES = tuple(lbl for lbl, _ in DEVICE_TYPES.values())
+_VOICE_VALID_STATUSES = ('Completed', 'Failed', 'Running', 'Queued', 'Cancelled')
+_VOICE_TYPE_TH = {
+    'Router / Gateway': 'เราเตอร์ / เกตเวย์',
+    'Virtual Machine': 'เครื่องเสมือน',
+    'Computer': 'คอมพิวเตอร์',
+    'Phone / Tablet': 'โทรศัพท์ / แท็บเล็ต',
+    'Printer': 'เครื่องพิมพ์',
+    'Camera': 'กล้อง',
+    'Smart TV': 'สมาร์ททีวี',
+    'IoT device': 'อุปกรณ์ IoT',
+    'Unknown': 'ไม่ทราบ',
+}
+
+
+def _resolve_voice_scan(job_id=None, ip=None, page_path='', completed_only=True):
+    """Pick the scan job for a voice export/report/detail command, strictly scoped by visible_scans_query().
+    Priority: explicit job_id -> matching ip -> current /scan/<id> page -> latest scan."""
+    base = visible_scans_query()
+    if job_id is not None:
+        job = base.filter_by(id=job_id).first()
+        if not job:
+            return None, 'job_not_found'
+        if completed_only and job.status != 'Completed':
+            return job, 'job_not_completed'
+        return job, 'ok'
+
+    q = base.filter(ScanJob.status == 'Completed') if completed_only else base
+    if ip:
+        candidates = q.order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).all()
+        for j in candidates:
+            if j.target == ip:
+                return j, 'ok'
+        for j in candidates:
+            if not j.result_data or ip not in j.result_data:
+                continue
+            try:
+                hosts = json.loads(j.result_data)
+            except Exception:
+                continue
+            if isinstance(hosts, list) and any(isinstance(h, dict) and h.get('ip') == ip for h in hosts):
+                return j, 'ok'
+        return None, 'ip_not_found'
+
+    m = re.match(r'^/scan/(\d+)(?:/|$)', str(page_path or '').strip())
+    if m:
+        cur = base.filter_by(id=int(m.group(1))).first()
+        if cur and (not completed_only or cur.status == 'Completed'):
+            return cur, 'ok'
+
+    latest = q.order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).first()
+    if latest:
+        return latest, 'ok'
+    return None, 'no_scans'
+
+
+def _voice_scan_missing_msg(reason, job, job_id, ip, lang):
+    th = lang != 'en'
+    say = lambda t, e: t if th else e
+    if reason == 'job_not_found':
+        lbl = job_label(job_id, 'th' if th else 'en')
+        return say(f'ไม่พบ{lbl}', f'{lbl} was not found.')
+    if reason == 'job_not_completed' and job is not None:
+        lbl = job_label(job.id, 'th' if th else 'en')
+        st = _VOICE_STATUS_TH.get(job.status, job.status) if th else job.status
+        return say(f'{lbl} ยังไม่เสร็จสิ้น (สถานะ: {st})', f'{lbl} is not completed yet (status: {st}).')
+    if reason == 'ip_not_found':
+        return say(f'ไม่พบผลสแกนที่เสร็จสิ้นของ {ip}', f'No completed scan was found for {ip}.')
+    return say('ยังไม่มีงานสแกนที่เสร็จสิ้นในระบบ', 'There is no completed scan yet.')
+
+
+def _voice_build_export(cmd, lang, page_path):
+    """Resolve the scan job and safe server-side export URLs for a voice PDF/CSV command."""
+    job, reason = _resolve_voice_scan(
+        job_id=cmd.get('job_id'), ip=cmd.get('ip'), page_path=page_path, completed_only=True
+    )
+    if reason != 'ok' or not job:
+        return {'status': 'not_found', 'message': _voice_scan_missing_msg(reason, job, cmd.get('job_id'), cmd.get('ip'), lang)}
+
+    lang_code = 'en' if lang == 'en' else 'th'
+    fmt = cmd['format']
+    orient = cmd.get('orientation') if cmd.get('orientation') in ('portrait', 'landscape') else None
+    orient_kw = {'orientation': orient} if orient else {}
+    safe_target = (job.target or '').replace('/', '_').replace(' ', '_').replace('\\', '_')
+    ts_str = job.timestamp.strftime('%Y%m%d_%H%M%S') if job.timestamp else 'export'
+    filename = f"scan_{job.id}_{safe_target}_{ts_str}.{fmt}"
+    jlbl = f"{job_label(job.id, lang_code)} ({job.target})"
+
+    if fmt == 'pdf':
+        return {
+            'scan_id': job.id,
+            'target': job.target,
+            'job_label': jlbl,
+            'filename': filename,
+            'view_url': url_for('export_pdf', scan_id=job.id, inline='1', **orient_kw),
+            'download_url': url_for('export_pdf', scan_id=job.id, **orient_kw),
+            'report_url': url_for('scan_report', scan_id=job.id, **orient_kw),
+        }
+    return {
+        'scan_id': job.id,
+        'target': job.target,
+        'job_label': jlbl,
+        'filename': filename,
+        'view_url': '',
+        'download_url': url_for('export_csv', scan_id=job.id),
+        'report_url': url_for('scan_detail', scan_id=job.id),
+    }
+
+
+def _voice_build_nav(cmd, lang, page_path):
+    """Build a safe url_for() destination + descriptive page_name for a voice navigation command (with optional filters)."""
+    th = lang != 'en'
+    lang_code = 'th' if th else 'en'
+    say = lambda t, e: t if th else e
+    page = cmd['page']
+    filters = cmd.get('filters') or {}
+
+    if page == 'scan_detail':
+        job_id = filters.get('job_id')
+        job, reason = _resolve_voice_scan(
+            job_id=job_id, ip=filters.get('ip'), page_path='', completed_only=(job_id is None)
+        )
+        if reason != 'ok' or not job:
+            return {'status': 'not_found', 'message': _voice_scan_missing_msg(reason, job, job_id, filters.get('ip'), lang)}
+        if job.status != 'Completed':
+            return {'status': 'not_found', 'message': _voice_scan_missing_msg('job_not_completed', job, job.id, None, lang)}
+        return {
+            'url': url_for('scan_detail', scan_id=job.id),
+            'page_name': f"{job_label(job.id, lang_code)} ({job.target})",
+        }
+
+    if page == 'scan_report':
+        job_id = filters.get('job_id')
+        ip = filters.get('ip')
+        use_ctx = '' if (filters.get('latest') or job_id or ip) else page_path
+        job, reason = _resolve_voice_scan(job_id=job_id, ip=ip, page_path=use_ctx, completed_only=True)
+        if reason != 'ok' or not job:
+            return {'status': 'not_found', 'message': _voice_scan_missing_msg(reason, job, job_id, ip, lang)}
+        return {
+            'url': url_for('scan_report', scan_id=job.id),
+            'page_name': say(f"รายงาน {job_label(job.id, 'th')} ({job.target})", f"Report {job_label(job.id, 'en')} ({job.target})"),
+        }
+
+    if page == 'devices' and filters.get('ip'):
+        want_ip = str(filters['ip'])
+        f = _voice_collect()
+        primary = want_ip if want_ip in f['devices'] else f['ip_alias'].get(want_ip)
+        if not primary:
+            return {'status': 'not_found', 'message': say(f'ไม่พบอุปกรณ์ {want_ip} ในประวัติการสแกน', f'Device {want_ip} was not found in your scan history.')}
+        return {
+            'url': url_for('device_detail', ip=primary),
+            'page_name': say(f'อุปกรณ์ {primary}', f'Device {primary}'),
+        }
+
+    params = {}
+    tags = []
+    if page == 'vulnerabilities':
+        sevs = [s for s in (filters.get('sev') or []) if s in _VOICE_VALID_SEVS]
+        if sevs:
+            params['sev'] = ','.join(sevs)
+            tags.append(', '.join(sev_label(s, lang_code) for s in sevs))
+        if filters.get('kev'):
+            f = _voice_collect()
+            if not f['has_kev']:
+                return {'status': 'not_found', 'message': say('ไม่พบช่องโหว่ที่ถูกโจมตีจริง (CISA KEV) ในผลสแกนปัจจุบัน', 'No Known Exploited Vulnerabilities (CISA KEV) were found.')}
+            params['kev'] = '1'
+            tags.append(say('ถูกโจมตีจริง (KEV)', 'Known Exploited (KEV)'))
+        if filters.get('host'):
+            params['host'] = str(filters['host'])
+            tags.append(str(filters['host']))
+        if filters.get('q'):
+            params['q'] = str(filters['q'])
+            tags.append(str(filters['q']))
+    elif page == 'devices':
+        if filters.get('os') in _VOICE_VALID_OS:
+            params['os'] = filters['os']
+            tags.append(filters['os'])
+        if filters.get('type') in _VOICE_VALID_TYPES:
+            params['type'] = filters['type']
+            tags.append(_VOICE_TYPE_TH.get(filters['type'], filters['type']) if th else filters['type'])
+        if filters.get('ports') in ('has', 'none'):
+            params['ports'] = filters['ports']
+            tags.append(say('มีพอร์ตเปิด', 'With open ports') if filters['ports'] == 'has' else say('ไม่มีพอร์ตเปิด', 'No open ports'))
+    elif page == 'history':
+        if filters.get('status') in _VOICE_VALID_STATUSES:
+            params['status'] = filters['status']
+            tags.append(_VOICE_STATUS_TH.get(filters['status'], filters['status']) if th else filters['status'])
+        if filters.get('type') in SCAN_TYPE_LABELS:
+            params['type'] = filters['type']
+            tags.append(scan_labels(lang_code).get(filters['type'], filters['type']))
+        if filters.get('q'):
+            params['q'] = str(filters['q'])
+            tags.append(str(filters['q']))
+    elif page == 'tasks':
+        if filters.get('status') in _VOICE_VALID_STATUSES:
+            params['status'] = filters['status']
+            tags.append(_VOICE_STATUS_TH.get(filters['status'], filters['status']) if th else filters['status'])
+    elif page == 'reports':
+        if filters.get('type') in SCAN_TYPE_LABELS:
+            params['type'] = filters['type']
+            tags.append(scan_labels(lang_code).get(filters['type'], filters['type']))
+        if filters.get('q'):
+            params['q'] = str(filters['q'])
+            tags.append(str(filters['q']))
+
+    base_name = cmd.get('page_name') or voice_commands.PAGES[page][1 if lang == 'en' else 0]
+    full_name = f"{base_name} ({', '.join(tags)})" if tags else base_name
+    return {'url': url_for(_VOICE_PAGE_ENDPOINT[page], **params), 'page_name': full_name}
 
 
 def _voice_collect():
-    """The figures the dashboard shows, worked out the same way as dashboard() does (all visible history, newest scan first): devices =
-    distinct IPs, open ports = distinct port numbers whose state is open, CVEs = distinct CVE ids on open ports with the label the
-    dashboard shows (effective_severity), a device's tier = its worst CVE. test_voice_facts compares them with the dashboard."""
-    history = visible_scans_query().order_by(ScanJob.timestamp.desc()).all()
-    devices, ports, cves = {}, set(), {}
-    for job in history:
-        if not job.result_data:
-            continue
-        try:
-            data = json.loads(job.result_data)
-        except Exception:
-            continue
-        if not isinstance(data, list):
-            continue
-        for d in data:
-            ip = d.get('ip', '') if isinstance(d, dict) else ''
-            if not ip:
-                continue
-            dev = devices.setdefault(ip, {'vuln_scanned': False, 'key': None, 'worst': None, 'sevs': set(), 'has_cve': False})
-            if job.scan_type == 'vuln_scan':
-                dev['vuln_scanned'] = True
-            for p in d.get('ports', []):
-                if str(p.get('state', '')).lower() != 'open':
-                    continue
-                if port_key(p):
-                    ports.add(port_key(p))
-                for cve in p.get('cves', []):
-                    cid = cve.get('cve_id') if isinstance(cve, dict) else (cve if isinstance(cve, str) else '')
-                    if not cid:
-                        continue
-                    info = cve if isinstance(cve, dict) else {}
-                    dev['has_cve'] = True
-                    sev = effective_severity(cve)
-                    if sev in _VOICE_SEV_RANK:
-                        dev['sevs'].add(sev)
-                        score = cvss_number(info.get('cvss_score'))
-                        key = (_VOICE_SEV_RANK[sev], score if score is not None else -1)
-                        if dev['key'] is None or key > dev['key']:
-                            dev['key'], dev['worst'] = key, sev
-                    entry = cves.get(cid)
-                    if entry is None:
-                        cves[cid] = {'severity': info.get('severity') or 'unknown', 'cvss_score': info.get('cvss_score')}
-                    elif entry['cvss_score'] is None and info.get('cvss_score') is not None:
-                        entry['cvss_score'] = info['cvss_score']
-    by_sev = {}
-    for entry in cves.values():
-        label = effective_severity(entry)
-        by_sev[label] = by_sev.get(label, 0) + 1
-    tiers = {}
-    for ip, dev in devices.items():
-        w = dev['worst']
-        tier = {'CRITICAL': 'critical', 'HIGH': 'high', 'MEDIUM': 'medium', 'LOW': 'low', 'UNKNOWN': 'low'}.get(w) or ('clean' if dev['vuln_scanned'] else 'unscanned')
+    """The figures the dashboard shows, built from the exact same _build_device_inventory() helper so Voice/AI,
+    Dashboard, Devices, Vulnerabilities, and Tasks always report matching numbers."""
+    history = visible_scans_query().order_by(ScanJob.timestamp.desc(), ScanJob.id.desc()).all()
+    inventory = _build_device_inventory(history)
+    devices, ip_alias, ports, cves, by_sev, tiers = {}, {}, set(), {}, {}, {}
+    has_kev = False
+    for dev in inventory:
+        ip = dev['ip']
+        for other_ip in dev.get('other_ips') or ():
+            ip_alias[other_ip] = ip
+        ports.update(dev['open_port_keys'])
+        sevs = set()
+        for cid, finding in dev['active_cves'].items():
+            sev = finding['severity']
+            sevs.add(sev)
+            if finding.get('kev') is True:
+                has_kev = True
+            cves[(ip, cid)] = {'severity': sev, 'cvss_score': finding['cvss_score']}
+            by_sev[sev] = by_sev.get(sev, 0) + 1
+        devices[ip] = {
+            'vuln_scanned': dev['vuln_scanned'],
+            'key': dev['worst_key'],
+            'worst': dev['worst_severity'],
+            'sevs': sevs,
+            'has_cve': bool(dev['active_cves']),
+        }
+        w = dev['worst_severity']
+        tier = {'CRITICAL': 'critical', 'HIGH': 'high', 'MEDIUM': 'medium', 'LOW': 'low', 'UNKNOWN': 'low'}.get(w) or (
+            'clean' if dev['vuln_scanned'] else 'unscanned'
+        )
         tiers.setdefault(tier, []).append(ip)
-    return {'scans': len(history), 'devices': devices, 'ports': ports, 'cves': cves, 'cves_by_sev': by_sev, 'tiers': tiers,
-            'latest': history[0] if history else None, 'running': [j for j in history if j.status == 'Running'],
+    return {'scans': len(history), 'devices': devices, 'ip_alias': ip_alias, 'has_kev': has_kev,
+            'ports': ports, 'cves': cves, 'cves_by_sev': by_sev, 'tiers': tiers,
+            'latest': history[0] if history else None, 'running': [j for j in history if j.status in ACTIVE_STATUSES],
             'schedules': [x for x in visible_schedules_query().all() if x.is_active]}
 
 
@@ -4385,7 +6120,8 @@ def _voice_answer(cmd, lang):
     th = lang != 'en'
     say = lambda t, e: t if th else e
     fact, sev = cmd['fact'], cmd.get('severity')
-    label = _VOICE_SEV_LABEL.get(sev, '')
+    lang_code = 'th' if th else 'en'
+    label = sev_label(sev, lang_code) if sev else ''
     link = lambda url: {'link': url, 'link_label': say('ดูรายละเอียด', 'See details')}
     no_data = {'answer': say('ยังไม่มีข้อมูลการสแกน', 'There is no scan data yet.')}
     nodev = len(f['devices'])
@@ -4395,8 +6131,8 @@ def _voice_answer(cmd, lang):
         n = len(f['running'])
         if not n:
             return {'answer': say('ไม่มีสแกนที่กำลังทำงานอยู่', 'No scan is running right now.'), **link(url_for('tasks_page'))}
-        names = ', '.join('%s (%s)' % (j.target, SCAN_TYPE_LABELS.get(j.scan_type, j.scan_type or '')) for j in f['running'][:5])
-        return {'answer': say('กำลังสแกนอยู่ %d งาน: %s' % (n, names), '%d scan(s) running: %s' % (n, names)), **link(url_for('tasks_page'))}
+        names = ', '.join('%s (%s)' % (j.target, scan_labels('th' if th else 'en').get(j.scan_type, j.scan_type or '')) for j in f['running'][:5])
+        return {'answer': say('กำลังสแกนอยู่ %d งาน: %s' % (n, names), '%d scan(s) running: %s' % (n, names)), **link(url_for('tasks_page', status='Running'))}
 
     if fact == 'next_schedule':
         due = sorted((x for x in f['schedules'] if x.next_run), key=lambda x: x.next_run)
@@ -4404,7 +6140,7 @@ def _voice_answer(cmd, lang):
             return {'answer': say('ไม่มีการตั้งเวลาสแกนที่เปิดใช้งานอยู่', 'There is no active scheduled scan.'), **link(url_for('tasks_page'))}
         x = due[0]
         when = x.next_run.strftime('%Y-%m-%d %H:%M')
-        what = '%s (%s, %s)' % (x.name, x.target, SCAN_TYPE_LABELS.get(x.scan_type, x.scan_type or ''))
+        what = '%s (%s, %s)' % (x.name, x.target, scan_labels('th' if th else 'en').get(x.scan_type, x.scan_type or ''))
         return {'answer': say('สแกนตามเวลาครั้งถัดไป: %s เวลา %s' % (what, when), 'Next scheduled scan: %s at %s' % (what, when)), **link(url_for('tasks_page'))}
 
     if not f['scans']:
@@ -4419,7 +6155,7 @@ def _voice_answer(cmd, lang):
                 hosts = len(data)
         except Exception:
             pass
-        kind = SCAN_TYPE_LABELS.get(j.scan_type, j.scan_type or '')
+        kind = scan_labels(lang_code).get(j.scan_type, j.scan_type or '')
         when = j.timestamp.strftime('%Y-%m-%d %H:%M') if j.timestamp else '-'
         text = say('สแกนล่าสุด: %s (%s) สถานะ %s เมื่อ %s' % (j.target, kind, _VOICE_STATUS_TH.get(j.status, j.status), when),
                    'Latest scan: %s (%s), %s, at %s' % (j.target, kind, j.status, when))
@@ -4431,6 +6167,8 @@ def _voice_answer(cmd, lang):
         return {'answer': say('พอร์ตที่เปิดอยู่ %d พอร์ต (นับเลขพอร์ตไม่ซ้ำ จากทุกการสแกน)' % len(f['ports']),
                               '%d distinct open ports across all scans.' % len(f['ports'])), **link(url_for('dashboard'))}
 
+    vuln_url = url_for('vulnerabilities_page', sev=sev) if sev else url_for('vulnerabilities_page')
+
     if fact == 'count_devices':
         if not sev:
             return {'answer': say('พบอุปกรณ์ทั้งหมด %d เครื่อง (จากทุกการสแกน)' % nodev, '%d device(s) found across all scans.' % nodev), **link(url_for('devices_page'))}
@@ -4438,7 +6176,7 @@ def _voice_answer(cmd, lang):
         text = say('%d เครื่องมี CVE ระดับ %s อย่างน้อย 1 รายการ' % (n, label), '%d device(s) have at least one %s CVE.' % (n, label))
         if not vuln_scanned:
             text += say(' (ยังไม่เคยสแกนช่องโหว่ จึงยังไม่มีข้อมูล CVE)', ' (No vulnerability scan has been run yet, so there is no CVE data.)')
-        return {'answer': text, **link(url_for('vulnerabilities_page'))}
+        return {'answer': text, **link(vuln_url)}
 
     if fact == 'count_cves':
         b, total = f['cves_by_sev'], len(f['cves'])
@@ -4447,13 +6185,18 @@ def _voice_answer(cmd, lang):
             text = say('CVE ระดับ %s มี %d รายการ จากทั้งหมด %d รายการ (ไม่ซ้ำกัน)' % (label, n, total), '%d %s CVE(s) out of %d distinct CVEs.' % (n, label, total))
         else:
             other = sum(n for k, n in b.items() if k not in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'))
-            parts = 'Critical %d, High %d, Medium %d, Low %d' % (b.get('CRITICAL', 0), b.get('HIGH', 0), b.get('MEDIUM', 0), b.get('LOW', 0))
+            parts = '%s %d, %s %d, %s %d, %s %d' % (
+                sev_label('CRITICAL', lang_code), b.get('CRITICAL', 0),
+                sev_label('HIGH', lang_code), b.get('HIGH', 0),
+                sev_label('MEDIUM', lang_code), b.get('MEDIUM', 0),
+                sev_label('LOW', lang_code), b.get('LOW', 0),
+            )
             if other:
                 parts += say(', อื่น ๆ %d' % other, ', other %d' % other)
             text = say('พบ CVE ทั้งหมด %d รายการ (ไม่ซ้ำกัน): %s' % (total, parts), '%d distinct CVEs: %s' % (total, parts))
         if not vuln_scanned:
             text += say(' (ยังไม่เคยสแกนช่องโหว่ จึงยังไม่มีข้อมูล CVE)', ' (No vulnerability scan has been run yet, so there is no CVE data.)')
-        return {'answer': text, **link(url_for('vulnerabilities_page'))}
+        return {'answer': text, **link(vuln_url)}
 
     if fact == 'devices_with_cves':
         want = sev.upper() if sev else None
@@ -4463,35 +6206,37 @@ def _voice_answer(cmd, lang):
             text = say('ไม่พบอุปกรณ์ที่มี CVE %sระดับนี้' % ('ระดับ ' + label + ' ' if label else ''), 'No device has a %sCVE.' % what)
             if not vuln_scanned:
                 text += say(' (ยังไม่เคยสแกนช่องโหว่)', ' (No vulnerability scan has been run yet.)')
-            return {'answer': text, **link(url_for('vulnerabilities_page'))}
+            return {'answer': text, **link(vuln_url)}
         shown = ', '.join(ips[:10])
         more = len(ips) - 10
         text = say('%d เครื่องมี CVE %s: %s' % (len(ips), ('ระดับ ' + label) if label else '', shown), '%d device(s) with a %sCVE: %s' % (len(ips), what, shown))
         if more > 0:
             text += say(' และอีก %d เครื่อง' % more, ' and %d more' % more)
-        return {'answer': text, 'items': ips[:10], **link(url_for('vulnerabilities_page'))}
+        return {'answer': text, 'items': ips[:10], **link(vuln_url)}
 
     return no_data
 
 
-def _voice_system_prompt(lang, page_context):
-    """The prompt for a question the parser did not recognise. Unlike the typed chat's it has NO scan ability: a voice request can only
-    start a scan through the confirmation card."""
-    return f"""คุณคือ CLYLAR Assistant ผู้ช่วยสำหรับระบบ CLYLAR Network Scanner ผู้ใช้กำลังถามด้วยเสียง
-ตอบสั้น กระชับ ฟังง่าย (ไม่เกิน 3-4 ประโยค ไม่ใช้ตาราง) ตอบเป็นภาษา{'อังกฤษ' if lang == 'en' else 'ไทย'}ตามที่ผู้ใช้พูด
-
-=== ตัวเลขที่ระบบคำนวณแล้ว (แม่นยำ ตรงกับหน้า Dashboard) ===
-{_voice_figures_text()}
+def _voice_system_prompt(lang, page_context, user_text='', typed=False):
+    """The prompt for a question the parser did not recognise. Unlike the typed chat's it has NO scan ability: a voice/assistant
+    command can only start a scan through the confirmation card."""
+    if typed:
+        intro = "คุณคือ CLYLAR Assistant ผู้ช่วยสำหรับระบบ CLYLAR Network Scanner ผู้ใช้กำลังพิมพ์ถามในหน้าผู้ช่วย\nตอบชัดเจน กระชับ อ้างอิงข้อมูลจริงและบริบทจากการสนทนาก่อนหน้า ตอบเป็นภาษา%sตามที่ผู้ใช้ถาม" % ('อังกฤษ' if lang == 'en' else 'ไทย')
+        scan_hint = 'ถ้าผู้ใช้อยากสแกน ให้บอกให้พิมพ์คำสั่งสแกนโดยตรง เช่น "สแกน 192.168.1.1" เพื่อเปิดการ์ดยืนยัน'
+    else:
+        intro = "คุณคือ CLYLAR Assistant ผู้ช่วยสำหรับระบบ CLYLAR Network Scanner ผู้ใช้กำลังถามด้วยเสียง\nตอบสั้น กระชับ ฟังง่าย (ไม่เกิน 3-4 ประโยค ไม่ใช้ตาราง) ตอบเป็นภาษา%sตามที่ผู้ใช้พูด" % ('อังกฤษ' if lang == 'en' else 'ไทย')
+        scan_hint = 'คุณสั่ง Scan เองไม่ได้ ถ้าผู้ใช้อยากสแกน ให้บอกให้พูดว่า "scan <IP>" เช่น "scan 192.168.1.1"'
+    return f"""{intro}
 
 === หน้าที่ผู้ใช้กำลังดูอยู่ ===
 {page_context or '(ไม่ทราบ)'}
 
-=== ข้อมูลระบบ (แสดงเพียง Scan ล่าสุด 20 รายการ และ CVE 20 รายการแรก) ===
-{_build_app_context()}
+{_build_app_context(user_text=user_text)}
 
 กติกา:
-- ถ้าตัวเลขในส่วน "ตัวเลขที่ระบบคำนวณแล้ว" ขัดกับรายการด้านล่าง ให้เชื่อส่วนตัวเลขที่คำนวณแล้ว
-- คุณสั่ง Scan เองไม่ได้ ถ้าผู้ใช้อยากสแกน ให้บอกให้พูดว่า "scan <IP>" เช่น "scan 192.168.1.1"
+- ใช้ตัวเลขจากส่วน "สรุปภาพรวมทั้งหมดของระบบ CLYLAR" เป็นหลัก ห้ามนับเอาเองจากรายการที่แสดงไม่ครบ
+- เมื่อถูกถามเรื่องระบบปฏิบัติการ (OS) หรือชนิดอุปกรณ์ (Device Type) ให้ตอบจากฟิลด์ OS และ type ที่มีในข้อมูลจริง อย่าเดาจากพอร์ต ถ้าเป็น Unknown ให้บอกว่ายังตรวจไม่พบ OS
+- {scan_hint}
 - ถ้าไม่มีข้อมูลในระบบ ให้บอกตรงๆ ว่าไม่พบ อย่าเดา
 - น้ำเสียงสุภาพ เป็นกลาง ไม่ใช้ emoji หรือสัญลักษณ์ตกแต่ง"""
 
@@ -4501,34 +6246,71 @@ def _strip_scan_marker(reply):
     return re.sub(r'##SCAN_CMD##[^\n]*(\n\s*\{[^\n]*\})?', '', str(reply or '')).replace('##SCAN_CMD##', '').strip()
 
 
+def _sanitize_chat_messages(raw_messages, fallback_text=''):
+    """Clean and bound a conversation history list before sending to the LLM (last 12 turns)."""
+    out = []
+    if isinstance(raw_messages, list):
+        for m in raw_messages[-12:]:
+            if not isinstance(m, dict):
+                continue
+            role = m.get('role')
+            content = str(m.get('content') or '').strip()[:2000]
+            if role in ('user', 'assistant') and content:
+                out.append({'role': role, 'content': content})
+    ft = str(fallback_text or '').strip()[:2000]
+    if ft and (not out or out[-1]['role'] != 'user' or out[-1]['content'] != ft):
+        out.append({'role': 'user', 'content': ft})
+    return out
+
+
 @app.route('/api/voice/ask', methods=['POST'])
 @admin_required
 def api_voice_ask():
-    """A spoken question the parser did not recognise, for the AI. Body: {text, lang, page_context}. It can never start a scan."""
+    """A voice or /assistant typed question the local parser did not recognise, for the AI.
+    Body: {text, lang, typed, messages?, page_context}. It can never start a scan directly."""
     data = request.get_json(silent=True) or {}
     lang = _voice_lang(data)
+    is_typed = data.get('typed') is True
     text = str(data.get('text') or '').strip()[:300]
-    if not voice_commands.worth_asking_ai(text):
+    if not voice_commands.worth_asking_ai(text, is_typed):
         return jsonify({'status': 'too_short', 'message': voice_commands.not_understood(text, lang)['message']})
     if not ai_enabled():
         return jsonify({'status': 'ai_off', 'message': AI_OFF_TEXT['en' if lang == 'en' else 'th']})
+    if data.get('async') is True:                     # the Assistant page: the answer is written in the background, see start_background_answer
+        return start_background_answer(api_voice_ask, {k: v for k, v in data.items() if k != 'async'})
+    conv_messages = _sanitize_chat_messages(data.get('messages'), text) if is_typed else [{'role': 'user', 'content': text}]
+    focus_text = ' '.join(m['content'] for m in conv_messages[-6:] if m['role'] == 'user')
+    call_source = 'typed' if is_typed else 'voice'
     try:
-        reply = _call_gemini(_voice_system_prompt(lang, str(data.get('page_context') or '')[:1000]),
-                             [{'role': 'user', 'content': text}], max_tokens=600, source='voice')
+        reply = _call_gemini(
+            _voice_system_prompt(lang, str(data.get('page_context') or '')[:1000], user_text=focus_text, typed=is_typed),
+            conv_messages,
+            max_tokens=CHAT_MAX_TOKENS_TYPED if is_typed else CHAT_MAX_TOKENS_VOICE,
+            source=call_source,
+        )
     except AIDisabled:
         return jsonify({'status': 'ai_off', 'message': AI_OFF_TEXT['en' if lang == 'en' else 'th']})
+    except local_llm.LocalLLMError as e:
+        return jsonify({'status': 'error', 'message': _local_error_text(e.code, lang)})
     except Exception as e:
         err = str(e)
         if 'NO_API_KEY' in err:
             msg = ('ยังไม่ได้ตั้งค่าคีย์ API ของ Gemini ผู้ดูแลระบบระดับสูงสุดตั้งได้ที่หน้าตั้งค่า', 'The Gemini API key is not set. A superadmin can set it in Settings.')
         elif '429' in err:
             msg = ('AI ถูกใช้งานเยอะเกินไป กรุณารอสักครู่', 'The AI is busy (quota). Please wait a moment.')
+        elif 'HTTP_404' in err:
+            msg = ('ไม่พบโมเดล %s (Google อาจยกเลิกแล้ว) ผู้ดูแลระบบระดับสูงสุดเลือกโมเดลใหม่ได้ที่หน้าตั้งค่า' % gemini_model(),
+                   'The model %s was not found (Google may have retired it). A superadmin can choose another in Settings.' % gemini_model())
         elif '401' in err or '403' in err or '400' in err or 'leaked' in err.lower():
             msg = ('คีย์ API ของ Gemini ไม่ถูกต้องหรือไม่มีสิทธิ์', 'The Gemini API key is not valid or not allowed.')
         else:
             msg = ('เรียก AI ไม่สำเร็จ ลองใหม่อีกครั้ง', 'The AI call failed. Please try again.')
         return jsonify({'status': 'error', 'message': msg[1 if lang == 'en' else 0]})
-    return jsonify({'status': 'ok', 'reply': _strip_scan_marker(reply) or ('ไม่มีคำตอบ' if lang != 'en' else 'No answer.'), 'source': 'ai'})
+    answer = _strip_scan_marker(reply)
+    if _ai_was_cut():
+        answer = (answer + '\n\n' + _cut_notice('en' if lang == 'en' else 'th')).strip()
+    return jsonify({'status': 'ok', 'reply': answer or ('ไม่มีคำตอบ' if lang != 'en' else 'No answer.'), 'source': 'ai',
+                    'engine': ai_engine(), 'cut': _ai_was_cut()})
 
 
 @app.route('/api/voice/scan', methods=['POST'])
@@ -4561,8 +6343,10 @@ def api_voice_scan():
             return jsonify({'status': 'already_started', 'message': say('คำสั่งนี้เริ่มสแกนไปแล้ว', 'This command has already started its scan.')}), 409
         _voice_used[nonce] = now
 
+    default_name = say('สั่งจากแชท AI', 'AI chat command') if claim.get('src') == 'chat' else say('สั่งด้วยเสียง', 'Voice command')
+    scan_name = str(claim.get('sn') or '').strip()[:100] or default_name
     new_job = ScanJob(
-        target=target, scan_type=scan_type, scan_name=say('สั่งด้วยเสียง', 'Voice command'),
+        target=target, scan_type=scan_type, scan_name=scan_name,
         status='Queued', triggered_by='chatbot', owner_id=current_user.id,
         multicast=False if scan_type == 'discovery' else None)
     db.session.add(new_job)
@@ -4571,7 +6355,7 @@ def api_voice_scan():
     db.session.commit()
     if not enqueue_scan(new_job):
         return jsonify({'status': 'error', 'message': say('เริ่มสแกนไม่ได้', 'Could not start the scan.')}), 500
-    label = SCAN_TYPE_LABELS[scan_type]
+    label = scan_labels()[scan_type]
     seq = _job_seq(new_job)      # the number every page shows as "Job #N" (the job's place in this admin's list); job_id stays the database id the stop button needs
     return jsonify({'status': 'started', 'job_id': new_job.id, 'job_seq': seq, 'target': target, 'scan_type': scan_type, 'scan_label': label,
                     'message': say('เริ่มสแกน %s (%s) แล้ว งาน #%d ดูความคืบหน้าได้ที่หน้างานสแกน' % (target, label, seq),
@@ -4589,12 +6373,15 @@ def api_chat():
 
     if not ai_enabled():     # the Settings switch; the typed chat has no local answers yet, so it says so
         return jsonify({'reply': AI_OFF_TEXT['chat'], 'scan_result': None, 'source': 'local'})
+    if data.get('async') is True:                     # the popup chat: the answer is written in the background, see start_background_answer
+        return start_background_answer(api_chat, {k: v for k, v in data.items() if k != 'async'})
 
-    messages     = data.get('messages', [])
+    messages     = _sanitize_chat_messages(data.get('messages', []))
     page_context = data.get('page_context', '')   # ส่งมาจาก JS ทุก request
+    focus_text   = ' '.join(m['content'] for m in messages[-6:] if m['role'] == 'user')
 
-    # ดึงข้อมูลจริงของแอพแบบ real-time
-    app_context = _build_app_context()
+    # ดึงข้อมูลจริงของแอพแบบ real-time (ใช้ _build_device_inventory() ชุดเดียวกับ Dashboard/Devices/Vulnerabilities)
+    app_context = _build_app_context(user_text=focus_text)
 
     SYSTEM_PROMPT = f"""คุณคือ CLYLAR Assistant ผู้ช่วย AI สำหรับระบบ CLYLAR Network Scanner
 คุณมีสิทธิ์เข้าถึงข้อมูลจริงของระบบที่อัปเดตล่าสุด และรู้ว่าผู้ใช้กำลังดูหน้าไหน
@@ -4602,88 +6389,71 @@ def api_chat():
 === ข้อมูลหน้าที่ผู้ใช้กำลังดูอยู่ ===
 {page_context if page_context else '(ไม่ทราบหน้าปัจจุบัน)'}
 
-=== ข้อมูลระบบ ===
 {app_context}
 
-=== ความสามารถพิเศษ: สั่ง Scan ===
-คุณสามารถสั่ง Scan Network ได้โดยตรงผ่าน chatbot
-เมื่อผู้ใช้ต้องการ scan ให้ตอบกลับด้วย JSON format พิเศษดังนี้ (ต้องเป็น JSON บรรทัดแรกสุด):
+=== ความสามารถพิเศษ: เสนอคำสั่ง Scan (ต้องให้ผู้ใช้กดยืนยันก่อนเสมอ) ===
+เมื่อผู้ใช้สั่งให้สแกนอย่างชัดเจน ให้ส่ง JSON พิเศษในบรรทัดแรกเพื่อให้ระบบสร้างการ์ดยืนยัน (ระบบจะยังไม่เริ่มสแกนจนกว่าผู้ใช้จะกดยืนยัน):
 ##SCAN_CMD##
-{{"action":"scan","target":"<IP_OR_HOST>","scan_type":"<TYPE>","scan_name":"<NAME_OPTIONAL>"}}
+{{"action":"scan","target":"<IPV4_OR_CIDR_MAX_16>","scan_type":"<TYPE>","scan_name":"<NAME_OPTIONAL>"}}
 
 ประเภท scan ที่รองรับ:
 - fast_scan     → Fast Scan (เร็ว แนะนำสำหรับสแกนทั่วไป)
-- discovery     → Discovery (ค้นหา host ในเครือข่าย)
+- discovery     → Discovery (ค้นหาอุปกรณ์ในเครือข่าย)
 - intense       → Intense Scan (ละเอียด ใช้เวลานาน)
 - vuln_scan     → Vulnerability Scan CVE (ตรวจช่องโหว่)
 
-ตัวอย่าง: ถ้าผู้ใช้พูดว่า "scan 192.168.1.1" หรือ "สแกน 10.0.0.1 แบบ intense"
-ให้ตอบ:
-##SCAN_CMD##
-{{"action":"scan","target":"192.168.1.1","scan_type":"fast_scan"}}
-แล้วตามด้วยข้อความอธิบาย
-
-ถ้าผู้ใช้ไม่ได้ระบุ scan_type ให้ใช้ fast_scan เป็นค่าเริ่มต้น
-ถ้าผู้ใช้ไม่ได้ระบุ target ให้ถามก่อน อย่าเดา
+กติกาการเสนอคำสั่งสแกน:
+- ใส่ ##SCAN_CMD## เฉพาะเมื่อผู้ใช้สั่งให้สแกนจริงเท่านั้น ห้ามใส่เมื่อผู้ใช้แค่ถามคำถามสมมติหรือขอคำอธิบาย
+- รองรับเฉพาะ IPv4 หรือช่วง CIDR ไม่เกิน /16 (เช่น 192.168.1.1 หรือ 192.168.1.0/24)
+- ถ้าผู้ใช้ไม่ได้ระบุ scan_type ให้ใช้ fast_scan เป็นค่าเริ่มต้น ถ้าไม่ได้ระบุ target ให้ถามก่อน อย่าเดา
+- ข้อความอธิบายหลัง JSON ให้บอกผู้ใช้ว่าเตรียมคำสั่งสแกนไว้ให้ตรวจสอบและกดยืนยันแล้ว (อย่าบอกว่าเริ่มสแกนแล้ว)
 
 === แนวทางตอบ ===
-- ใช้ข้อมูลจริงจากระบบและหน้าปัจจุบันในการตอบ
+- ใช้ตัวเลขจากส่วน "สรุปภาพรวมทั้งหมดของระบบ CLYLAR" เป็นหลัก ห้ามนับเอาเองจากรายการที่อาจถูกจำกัดจำนวน
+- เมื่อถูกถามเรื่องระบบปฏิบัติการ (OS) หรือชนิดอุปกรณ์ (Device Type) ให้ตอบจากฟิลด์ OS และ type ที่มีในข้อมูลจริง ห้ามเดาจากพอร์ต ถ้าเป็น Unknown ให้บอกตรงๆ ว่ายังตรวจไม่พบ OS
 - ตอบเป็นภาษาไทยเป็นหลัก ถ้าผู้ใช้ถามภาษาอังกฤษก็ตอบภาษาอังกฤษได้
 - ตอบสั้นกระชับ ชัดเจน สุภาพ น้ำเสียงเป็นกลางแบบผู้ช่วยในระบบ ไม่ใช้ emoji หรือสัญลักษณ์ตกแต่ง
 - ถ้าถามเรื่องที่ไม่มีข้อมูลในระบบ ให้บอกตรงๆ ว่าไม่พบข้อมูล"""
 
     try:
-        reply = _call_gemini(SYSTEM_PROMPT, messages, max_tokens=900)
+        reply = _call_gemini(SYSTEM_PROMPT, messages, max_tokens=CHAT_MAX_TOKENS_TYPED, source='typed')
+        if _answer_cancelled():                           # Stop was pressed while the model wrote: nobody reads this, and a scan it asked for must not start
+            return jsonify({'reply': '', 'scan_result': None, 'scan_proposal': None, 'source': 'ai', 'engine': ai_engine(), 'cancelled': True})
 
-        # ตรวจว่า Gemini ต้องการสั่ง scan หรือไม่
+        # ตรวจว่า AI เสนอคำสั่งสแกนหรือไม่ — จะไม่รันสแกนเองทันที แต่ตรวจเป้าหมายและสร้างการ์ดยืนยันแบบเดียวกับคำสั่งเสียง
         scan_result = None
+        scan_proposal = None
         clean_reply = reply
         if '##SCAN_CMD##' in reply:
             try:
                 parts = reply.split('##SCAN_CMD##', 1)
                 json_and_rest = parts[1].strip()
-                # หา JSON block (บรรทัดแรก)
                 first_line_end = json_and_rest.find('\n')
-                json_str = json_and_rest if first_line_end < 0 else json_and_rest[:first_line_end]
-                json_str = json_str.strip()
+                json_str = (json_and_rest if first_line_end < 0 else json_and_rest[:first_line_end]).strip()
                 cmd = json.loads(json_str)
 
                 if cmd.get('action') == 'scan' and current_user.is_any_admin:
-                    target    = cmd.get('target', '').strip()
-                    scan_type = cmd.get('scan_type', 'fast_scan').strip()
-                    scan_name = cmd.get('scan_name', '').strip() or None
-                    if scan_type not in VALID_SCAN_TYPES:
-                        scan_type = 'fast_scan'
-
-                    if target:
-                        # รัน scan จริง
-                        new_job = ScanJob(
-                            target=target, scan_type=scan_type, scan_name=scan_name,
-                            status='Queued', triggered_by='chatbot',
-                            owner_id=current_user.id,
-                            multicast=False if scan_type == 'discovery' else None
-                        )
-                        db.session.add(new_job)
-                        if not SavedTarget.query.filter_by(target=target).first():
-                            db.session.add(SavedTarget(target=target))
-                        db.session.commit()
-
-                        # The scan runs in the background: the card says it was accepted (the results are on the Tasks page when it is done).
-                        if enqueue_scan(new_job):
-                            scan_result = {'status': 'started', 'job_id': new_job.id, 'seq': _job_seq(new_job),
-                                           'target': target, 'scan_type': scan_type}
-                        else:
-                            scan_result = {'status': 'failed', 'job_id': new_job.id, 'error': 'เริ่มสแกนไม่ได้ กรุณาลองใหม่อีกครั้ง'}
+                    target    = str(cmd.get('target') or '').strip()
+                    scan_type = str(cmd.get('scan_type') or 'fast_scan').strip()
+                    scan_name = str(cmd.get('scan_name') or '').strip() or None
+                    scan_proposal = _make_chat_scan_proposal(target, scan_type, scan_name=scan_name, lang=ui_lang_now())
 
                 # ตัด ##SCAN_CMD## + JSON ออกจาก reply ที่แสดง
                 rest_text = json_and_rest[first_line_end:].strip() if first_line_end >= 0 else ''
                 pre_text  = parts[0].strip()
                 clean_reply = (pre_text + '\n' + rest_text).strip()
             except Exception:
-                pass  # ถ้า parse ไม่ได้ ใช้ reply ปกติ
+                clean_reply = _strip_scan_marker(reply)
 
-        return jsonify({'reply': clean_reply, 'scan_result': scan_result, 'source': 'ai'})
+        if _ai_was_cut():
+            clean_reply = (clean_reply + '\n\n' + _cut_notice()).strip()
+        return jsonify({
+            'reply': clean_reply, 'scan_result': scan_result, 'scan_proposal': scan_proposal,
+            'source': 'ai', 'engine': ai_engine(), 'cut': _ai_was_cut(),
+        })
 
+    except local_llm.LocalLLMError as e:
+        return jsonify({'kind': 'warn', 'reply': _local_error_text(e.code)}), 200
     except ValueError as e:
         if 'NO_API_KEY' in str(e):
             return jsonify({'kind': 'warn', 'reply': 'ยังไม่ได้ตั้งค่าคีย์ API ของ Gemini ผู้ดูแลระบบระดับสูงสุดตั้งได้ที่หน้าตั้งค่า'}), 200
@@ -4693,6 +6463,8 @@ def api_chat():
             return jsonify({'kind': 'warn', 'reply': 'Gemini API เต็ม quota ชั่วคราว กรุณารอสักครู่'}), 200
         if '429' in err:
             return jsonify({'kind': 'warn', 'reply': 'AI ถูกใช้งานเยอะเกินไป กรุณารอสักครู่'}), 200
+        if 'HTTP_404' in err:
+            return jsonify({'kind': 'warn', 'reply': 'ไม่พบโมเดล %s (Google อาจยกเลิกแล้ว) ผู้ดูแลระบบระดับสูงสุดเลือกโมเดลใหม่ได้ที่หน้าตั้งค่า' % gemini_model()}), 200
         if '400' in err:
             return jsonify({'kind': 'warn', 'reply': 'คีย์ API ของ Gemini ไม่ถูกต้องหรือโมเดลไม่รองรับ'}), 200
         if 'leaked' in err.lower():
@@ -4709,9 +6481,34 @@ def api_chat():
 #  ERROR HANDLERS
 # ─────────────────────────────────────────
 
+def _error_page(code):
+    """One page for 403, 404 and 500: it does not extend base.html, so it works for a visitor who is not signed in and when the page itself failed. The
+    theme and the language are the visitor's own (cookie or saved choice). Paths under /api/ answer with JSON instead."""
+    if request.path.startswith('/api/'):
+        return jsonify({'error': {403: 'forbidden', 404: 'not_found', 500: 'server_error'}[code]}), code
+    return render_template('error.html', code=code), code
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'csrf_failed', 'message': tr('err.400.text')}), 400
+    return render_template('error.html', code=400), 400
+
+
 @app.errorhandler(403)
 def forbidden(e):
-    return render_template('403.html'), 403
+    return _error_page(403)
+
+
+@app.errorhandler(404)
+def not_found(e):
+    return _error_page(404)
+
+
+@app.errorhandler(500)
+def server_error(e):
+    return _error_page(500)
 
 
 if __name__ == '__main__':
@@ -4719,4 +6516,14 @@ if __name__ == '__main__':
     # (streamlit pulls it in) is the watchdog reloader, which on Windows also reports a file being merely READ (its last-access time) as a change and
     # restarts the server. The first PDF export imports xhtml2pdf and dozens of stdlib files lazily, so it restarted the server in the middle of the
     # request: "The connection was reset". A real edit still reloads.
+    # The stat reloader walks every folder on sys.path ONCE A SECOND and stats every .py file it finds. Werkzeug skips only the system Python's own folders,
+    # so packages installed with `pip install --user` (about 29,000 files, 11,000 of them .py, on this machine) were re-walked every second: one pass took 3 to
+    # 4 seconds, the reloader thread never slept and kept a core busy, and the pages answered slower (measured 2026-11-13). Telling it to skip the site-packages
+    # folders brings a pass down to about 20 ms; the project's own files are still watched, so an edit still reloads.
+    try:
+        import site
+        from werkzeug import _reloader
+        _reloader._stat_ignore_scan = tuple(_reloader._stat_ignore_scan) + tuple(os.path.abspath(p) for p in [site.getusersitepackages()] + site.getsitepackages())
+    except Exception:            # a Werkzeug that changed this internal: the reloader then works as before, only slower
+        pass
     app.run(debug=True, reloader_type='stat')

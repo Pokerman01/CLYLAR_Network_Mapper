@@ -1,8 +1,33 @@
 {% extends 'base.html' %}
 
+{% block title %}{{ t('topo.title') }} · CLYLAR Network Scanner{% endblock %}
+
 {% block content %}
 
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script>
+window.SUBNET_T = {
+    sys_gw: {{ t('topo.subnet.sys_gw') | tojson }},
+    localhost_note: {{ t('topo.subnet.localhost_note') | tojson }},
+    trace_last: {{ t('topo.subnet.trace_last') | tojson }},
+    router_os: {{ t('topo.subnet.router_os') | tojson }},
+    multi_router: {{ t('topo.subnet.multi_router') | tojson }},
+    lbl_router: {{ t('topo.subnet.lbl_router') | tojson }},
+    lbl_subnet: {{ t('topo.subnet.lbl_subnet') | tojson }},
+    tip_ip: {{ t('topo.subnet.tip_ip') | tojson }},
+    tip_subnet: {{ t('topo.subnet.tip_subnet') | tojson }},
+    tip_by: {{ t('topo.subnet.tip_by') | tojson }},
+    tip_count: {{ t('topo.subnet.tip_count') | tojson }},
+    tip_no_router: {{ t('topo.subnet.tip_no_router') | tojson }},
+    edge_unverified: {{ t('topo.subnet.edge_unverified') | tojson }},
+    vmac_vrrp4: {{ t('topo.subnet.vmac_vrrp4') | tojson }},
+    vmac_vrrp6: {{ t('topo.subnet.vmac_vrrp6') | tojson }},
+    vmac_hsrp1: {{ t('topo.subnet.vmac_hsrp1') | tojson }},
+    vmac_hsrp2: {{ t('topo.subnet.vmac_hsrp2') | tojson }},
+    vmac_glbp: {{ t('topo.subnet.vmac_glbp') | tojson }},
+    metric_tag: {{ t('topo.subnet.metric_tag') | tojson }}
+};
+</script>
 <script src="{{ url_for('static', filename='js/subnet-topology.js') }}"></script>
 
 <style>
@@ -134,7 +159,8 @@
     transition: all 0.15s;
     font-weight: 500;
 }
-.qf-btn:hover, .qf-btn.active { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+.qf-btn:hover { background: #f8fafc; }
+.qf-btn.active { background: #eef3ff; border-color: #b6c8f5; color: #1e40af; }
 
 /* ─── Right Panel: Canvas ─── */
 .topo-canvas-panel {
@@ -173,72 +199,128 @@
 }
 .legend-item span { font-size: .74rem; color: #e2e8f0; font-weight: 500; }
 
-/* Layout switch (Tree / Star) in the diagram header */
-.topo-layout {
+/* Settings (cog) button in the diagram header, and the panel it opens: Background, Layout and motion, Display */
+.topo-legend[hidden] { display: none; }
+.topo-cog-btn {
     display: inline-flex;
-    gap: 2px;
-    padding: 3px;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    padding: 0;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.15);
     border-radius: 10px;
-}
-.topo-layout-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 11px 3px 9px;
-    border: 0;
-    border-radius: 7px;
-    background: transparent;
     color: #cbd5e1;
-    font-size: .76rem;
-    font-weight: 600;
+    font-size: 1.05rem;
+    line-height: 1;
     cursor: pointer;
     transition: background .15s, color .15s;
 }
-.topo-layout-btn:hover { color: #fff; }
-.topo-layout-btn[aria-pressed="true"] { background: rgba(255,255,255,0.18); color: #fff; }
-.topo-layout-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.55); outline-offset: 1px; }
+.topo-cog-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+.topo-cog-btn[aria-expanded="true"] { background: rgba(255,255,255,0.18); color: #fff; }
+.topo-cog-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.55); outline-offset: 1px; }
 
-/* Float on/off switch next to the layout buttons */
-.topo-float-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 6px 10px 6px 11px;
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 10px;
-    color: #cbd5e1;
-    font-size: .76rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background .15s, color .15s;
+.topo-settings {
+    position: absolute;
+    top: 8px;
+    right: 20px;
+    z-index: 3000;
+    width: 272px;
+    max-height: calc(100% - 20px);
+    overflow-y: auto;
+    padding: 2px 0 8px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 10px 28px rgba(15,23,42,.14);
+    color: #1e293b;
+    font-size: .8rem;
 }
-.topo-float-btn:hover { color: #fff; }
-.topo-float-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.55); outline-offset: 1px; }
-.topo-float-btn[aria-checked="true"] { color: #fff; }
-.topo-float-state {
+.topo-settings[hidden] { display: none; }
+.tcp-group { padding: 10px 14px 4px; }
+.tcp-group + .tcp-group { border-top: 1px solid #eef2f6; }
+.tcp-group-title { margin-bottom: 2px; font-size: .72rem; font-weight: 600; color: #64748b; }
+.tcp-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: calc(100% + 16px);
+    min-height: 34px;
+    margin: 0 -8px;
+    padding: 4px 8px;
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    text-align: left;
+    color: #1e293b;
+    font: inherit;
+    cursor: pointer;
+}
+.tcp-row-static { cursor: default; }
+.tcp-row:not(.tcp-row-static):hover { background: #f1f5f9; }
+.tcp-row:focus-visible { outline: 2px solid #3b8dc7; outline-offset: -2px; }
+.tcp-label { min-width: 0; }
+.tcp-sw {
     position: relative;
-    width: 26px;
-    height: 14px;
+    flex: none;
+    width: 28px;
+    height: 16px;
     border-radius: 999px;
-    background: rgba(255,255,255,0.22);
+    background: #b4c0cf;
     transition: background .15s;
 }
-.topo-float-state::after {
+.tcp-sw::after {
     content: '';
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     background: #fff;
+    box-shadow: 0 1px 2px rgba(15,23,42,.25);
     transition: transform .15s;
 }
-.topo-float-btn[aria-checked="true"] .topo-float-state { background: #4a9fd4; }
-.topo-float-btn[aria-checked="true"] .topo-float-state::after { transform: translateX(12px); }
+.tcp-row[aria-checked="true"] .tcp-sw { background: #4a9fd4; }
+.tcp-row[aria-checked="true"] .tcp-sw::after { transform: translateX(12px); }
+
+/* Layout switch (Tree / Star) inside the panel */
+.tcp-seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+}
+.topo-layout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px 3px 8px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #5b6b80;
+    font-size: .76rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.topo-layout-btn:hover { color: #1e293b; }
+.topo-layout-btn[aria-pressed="true"] { background: #fff; color: #1e293b; box-shadow: 0 0 0 1px #dbe2ea; }
+.topo-layout-btn:focus-visible { outline: 2px solid #3b8dc7; outline-offset: 1px; }
+
+.tcp-foot { margin-top: 6px; padding: 6px 14px 0; border-top: 1px solid #eef2f6; }
+.tcp-reset { padding: 4px 0; background: none; border: 0; color: #64748b; font: inherit; font-size: .76rem; cursor: pointer; }
+.tcp-reset:hover { color: #1e293b; text-decoration: underline; }
+.tcp-reset:focus-visible { outline: 2px solid #3b8dc7; outline-offset: 2px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) {
+    .tcp-sw, .tcp-sw::after, .topo-layout-btn, .topo-cog-btn { transition: none; }
+}
 
 /* Canvas wrapper */
 .topo-canvas-wrapper {
@@ -258,10 +340,16 @@
     position: absolute;
     bottom: 18px;
     left: 18px;
+    max-width: calc(100% - 36px);
     display: flex;
-    gap: 10px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
     z-index: 10;
+    pointer-events: none;      /* only the pills take the mouse; the empty part of the bar and the hint let it through to the diagram */
 }
+.topo-stat-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.topo-stat-row .stat-pill { pointer-events: auto; white-space: nowrap; }
 .stat-pill {
     background: rgba(255,255,255,0.95);
     border: 1px solid #e9ecef;
@@ -299,7 +387,11 @@
     box-shadow: 0 8px 32px rgba(0,0,0,0.22);
     font-size: .82rem;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100% - 20px);
 }
+.np-header, .popup-tabs { flex: none; }
 .np-header {
     background: #1e2a3a;
     padding: 12px 14px 10px;
@@ -309,6 +401,10 @@
     border-bottom: 1px solid #2d3f55;
     cursor: move;
 }
+.node-popup.np-hot { outline: 2px solid rgba(37, 99, 235, .75); }
+.node-popup.np-back { opacity: .7; }
+.np-pin { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: #334155; font-weight: 600; font-size: .75rem; line-height: 22px; text-align: center; }
+:root[data-theme="dark"] .node-popup.np-hot { outline-color: rgba(125, 211, 252, .8); }
 .np-icon {
     background: rgba(255,255,255,0.18);
     border-radius: 8px;
@@ -350,7 +446,8 @@
 .popup-tab:hover { color: #475569; }
 /* the open tab is the white one that joins the card below it; the other one is the quiet one */
 .popup-tab.active { background: #fff; color: #334155; border-bottom-color: #94a3b8; }
-.np-detail { padding: 6px 16px 12px; }
+.np-detail { padding: 6px 16px 0; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.np-detail > table { margin-bottom: 6px; }
 .np-detail table { width: 100%; border-collapse: collapse; }
 .np-detail td { padding: 7px 0; border-bottom: 1px solid #f1f3f5; vertical-align: top; }
 .np-detail tr:last-child td { border-bottom: none; }
@@ -358,26 +455,25 @@
 .np-detail td:first-child { color: #8793a3; font-size: .78rem; padding-right: 14px; white-space: nowrap; width: 1%; }
 .np-detail td:last-child { font-size: .82rem; font-weight: 500; color: #1f2937; overflow-wrap: break-word; }
 .np-detail td.np-note { color: #64748b; font-weight: 400; }
-.np-port { display: none; max-height: 260px; overflow-y: auto; }
+.np-port { display: none; max-height: 260px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .np-port table { width: 100%; border-collapse: collapse; font-size: .78rem; }
 .np-port th { padding: 7px 12px; text-align: left; color: #555; font-weight: 600; border-bottom: 1px solid #e0e0e0; }
 .np-port td { padding: 6px 12px; border-bottom: 1px solid #f4f4f4; }
 .np-port td.np-version { color: #6c757d; font-size: .75rem; }
 .np-port td.np-none { text-align: center; color: #adb5bd; padding: 20px; }
+.np-state-open { color: #198754; font-weight: 600; }
+.np-state-other { color: #6c757d; font-weight: 600; }
+.np-reason { font-weight: 400; font-size: 11px; color: #6b7280; }
 
 /* Diagram hint */
 #diagram-hint {
-    position: absolute;
-    bottom: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.55);
-    color: #adb5bd;
+    background: rgba(30,41,59,.82);
+    color: #e2e8f0;
     padding: 5px 14px;
-    border-radius: 20px;
+    border-radius: 16px;
     font-size: .75rem;
+    line-height: 1.4;
     pointer-events: none;
-    white-space: nowrap;
 }
 
 /* Scrollbar */
@@ -390,7 +486,7 @@
 .topo-zoom-controls {
     position: absolute;
     top: 18px;
-    right: 18px;
+    right: 20px;
     z-index: 10;
     display: flex;
     gap: 8px;
@@ -414,6 +510,276 @@
     background: #f8f9fa;
     color: #0d6efd;
 }
+
+/* ─── Big networks: device search, filters, bubbles' pop-up actions, notes ─── */
+.dev-search { position: relative; }
+.dev-search .form-control, #devPort { font-size: .8rem; }
+.dev-search-list {
+    position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 40;
+    max-height: 300px; overflow-y: auto; padding: 4px;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.14);
+}
+.dev-search-list[hidden] { display: none; }
+.dev-opt { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: .78rem; color: #1e293b; }
+.dev-opt-ip { font-family: monospace; font-weight: 600; }
+.dev-opt-sub { font-size: .72rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-opt:hover, .dev-opt[aria-selected="true"] { background: #f1f5f9; }
+.dev-opt-none, .dev-opt-more { padding: 6px 8px; font-size: .74rem; color: #64748b; }
+.dev-filter-label { margin: 12px 0 6px; font-size: .72rem; font-weight: 600; color: #64748b; }
+.dev-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dev-chip {
+    font-size: .72rem; padding: 3px 10px; border-radius: 20px; border: 1px solid #dee2e6; background: #fff; color: #475569;
+    cursor: pointer; font-weight: 500; transition: background .12s, border-color .12s, color .12s;
+}
+.dev-chip:hover { background: #f8fafc; }
+.dev-chip[aria-pressed="true"] { background: #eef3ff; border-color: #b6c8f5; color: #1e40af; }
+.dev-chip-n { margin-left: 4px; color: #64748b; font-weight: 600; }
+.dev-chip[aria-pressed="true"] .dev-chip-n { color: #2563eb; }
+.dev-chip[aria-pressed="true"]::before { content: ''; display: inline-block; width: 8px; height: 4px; margin: 0 6px 2px 0; border-left: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
+.dev-chip:focus-visible, .dev-filter-clear:focus-visible { outline: 2px solid #3b8dc7; outline-offset: 1px; }
+.dev-filter-status { margin-top: 10px; font-size: .74rem; color: #64748b; line-height: 1.4; }
+.dev-filter-clear { margin-top: 4px; padding: 2px 0; background: none; border: 0; font-size: .74rem; color: #64748b; text-decoration: underline; cursor: pointer; }
+.dev-filter-clear:hover { color: #1e293b; }
+.dev-filter-clear[hidden] { display: none; }
+.dev-more > summary { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: .72rem; font-weight: 600; color: #64748b; cursor: pointer; list-style: none; }
+.dev-more > summary::-webkit-details-marker { display: none; }
+.dev-more > summary::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s; }
+.dev-more[open] > summary::before { transform: rotate(45deg); }
+.dev-more-n { padding: 0 6px; border-radius: 9px; background: #eef3ff; color: #1e40af; font-size: .68rem; }
+.dev-more > summary:focus-visible { outline: 2px solid #3b8dc7; outline-offset: 2px; border-radius: 4px; }
+.topo-filter-reset { position: sticky; bottom: 0; background: #fff; }
+:root[data-theme="dark"] .topo-filter-reset { background: var(--surface); }
+#topoCanvas.badge-hover div.vis-tooltip, #topoCanvas.no-tips div.vis-tooltip { display: none !important; }
+div.vis-tooltip { background: #fff !important; color: #1e293b !important; border: 1px solid #e2e8f0 !important; border-radius: 8px !important; padding: 6px 10px !important; font-family: inherit !important; font-size: .78rem !important; box-shadow: 0 6px 18px rgba(15,23,42,.14) !important; }
+:root[data-theme="dark"] div.vis-tooltip { background: rgba(16, 24, 37, 0.96) !important; color: #e2e8f0 !important; border-color: #2c3f59 !important; box-shadow: 0 8px 24px rgba(0, 0, 0, .55) !important; }
+.tcp-row-static.is-off, #floatToggle.is-off { opacity: .5; }
+.tcp-note.is-warn { color: #92400e; }
+:root[data-theme="dark"] .tcp-note.is-warn { color: #e0b457; }
+.tcp-dots-btn:disabled { cursor: default; }
+.stat-pill[hidden] { display: none; }
+.np-foot { display: flex; flex-wrap: wrap; gap: 8px; position: sticky; bottom: 0; margin: 0 -16px; padding: 10px 16px 12px; background: #fff; border-top: 1px solid #eef2f6; }
+:root[data-theme="dark"] .np-foot { background: #182230; }
+.np-action {
+    padding: 4px 12px; border: 1px solid #c3cddb; border-radius: 16px; background: #fff; color: #1d4ed8; font-size: .76rem; font-weight: 600; cursor: pointer;
+}
+.np-action:hover { background: #f1f5f9; }
+.np-link { font-size: .76rem; font-weight: 600; color: #1d4ed8; text-decoration: none; padding: 4px 2px; }
+.np-link:hover { text-decoration: underline; }
+.np-action:focus-visible, .np-link:focus-visible { outline: 2px solid #3b8dc7; outline-offset: 1px; }
+.tcp-note { margin: -2px 0 6px; font-size: .72rem; color: #64748b; line-height: 1.35; }
+.tcp-note[hidden] { display: none; }
+.tcp-dots-btn {
+    padding: 3px 10px; border: 0; border-radius: 7px; background: transparent; color: #5b6b80; font-size: .76rem; font-weight: 600; cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.tcp-dots-btn:hover { color: #1e293b; }
+.tcp-dots-btn[aria-pressed="true"] { background: #fff; color: #1e293b; box-shadow: 0 0 0 1px #dbe2ea; }
+.tcp-dots-btn:focus-visible { outline: 2px solid #3b8dc7; outline-offset: 1px; }
+
+/* ─── Dark Mode ("Midnight NOC" deep-navy canvas, overlays, and popups) ─── */
+:root[data-theme="dark"] .topo-filter-panel {
+    background: var(--surface);
+    border-right-color: var(--border);
+    color: var(--text);
+}
+:root[data-theme="dark"] .topo-filter-header {
+    border-bottom-color: var(--border);
+}
+:root[data-theme="dark"] .topo-filter-header h6 { color: var(--text-2); }
+:root[data-theme="dark"] .topo-filter-header p { color: var(--muted); }
+:root[data-theme="dark"] .filter-section { border-bottom-color: var(--border); }
+:root[data-theme="dark"] .filter-section-title { color: var(--text-2); }
+:root[data-theme="dark"] .filter-date-item { color: var(--text); }
+:root[data-theme="dark"] .filter-date-item:hover { background: var(--surface-2); }
+:root[data-theme="dark"] .filter-date-item input[type=checkbox] { accent-color: var(--gold-ink); }
+:root[data-theme="dark"] .job-chip:hover { background: var(--surface-2); }
+:root[data-theme="dark"] .job-chip.selected { background: var(--nt-gold-bg); }
+:root[data-theme="dark"] .job-chip-name { color: var(--text); }
+:root[data-theme="dark"] .job-chip:not(.selected) .job-chip-name { color: var(--muted); }
+:root[data-theme="dark"] .job-chip-count { color: var(--muted); }
+:root[data-theme="dark"] .job-chip.selected .job-chip-count { color: var(--gold-ink); }
+:root[data-theme="dark"] .qf-btn {
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+    color: var(--text-2);
+}
+:root[data-theme="dark"] .qf-btn:hover,
+:root[data-theme="dark"] .qf-btn.active {
+    background: var(--nt-gold-bg);
+    border-color: var(--warn-line);
+    color: var(--gold-ink);
+}
+:root[data-theme="dark"] .filter-date-list::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .job-list::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+}
+:root[data-theme="dark"] .topo-filter-reset {
+    border-top-color: var(--border) !important;
+}
+:root[data-theme="dark"] .topo-filter-reset .btn-outline-secondary {
+    color: var(--text-2);
+    border-color: var(--border-strong);
+}
+:root[data-theme="dark"] .topo-filter-reset .btn-outline-secondary:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+:root[data-theme="dark"] .topo-canvas-panel {
+    background: var(--bg);
+}
+:root[data-theme="dark"] .topo-canvas-header {
+    background: var(--surface-2);
+    border-bottom-color: var(--border);
+}
+:root[data-theme="dark"] .topo-canvas-wrapper {
+    margin: 12px;
+    border-radius: 12px;
+    border: 1px solid #273549;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, .35);
+}
+:root[data-theme="dark"] #topoCanvas {
+    background-color: #0e1621;
+    background-image:
+        linear-gradient(to right, rgba(56, 189, 248, 0.075) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(56, 189, 248, 0.075) 1px, transparent 1px),
+        radial-gradient(circle at 50% 24%, rgba(16, 56, 92, 0.42), transparent 68%);
+    background-size: 32px 32px, 32px 32px, 100% 100%;
+}
+:root[data-theme="dark"] #topoCanvas.no-grid {      /* the Grid switch is off: the dark canvas keeps its glow but loses its lines */
+    background-image: radial-gradient(circle at 50% 24%, rgba(16, 56, 92, 0.42), transparent 68%);
+    background-size: 100% 100%;
+}
+:root[data-theme="dark"] div.vis-tooltip {
+    background-color: rgba(16, 24, 37, 0.96);
+    color: #e2e8f0;
+    border: 1px solid #2c3f59;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    font-family: inherit;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .55);
+}
+:root[data-theme="dark"] .topo-empty {
+    color: #64748b;
+}
+:root[data-theme="dark"] .topo-zoom-btn {
+    background: rgba(22, 32, 46, 0.92);
+    border-color: #2c3f59;
+    color: #e2e8f0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+    backdrop-filter: blur(6px);
+}
+:root[data-theme="dark"] .topo-zoom-btn:hover {
+    background: #1f2e42;
+    border-color: #38bdf8;
+    color: #7dd3fc;
+}
+:root[data-theme="dark"] .dev-search-list { background: var(--surface); border-color: var(--border); box-shadow: 0 10px 28px rgba(0, 0, 0, .45); }
+:root[data-theme="dark"] .dev-opt { color: var(--text); }
+:root[data-theme="dark"] .dev-opt:hover, :root[data-theme="dark"] .dev-opt[aria-selected="true"] { background: var(--surface-2); }
+:root[data-theme="dark"] .dev-opt-sub, :root[data-theme="dark"] .dev-opt-none, :root[data-theme="dark"] .dev-opt-more,
+:root[data-theme="dark"] .dev-filter-label, :root[data-theme="dark"] .dev-filter-status, :root[data-theme="dark"] .dev-filter-clear,
+:root[data-theme="dark"] .tcp-note { color: var(--muted); }
+:root[data-theme="dark"] .dev-chip { background: var(--surface-2); border-color: var(--border-strong); color: var(--text-2); }
+:root[data-theme="dark"] .dev-chip:hover { background: var(--surface-3); }
+:root[data-theme="dark"] .dev-chip[aria-pressed="true"] { background: var(--nt-gold-bg); border-color: var(--warn-line); color: var(--gold-ink); }
+:root[data-theme="dark"] .np-foot { border-top-color: var(--border); }
+:root[data-theme="dark"] .np-action { background: var(--surface-2); border-color: var(--border-strong); color: var(--link); }
+:root[data-theme="dark"] .np-link { color: var(--link); }
+:root[data-theme="dark"] .tcp-dots-btn { color: var(--muted); }
+:root[data-theme="dark"] .tcp-dots-btn:hover { color: var(--text); }
+:root[data-theme="dark"] .tcp-dots-btn[aria-pressed="true"] { background: var(--surface-3); color: var(--text); box-shadow: none; }
+:root[data-theme="dark"] .topo-settings {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .45);
+}
+:root[data-theme="dark"] .tcp-row { color: var(--text); }
+:root[data-theme="dark"] .tcp-row:not(.tcp-row-static):hover { background: var(--surface-2); }
+:root[data-theme="dark"] .tcp-group + .tcp-group,
+:root[data-theme="dark"] .tcp-foot { border-top-color: var(--border); }
+:root[data-theme="dark"] .tcp-group-title,
+:root[data-theme="dark"] .tcp-reset { color: var(--muted); }
+:root[data-theme="dark"] .tcp-reset:hover { color: var(--text); }
+:root[data-theme="dark"] .tcp-row[aria-checked="false"] .tcp-sw { background: var(--surface-4); }
+:root[data-theme="dark"] .tcp-seg { background: var(--surface-2); border-color: var(--border); }
+:root[data-theme="dark"] .topo-layout-btn { color: var(--muted); }
+:root[data-theme="dark"] .topo-layout-btn:hover { color: var(--text); }
+:root[data-theme="dark"] .topo-layout-btn[aria-pressed="true"] { background: var(--surface-3); color: var(--text); box-shadow: none; }
+:root[data-theme="dark"] .stat-pill {
+    background: rgba(18, 28, 41, 0.92);
+    border-color: #2c3f59;
+    color: #cbd5e1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+:root[data-theme="dark"] .stat-pill span {
+    color: #38bdf8;
+}
+:root[data-theme="dark"] #diagram-hint {
+    background: rgba(10, 15, 23, 0.85);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    color: #94a3b8;
+}
+:root[data-theme="dark"] .node-popup {
+    background: #182230;
+    border: 1px solid #2d3f58;
+    box-shadow: 0 10px 36px rgba(0, 0, 0, .55);
+    color: #e2e8f0;
+}
+:root[data-theme="dark"] .np-header {
+    border-bottom-color: rgba(255, 255, 255, .14);
+}
+:root[data-theme="dark"] .popup-tabs {
+    background: #121a26;
+    border-bottom-color: #2d3f58;
+}
+:root[data-theme="dark"] .popup-tab {
+    color: #94a3b8;
+}
+:root[data-theme="dark"] .popup-tab:hover {
+    color: #e2e8f0;
+}
+:root[data-theme="dark"] .popup-tab.active {
+    background: #182230;
+    color: #f8fafc;
+    border-bottom-color: #38bdf8;
+}
+:root[data-theme="dark"] .np-detail td {
+    border-bottom-color: #243247;
+}
+:root[data-theme="dark"] .np-detail td:first-child {
+    color: #94a3b8;
+}
+:root[data-theme="dark"] .np-detail td:last-child {
+    color: #f1f5f9;
+}
+:root[data-theme="dark"] .np-detail td.np-note {
+    color: #94a3b8;
+}
+:root[data-theme="dark"] .np-port th {
+    color: #94a3b8;
+    border-bottom-color: #2d3f58;
+}
+:root[data-theme="dark"] .np-port td {
+    border-bottom-color: #243247;
+    color: #e2e8f0;
+}
+:root[data-theme="dark"] .np-port td.np-version {
+    color: #94a3b8;
+}
+:root[data-theme="dark"] .np-port td.np-none {
+    color: #64748b;
+}
+:root[data-theme="dark"] .np-state-open {
+    color: #34d399;
+}
+:root[data-theme="dark"] .np-state-other {
+    color: #94a3b8;
+}
+:root[data-theme="dark"] .np-reason {
+    color: #94a3b8;
+}
 </style>
 
 <div class="topology-page">
@@ -421,36 +787,58 @@
     <!-- ══════════ LEFT: Filter Panel ══════════ -->
     <div class="topo-filter-panel">
         <div class="topo-filter-header">
-            <h6>Network Topology</h6>
-            <p>Filter การแสดงผล Diagram</p>
+            <h6>{{ t('topo.title') }}</h6>
+            <p>{{ t('topo.filter_subtitle') }}</p>
+        </div>
+
+        <!-- Devices: find one, and fade the rest (the script section "Big networks") -->
+        <div class="filter-section" id="devFilterSection">
+            <div class="filter-section-title">{{ t('topo.dev_title') }}</div>
+            <div class="dev-search">
+                <input type="search" id="devSearch" class="form-control form-control-sm" autocomplete="off" spellcheck="false"
+                       placeholder="{{ t('topo.dev_search_ph') }}" aria-label="{{ t('topo.dev_search_label') }}"
+                       role="combobox" aria-expanded="false" aria-controls="devSearchList" aria-autocomplete="list">
+                <div class="dev-search-list" id="devSearchList" role="listbox" hidden></div>
+            </div>
+            <details class="dev-more" id="devMore">
+                <summary>{{ t('topo.dev_more') }}<span class="dev-more-n" id="devMoreN" hidden></span></summary>
+                <div class="dev-filter-label">{{ t('topo.dev_os') }}</div>
+                <div class="dev-chips" id="osChips" role="group" aria-label="{{ t('topo.dev_os') }}"></div>
+                <div class="dev-filter-label"><label for="devPort" class="mb-0">{{ t('topo.dev_port') }}</label></div>
+                <input type="text" id="devPort" class="form-control form-control-sm" autocomplete="off" spellcheck="false" placeholder="{{ t('topo.dev_port_ph') }}">
+                <div class="dev-filter-label">{{ t('topo.dev_change') }}</div>
+                <div class="dev-chips" id="chgChips" role="group" aria-label="{{ t('topo.dev_change') }}"></div>
+            </details>
+            <div class="dev-filter-status" id="devFilterStatus" aria-live="polite"></div>
+            <button type="button" class="dev-filter-clear" id="devFilterClear" hidden>{{ t('topo.dev_clear') }}</button>
         </div>
 
         <!-- Quick filter -->
         <div class="filter-section">
-            <div class="filter-section-title">Fast Results</div>
+            <div class="filter-section-title">{{ t('topo.quick_filter') }}</div>
             <div class="quick-filter-row">
-                <button class="qf-btn active" id="btnAll" onclick="quickFilter('all')">ทั้งหมด</button>
-                <button class="qf-btn" id="btnToday" onclick="quickFilter('today')">วันนี้</button>
-                <button class="qf-btn" id="btnWeek" onclick="quickFilter('week')">7 วัน</button>
+                <button class="qf-btn active" id="btnAll" onclick="quickFilter('all')">{{ t('topo.qf_all') }}</button>
+                <button class="qf-btn" id="btnToday" onclick="quickFilter('today')">{{ t('topo.qf_today') }}</button>
+                <button class="qf-btn" id="btnWeek" onclick="quickFilter('week')">{{ t('topo.qf_week') }}</button>
             </div>
         </div>
 
         <!-- Filter by date -->
         <div class="filter-section">
-            <div class="filter-section-title">Filter by Date</div>
+            <div class="filter-section-title">{{ t('topo.filter_date') }}</div>
             <div class="filter-date-list" id="dateFilterList"></div>
         </div>
 
         <!-- Filter by job -->
         <div class="filter-section" style="flex:1;">
-            <div class="filter-section-title">Filter by Task</div>
+            <div class="filter-section-title">{{ t('topo.filter_task') }}</div>
             <div class="job-list" id="jobFilterList"></div>
         </div>
 
         <!-- Reset -->
-        <div style="padding:14px 16px; border-top:1px solid #f0f0f0;">
+        <div class="topo-filter-reset" style="padding:14px 16px; border-top:1px solid #f0f0f0;">
             <button class="btn btn-sm btn-outline-secondary w-100" onclick="resetFilters()">
-                ↺ Reset Filter
+                ↺ {{ t('topo.reset_filter') }}
             </button>
         </div>
     </div>
@@ -458,91 +846,161 @@
     <!-- ══════════ RIGHT: Canvas Panel ══════════ -->
     <div class="topo-canvas-panel">
         <div class="topo-canvas-header">
-            <h5>Network Diagram</h5>
-            <div class="d-none align-items-center gap-2 ms-auto me-3"><label for="subnetPrefix" class="mb-0" style="font-size:.74rem;white-space:nowrap;color:#fff;">แยกตาม Subnet</label><select id="subnetPrefix" class="form-select form-select-sm" style="width:auto;min-width:150px;font-size:.78rem;" onchange="changeSubnetPrefix(this.value)"><option value="0">ไม่แยก Subnet</option><option value="24" selected>แยกตาม Subnet/24</option></select></div>
-            <div class="topo-layout ms-auto me-3" role="group" aria-label="รูปแบบการแสดงผล">
-                <button type="button" class="topo-layout-btn" data-layout="tree" aria-pressed="true" onclick="changeLayout('tree')"
-                        title="Tree: Internet &rarr; Router &rarr; อุปกรณ์ เรียงเป็นชั้น">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
-                        <circle cx="8" cy="3" r="1.6" fill="currentColor"/>
-                        <path d="M8 4.6V8M3 8h10M3 8v2.4M8 8v2.4M13 8v2.4"/>
-                        <circle cx="3" cy="12" r="1.6" fill="currentColor"/><circle cx="8" cy="12" r="1.6" fill="currentColor"/><circle cx="13" cy="12" r="1.6" fill="currentColor"/>
-                    </svg>
-                    Tree
+            <h5>{{ t('topo.diagram_title') }}</h5>
+            <div class="topo-header-right ms-auto d-flex align-items-center gap-3">
+                <div class="topo-legend" id="topoLegend">
+                    <div class="legend-item">
+                        <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#2ecc71"/></svg>
+                        <span>{{ t('topo.legend_low') }}</span>
+                    </div>
+                    <div class="legend-item">
+                        <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#f1c40f"/></svg>
+                        <span>{{ t('topo.legend_mid') }}</span>
+                    </div>
+                    <div class="legend-item">
+                        <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#e74c3c"/></svg>
+                        <span>{{ t('topo.legend_high') }}</span>
+                    </div>
+                </div>
+                <div class="topo-legend" id="topoLegendRisk" hidden>
+                    <div class="legend-item"><svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="{{ device_tier_color.critical }}"/></svg><span>{{ t('topo.tier_critical') }}</span></div>
+                    <div class="legend-item"><svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="{{ device_tier_color.high }}"/></svg><span>{{ t('topo.tier_high') }}</span></div>
+                    <div class="legend-item"><svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="{{ device_tier_color.medium }}"/></svg><span>{{ t('topo.tier_medium') }}</span></div>
+                    <div class="legend-item"><svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="{{ device_tier_color.low }}"/></svg><span>{{ t('topo.tier_low') }}</span></div>
+                    <div class="legend-item"><svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="{{ device_tier_color.clean }}"/></svg><span>{{ t('topo.tier_clean') }}</span></div>
+                    <div class="legend-item"><svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="{{ device_tier_color.unscanned }}"/></svg><span>{{ t('topo.tier_unknown') }}</span></div>
+                </div>
+                <button type="button" class="topo-cog-btn" id="topoCog" aria-expanded="false" aria-haspopup="dialog" aria-controls="topoSettings"
+                        aria-label="{{ t('topo.settings_title') }}" title="{{ t('topo.settings_title') }}">
+                    <i class="ti ti-settings" aria-hidden="true"></i>
                 </button>
-                <button type="button" class="topo-layout-btn" data-layout="star" aria-pressed="false" onclick="changeLayout('star')"
-                        title="Star: Router อยู่ตรงกลาง อุปกรณ์เรียงเป็นวงรอบ Router">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
-                        <path d="M8 8 8 2.6M8 8l4.7-2.7M8 8l4.7 2.7M8 8v5.4M8 8l-4.7 2.7M8 8 3.3 5.3"/>
-                        <circle cx="8" cy="8" r="1.6" fill="currentColor"/>
-                        <circle cx="8" cy="2.2" r="1.2" fill="currentColor"/><circle cx="13" cy="5" r="1.2" fill="currentColor"/><circle cx="13" cy="11" r="1.2" fill="currentColor"/>
-                        <circle cx="8" cy="13.8" r="1.2" fill="currentColor"/><circle cx="3" cy="11" r="1.2" fill="currentColor"/><circle cx="3" cy="5" r="1.2" fill="currentColor"/>
-                    </svg>
-                    Star
-                </button>
-            </div>
-            <button type="button" class="topo-float-btn me-3" id="floatToggle" role="switch" aria-checked="true" onclick="toggleFloat()"
-                    title="เปิด/ปิดการลอยเคลื่อนไหว (สปริง) · ปิดแล้วลากอุปกรณ์ได้อิสระเหมือนเดิม">
-                Float
-                <span class="topo-float-state" aria-hidden="true"></span>
-            </button>
-            <div class="topo-legend">
-                <div class="legend-item">
-                    <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#2ecc71"/></svg>
-                    <span>&lt; 3 Port</span>
-                </div>
-                <div class="legend-item">
-                    <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#f1c40f"/></svg>
-                    <span>3–6 Port</span>
-                </div>
-                <div class="legend-item">
-                    <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#e74c3c"/></svg>
-                    <span>&gt; 6 Port</span>
-                </div>
             </div>
         </div>
 
         <div class="topo-canvas-wrapper">
 
+            <!-- Diagram settings, opened by the cog in the header (the script section "Diagram settings") -->
+            <div class="topo-settings" id="topoSettings" role="dialog" aria-label="{{ t('topo.settings_title') }}" hidden>
+                <div class="tcp-group">
+                    <div class="tcp-group-title">{{ t('topo.set_group_background') }}</div>
+                    <button type="button" class="tcp-row" role="switch" aria-checked="true" data-setting="grid" title="{{ t('topo.set_grid_tip') }}">
+                        <span class="tcp-label">{{ t('topo.set_grid') }}</span><span class="tcp-sw" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <div class="tcp-group">
+                    <div class="tcp-group-title">{{ t('topo.set_group_layout') }}</div>
+                    <div class="tcp-row tcp-row-static" id="groupRow">
+                        <span class="tcp-label">{{ t('topo.set_group_by') }}</span>
+                        <div class="tcp-seg" role="group" aria-label="{{ t('topo.set_group_by') }}">
+                            <button type="button" class="topo-layout-btn" data-group="24" aria-pressed="true" onclick="changeGrouping('24')" title="{{ t('topo.group_subnet_title') }}">/24</button>
+                            <button type="button" class="topo-layout-btn" data-group="16" aria-pressed="false" onclick="changeGrouping('16')" title="{{ t('topo.group_16_title') }}">/16</button>
+                            <button type="button" class="topo-layout-btn" data-group="0" aria-pressed="false" onclick="changeGrouping('0')" title="{{ t('topo.group_none_title') }}">{{ t('topo.group_none') }}</button>
+                        </div>
+                    </div>
+                    <div class="tcp-note" id="groupNote" hidden></div>
+                    <div class="tcp-row tcp-row-static" id="layoutRow">
+                        <span class="tcp-label">{{ t('topo.set_layout') }}</span>
+                        <div class="tcp-seg" role="group" aria-label="{{ t('topo.layout_aria') }}">
+                            <button type="button" class="topo-layout-btn" data-layout="tree" aria-pressed="true" onclick="changeLayout('tree')"
+                                    title="{{ t('topo.layout_tree_title') }}">
+                                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+                                    <circle cx="8" cy="3" r="1.6" fill="currentColor"/>
+                                    <path d="M8 4.6V8M3 8h10M3 8v2.4M8 8v2.4M13 8v2.4"/>
+                                    <circle cx="3" cy="12" r="1.6" fill="currentColor"/><circle cx="8" cy="12" r="1.6" fill="currentColor"/><circle cx="13" cy="12" r="1.6" fill="currentColor"/>
+                                </svg>
+                                {{ t('topo.layout_tree') }}
+                            </button>
+                            <button type="button" class="topo-layout-btn" data-layout="star" aria-pressed="false" onclick="changeLayout('star')"
+                                    title="{{ t('topo.layout_star_title') }}">
+                                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M8 8 8 2.6M8 8l4.7-2.7M8 8l4.7 2.7M8 8v5.4M8 8l-4.7 2.7M8 8 3.3 5.3"/>
+                                    <circle cx="8" cy="8" r="1.6" fill="currentColor"/>
+                                    <circle cx="8" cy="2.2" r="1.2" fill="currentColor"/><circle cx="13" cy="5" r="1.2" fill="currentColor"/><circle cx="13" cy="11" r="1.2" fill="currentColor"/>
+                                    <circle cx="8" cy="13.8" r="1.2" fill="currentColor"/><circle cx="3" cy="11" r="1.2" fill="currentColor"/><circle cx="3" cy="5" r="1.2" fill="currentColor"/>
+                                </svg>
+                                {{ t('topo.layout_star') }}
+                            </button>
+                        </div>
+                    </div>
+                    <button type="button" class="tcp-row" role="switch" id="floatToggle" aria-checked="true" onclick="toggleFloat()" title="{{ t('topo.float_title') }}">
+                        <span class="tcp-label">{{ t('topo.float_label') }}</span><span class="tcp-sw" aria-hidden="true"></span>
+                    </button>
+                    <div class="tcp-note" id="floatNote" hidden></div>
+                </div>
+                <div class="tcp-group">
+                    <div class="tcp-group-title">{{ t('topo.set_group_display') }}</div>
+                    <button type="button" class="tcp-row" role="switch" aria-checked="true" data-setting="dots" title="{{ t('topo.set_dots_tip') }}">
+                        <span class="tcp-label">{{ t('topo.set_dots') }}</span><span class="tcp-sw" aria-hidden="true"></span>
+                    </button>
+                    <div class="tcp-row tcp-row-static" title="{{ t('topo.set_dots_by_tip') }}">
+                        <span class="tcp-label">{{ t('topo.set_dots_by') }}</span>
+                        <div class="tcp-seg" role="group" aria-label="{{ t('topo.set_dots_by') }}">
+                            <button type="button" class="tcp-dots-btn" data-dotsby="ports" aria-pressed="true">{{ t('topo.set_dots_by_ports') }}</button>
+                            <button type="button" class="tcp-dots-btn" data-dotsby="risk" aria-pressed="false">{{ t('topo.set_dots_by_risk') }}</button>
+                        </div>
+                    </div>
+                    <button type="button" class="tcp-row" role="switch" aria-checked="true" data-setting="highlight" title="{{ t('topo.set_highlight_tip') }}">
+                        <span class="tcp-label">{{ t('topo.set_highlight') }}</span><span class="tcp-sw" aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="tcp-row" role="switch" aria-checked="true" data-setting="localhost" title="{{ t('topo.set_localhost_tip') }}">
+                        <span class="tcp-label">{{ t('topo.set_localhost') }}</span><span class="tcp-sw" aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="tcp-row" role="switch" aria-checked="true" data-setting="internet" title="{{ t('topo.set_internet_tip') }}">
+                        <span class="tcp-label">{{ t('topo.set_internet') }}</span><span class="tcp-sw" aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="tcp-row" role="switch" aria-checked="false" data-setting="publicIp" title="{{ t('topo.set_public_ip_tip') }}">
+                        <span class="tcp-label">{{ t('topo.set_public_ip') }}</span><span class="tcp-sw" aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="tcp-row" role="switch" aria-checked="true" data-setting="tooltips" title="{{ t('topo.set_tooltips_tip') }}">
+                        <span class="tcp-label">{{ t('topo.set_tooltips') }}</span><span class="tcp-sw" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <div class="tcp-foot">
+                    <button type="button" class="tcp-reset" onclick="resetTopoSettings()">{{ t('topo.set_reset') }}</button>
+                </div>
+            </div>
+
             <!-- Zoom Controls -->
             <div class="topo-zoom-controls">
-                <button class="topo-zoom-btn" onclick="resetZoom()" title="Reset Zoom">
+                <button class="topo-zoom-btn" onclick="resetZoom()" title="{{ t('topo.reset_zoom_title') }}">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M15 3h6v6"></path>
                         <path d="M9 21H3v-6"></path>
                         <path d="M21 3l-7 7"></path>
                         <path d="M3 21l7-7"></path>
                     </svg>
-                    Reset Zoom
+                    {{ t('topo.reset_zoom') }}
                 </button>
-                <button class="topo-zoom-btn" onclick="resetLayoutPositions()" title="คืนตำแหน่งอุปกรณ์ทั้งหมดกลับไปที่เดิม (ใช้เมื่อลากจนจัดเรียงเละ)">
+                <button class="topo-zoom-btn" onclick="resetLayoutPositions()" title="{{ t('topo.reset_pos_title') }}">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M3 12a9 9 0 1 0 3-6.7"></path>
                         <path d="M3 4v5h5"></path>
                     </svg>
-                    Reset Position
+                    {{ t('topo.reset_pos') }}
                 </button>
             </div>
 
             <!-- vis-network canvas -->
-            <div id="topoCanvas" style="width:100%;height:100%;background:#ffffff;cursor:default;"></div>
-
-            <!-- hint overlay -->
-            <div id="diagram-hint">🖱️ คลิกที่ node อุปกรณ์ในกราฟเพื่อดูรายละเอียด</div>
+            <div id="topoCanvas"></div>
 
             <!-- device pop-ups are added here when a device is clicked (see openNodePopup) -->
 
             <!-- Stats bar -->
             <div class="topo-stats-bar">
-                <div class="stat-pill">Hosts: <span id="statHosts">0</span></div>
-                <div class="stat-pill">Jobs: <span id="statJobs">0</span></div>
-                <div class="stat-pill">Open Ports: <span id="statPorts">0</span></div>
+                <!-- hint overlay -->
+                <div id="diagram-hint"><i class="ti ti-pointer" aria-hidden="true"></i> {{ t('topo.hint') }}</div>
+                <div class="topo-stat-row">
+                    <div class="stat-pill">{{ t('topo.stat_hosts') }} <span id="statHosts">0</span></div>
+                    <div class="stat-pill">{{ t('topo.stat_jobs') }} <span id="statJobs">0</span></div>
+                    <div class="stat-pill">{{ t('topo.stat_ports') }} <span id="statPorts">0</span></div>
+                    <div class="stat-pill" id="statDrawnPill" hidden>{{ t('topo.stat_drawn') }} <span id="statDrawn">0</span></div>
+                </div>
             </div>
 
             <!-- Empty state -->
             <div class="topo-empty" id="topoEmpty" style="display:none;">
                 <div class="icon"><i class="ti ti-search"></i></div>
-                <p>ไม่มีข้อมูลที่ตรงกับ Filter</p>
+                <p>{{ t('topo.empty') }}</p>
             </div>
         </div>
     </div>
@@ -553,14 +1011,140 @@
 // ─── Raw scan data from Flask ───
 const ALL_SCANS = {{ scans_json | safe }};
 const SYSTEM_GATEWAY = {{ (system_gateway or {}) | tojson }};
+const TOPO_LANG = {{ ui_lang | tojson }};
+const TOPO_T = {
+    jobPrefix: {{ t('topo.js.job_prefix') | tojson }},
+    portOpen: {{ t('topo.js.port_open') | tojson }},
+    portNotOpen: {{ t('topo.js.port_not_open') | tojson }},
+    internetTitle: {{ t('topo.js.internet_title') | tojson }},
+    internetLabel: {{ t('topo.js.internet_label') | tojson }},
+    internetPubScan: {{ t('topo.js.internet_pub_scan') | tojson }},
+    internetPubLive: {{ t('topo.js.internet_pub_live') | tojson }},
+    clickInspect: {{ t('topo.js.click_inspect') | tojson }},
+    lblType: {{ t('topo.js.lbl_type') | tojson }},
+    valSegment: {{ t('topo.js.val_segment') | tojson }},
+    lblSubnet: {{ t('topo.js.lbl_subnet') | tojson }},
+    lblDevices: {{ t('topo.js.lbl_devices') | tojson }},
+    lblRouter: {{ t('topo.js.lbl_router') | tojson }},
+    valNoRouter: {{ t('topo.js.val_no_router') | tojson }},
+    lblInetLink: {{ t('topo.js.lbl_inet_link') | tojson }},
+    valNotVerified: {{ t('topo.js.val_not_verified') | tojson }},
+    lblNote: {{ t('topo.js.lbl_note') | tojson }},
+    lblRole: {{ t('topo.js.lbl_role') | tojson }},
+    valRoleLocal: {{ t('topo.js.val_role_local') | tojson }},
+    valRoleSubnet: {{ t('topo.js.val_role_subnet') | tojson }},
+    lblIp: {{ t('topo.js.lbl_ip') | tojson }},
+    lblIdentifiedBy: {{ t('topo.js.lbl_identified_by') | tojson }},
+    lblInScan: {{ t('topo.js.lbl_in_scan') | tojson }},
+    valYes: {{ t('topo.js.val_yes') | tojson }},
+    valNoSysroute: {{ t('topo.js.val_no_sysroute') | tojson }},
+    lblName: {{ t('topo.js.lbl_name') | tojson }},
+    lblMac: {{ t('topo.js.lbl_mac') | tojson }},
+    valUnknown: {{ t('topo.js.val_unknown') | tojson }},
+    lblVendor: {{ t('topo.js.lbl_vendor') | tojson }},
+    lblOs: {{ t('topo.js.lbl_os') | tojson }},
+    lblPorts: {{ t('topo.js.lbl_ports') | tojson }},
+    lblMacSrc: {{ t('topo.js.lbl_mac_src') | tojson }},
+    valArpCache: {{ t('topo.js.val_arp_cache') | tojson }},
+    lblThisIp: {{ t('topo.js.lbl_this_ip') | tojson }},
+    lblMetric: {{ t('topo.js.lbl_metric') | tojson }},
+    lblIpv4: {{ t('topo.js.lbl_ipv4') | tojson }},
+    lblIpv6: {{ t('topo.js.lbl_ipv6') | tojson }},
+    valNa: {{ t('topo.js.val_na') | tojson }},
+    valVmPrefix: {{ t('topo.js.val_vm_prefix') | tojson }},
+    tabDetail: {{ t('topo.js.tab_detail') | tojson }},
+    tabPort: {{ t('topo.js.tab_port') | tojson }},
+    colPort: {{ t('topo.js.col_port') | tojson }},
+    colState: {{ t('topo.js.col_state') | tojson }},
+    colService: {{ t('topo.js.col_service') | tojson }},
+    colVersion: {{ t('topo.js.col_version') | tojson }},
+    noOpenPorts: {{ t('topo.js.no_open_ports') | tojson }},
+    stateUnknown: {{ t('topo.js.state_unknown') | tojson }},
+    states: {
+        'open': {{ t('device.state.open') | tojson }},
+        'closed': {{ t('device.state.closed') | tojson }},
+        'filtered': {{ t('device.state.filtered') | tojson }},
+        'unfiltered': {{ t('device.state.unfiltered') | tojson }},
+        'open|filtered': {{ t('device.state.open|filtered') | tojson }},
+        'closed|filtered': {{ t('device.state.closed|filtered') | tojson }}
+    },
+    closeLabel: {{ t('common.close') | tojson }},
+    nDevices: {{ t('topo.n_devices') | tojson }},
+    bubbleMatch: {{ t('topo.bubble_match') | tojson }},
+    bubbleHint: {{ t('topo.bubble_hint') | tojson }},
+    badgeExpand: {{ t('topo.badge_expand') | tojson }},
+    badgeCollapse: {{ t('topo.badge_collapse') | tojson }},
+    bubbleAuto: {{ t('topo.bubble_auto') | tojson }},
+    floatPaused: {{ t('topo.float_paused') | tojson }},
+    groupNoneNote: {{ t('topo.group_none_note') | tojson }},
+    groupNoneSlow: {{ t('topo.group_none_slow') | tojson }},
+    actExpand: {{ t('topo.act_expand') | tojson }},
+    actCollapse: {{ t('topo.act_collapse') | tojson }},
+    actDevicePage: {{ t('topo.act_device_page') | tojson }},
+    lblOsConf: {{ t('topo.js.lbl_os_conf') | tojson }},
+    lblRisk: {{ t('topo.js.lbl_risk') | tojson }},
+    valNotChecked: {{ t('topo.js.val_not_checked') | tojson }},
+    lblChange: {{ t('topo.js.lbl_change') | tojson }},
+    valNewDetail: {{ t('topo.js.val_new_detail') | tojson }},
+    valMissingDetail: {{ t('topo.js.val_missing_detail') | tojson }},
+    markNew: {{ t('topo.mark_new') | tojson }},
+    markMissing: {{ t('topo.mark_missing') | tojson }},
+    chgNew: {{ t('topo.chg_new') | tojson }},
+    chgMissing: {{ t('topo.chg_missing') | tojson }},
+    legendLow: {{ t('topo.legend_low') | tojson }},
+    legendMid: {{ t('topo.legend_mid') | tojson }},
+    legendHigh: {{ t('topo.legend_high') | tojson }},
+    tier: {
+        critical: {{ t('topo.tier_critical') | tojson }}, high: {{ t('topo.tier_high') | tojson }}, medium: {{ t('topo.tier_medium') | tojson }},
+        low: {{ t('topo.tier_low') | tojson }}, clean: {{ t('topo.tier_clean') | tojson }}, unknown: {{ t('topo.tier_unknown') | tojson }}
+    },
+    osFamily: {
+        Windows: {{ t('topo.os_Windows') | tojson }}, Linux: {{ t('topo.os_Linux') | tojson }}, Apple: {{ t('topo.os_Apple') | tojson }},
+        Android: {{ t('topo.os_Android') | tojson }}, Other: {{ t('topo.os_Other') | tojson }}, Unknown: {{ t('topo.os_Unknown') | tojson }}
+    },
+    devStatus: {{ t('topo.dev_status') | tojson }},
+    devStatusHidden: {{ t('topo.dev_status_hidden') | tojson }},
+    devSearchNone: {{ t('topo.dev_search_none') | tojson }},
+    devSearchMore: {{ t('topo.dev_search_more') | tojson }},
+    devSearchCollapsed: {{ t('topo.dev_search_collapsed') | tojson }},
+    hint: {{ t('topo.hint') | tojson }},
+    hintBubble: {{ t('topo.hint_bubble') | tojson }}
+};
 let subnetPrefix = 24;
 const LAYOUT_KEY = {{ ('clylar.topology.layout.' ~ current_user.id) | tojson }};
+const RELOAD_STATE_KEY = {{ ('clylar.topology.reloadState.' ~ current_user.id) | tojson }};
 let topologyLayout = 'tree';
 const FLOAT_KEY = {{ ('clylar.topology.float.' ~ current_user.id) | tojson }};
 let topologyFloat = true;          // the springs and the drift; off = the plain diagram where every device is dragged freely
 try { if (localStorage.getItem(FLOAT_KEY) === 'off') topologyFloat = false; } catch (e) { /* storage blocked: float stays on */ }
 try { if (localStorage.getItem(LAYOUT_KEY) === 'star') topologyLayout = 'star'; } catch (e) { /* storage blocked: start with the tree */ }
+const GROUP_KEY = {{ ('clylar.topology.group.' ~ current_user.id) | tojson }};      // 'none' = no grouping, '16' = subnets of /16, anything else = /24
+try { const g = localStorage.getItem(GROUP_KEY); if (g === 'none') subnetPrefix = 0; else if (g === '16') subnetPrefix = 16; } catch (e) { /* storage blocked: group by /24 */ }
 let currentSubnets = [];
+
+// ─── Diagram settings (the cog in the header) ───
+// Float and Tree / Star keep their own keys above. Every other switch is a boolean in ONE JSON object under DISPLAY_KEY.
+// To add a switch: one entry here, one row with data-setting in the panel, and its words in locales/*/topology.json.
+const DISPLAY_KEY = {{ ('clylar.topology.display.' ~ current_user.id) | tojson }};
+const TOPO_SETTINGS = {
+    grid:      { def: true, apply: () => { if (visNetwork) visNetwork.redraw(); } },                  // drawn by drawTopoGrid()
+    dots:      { def: true, apply: () => refreshLooks() },                                          // the dot before each IP, and the legend
+    highlight: { def: true, apply: () => { if (visNetwork && visNetwork.__setHighlight) visNetwork.__setHighlight(displaySettings.highlight); } },
+    localhost: { def: true, apply: () => buildAndDraw() },                                           // 127.x.x.x hosts are skipped in buildGraphData()
+    internet:  { def: true, apply: () => applyInternetNode() },                                       // the Internet symbol and its links
+    publicIp:  { def: false, apply: () => { if (displaySettings.publicIp) ensureLivePublicIp(); applyInternetNode(); } }, // hidden by default for privacy
+    tooltips:  { def: true, apply: () => {} },                                                       // vis-network's hover boxes; syncSettingsPanel() sets the class no-tips that hides them
+    dotsBy:    { def: 'ports', values: ['ports', 'risk'], apply: () => refreshLooks() }   // what the dot before each IP shows: open ports or CVE risk
+};
+const displaySettings = {};
+(function loadDisplaySettings() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(DISPLAY_KEY) || '{}') || {}; } catch (e) { saved = {}; /* storage blocked or damaged: defaults */ }
+    Object.keys(TOPO_SETTINGS).forEach(key => {
+        const spec = TOPO_SETTINGS[key];
+        displaySettings[key] = (typeof saved[key] === typeof spec.def && (!spec.values || spec.values.indexOf(saved[key]) >= 0)) ? saved[key] : spec.def;
+    });
+})();
 
 // Which device is the router of a subnet is decided by SubnetTopology.detectGateway (static/js/subnet-topology.js), from evidence only.
 
@@ -577,6 +1161,46 @@ let selectedJobs  = new Set();
 let allDates      = [];
 let allJobs       = [];
 let visNetwork    = null;
+let livePublicIp  = '';
+let livePublicIpFetched = false;
+let currentFilteredScans = [];
+
+function resolvePublicIpInfo(scans) {
+    const list = Array.isArray(scans) ? scans : [];
+    // Prefer the newest filtered scan that recorded its own public IP snapshot (exact historical accuracy)
+    const snap = list.find(s => s && s.public_ip);
+    if (snap) return { ip: snap.public_ip, source: 'scan' };
+    // Never stamp this computer's live WAN IP onto an external XML upload
+    if (list.length > 0 && list.every(s => s && s.scan_type === 'xml_upload')) return { ip: '', source: '' };
+    if (livePublicIp) return { ip: livePublicIp, source: 'live' };
+    return { ip: '', source: '' };
+}
+
+function internetNodeMeta(scans) {
+    const info = displaySettings.publicIp ? resolvePublicIpInfo(scans) : { ip: '', source: '' };
+    if (!info.ip) return { label: TOPO_T.internetLabel, title: TOPO_T.internetTitle };
+    const line = (info.source === 'scan' ? TOPO_T.internetPubScan : TOPO_T.internetPubLive).replace('{ip}', info.ip);
+    return {
+        label: TOPO_T.internetLabel + '\n' + info.ip,
+        title: TOPO_T.internetTitle + '\n' + line,
+    };
+}
+
+// Fetch this machine's current outbound public IP asynchronously only when the user enables Public IP display
+function ensureLivePublicIp() {
+    if (livePublicIpFetched) return;
+    livePublicIpFetched = true;
+    fetch('/api/network/public-ip', { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+            if (d && d.public_ip) {
+                livePublicIp = String(d.public_ip).trim();
+                applyInternetNode();
+            }
+        })
+        .catch(() => {});
+}
+if (displaySettings.publicIp) ensureLivePublicIp();
 
 // ─── Device SVG icons (same as scan_detail) ───
 const CISCO_ICONS = {
@@ -698,11 +1322,41 @@ const CISCO_ICONS = {
   </svg>`
 };
 
-// Convert SVG → base64 data URI
-const ICON_URI = {};
+// Convert SVG → base64 data URI for both Light and Dark ("Midnight NOC") themes
+const isDarkTheme = () => document.documentElement.getAttribute('data-theme') === 'dark';
 function svgToDataUri(s) { return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(s))); }
-for (const [k,v] of Object.entries(CISCO_ICONS)) { ICON_URI[k] = svgToDataUri(v); }
-const CORE_NETWORK_ICON = svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70"><g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 44 Q10 44 10 38 Q10 30 18 30 Q18 22 26 20 Q34 14 44 20 Q52 18 56 26 Q64 26 64 36 Q64 44 56 44 Z" fill="#d6ecf8"/><path d="M28 56 Q32 50 40 50 Q48 50 52 56" stroke-width="2"/><path d="M32 62 Q36 58 40 58 Q44 58 48 62" stroke-width="2"/></g></svg>`);
+function themeCiscoSvg(svg, key, dark) {
+    if (!dark) return svg;
+    const isHub = key === 'router' || key === 'gateway';
+    const stroke = isHub ? '#7dd3fc' : '#38bdf8';
+    const fill = isHub ? '#123352' : '#0f2942';
+    let out = svg
+        .replaceAll('#eaf5fc', '#0f2942')
+        .replaceAll('#d6ecf8', fill)
+        .replaceAll('#4a9fd4', stroke)
+        .replaceAll('#f0a500', '#f59e0b')
+        .replaceAll('#c87800', '#b45309')
+        .replaceAll('stroke="#ffffff"', 'stroke="#38bdf8"');
+    // Keep 1px eye sparkle crisp-pale (#e0f2fe) while making inner screen/belly cutouts deep navy (#091a2c)
+    out = out
+        .replaceAll('r="1" fill="#ffffff"', 'r="1" fill="#e0f2fe"')
+        .replaceAll('fill="#ffffff"', 'fill="#091a2c"');
+    return out;
+}
+const ICON_SETS = { light: {}, dark: {} };
+for (const [k, v] of Object.entries(CISCO_ICONS)) {
+    ICON_SETS.light[k] = svgToDataUri(v);
+    ICON_SETS.dark[k]  = svgToDataUri(themeCiscoSvg(v, k, true));
+}
+const CORE_NETWORK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70"><g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 44 Q10 44 10 38 Q10 30 18 30 Q18 22 26 20 Q34 14 44 20 Q52 18 56 26 Q64 26 64 36 Q64 44 56 44 Z" fill="#d6ecf8"/><path d="M28 56 Q32 50 40 50 Q48 50 52 56" stroke-width="2"/><path d="M32 62 Q36 58 40 58 Q44 58 48 62" stroke-width="2"/></g></svg>`;
+const CORE_ICONS = {
+    light: svgToDataUri(CORE_NETWORK_SVG),
+    dark:  svgToDataUri(
+        CORE_NETWORK_SVG
+            .replaceAll('#4a9fd4', '#7dd3fc')
+            .replaceAll('#d6ecf8', '#123352')
+    )
+};
 
 function osIconKey(osStr) {
     if (!osStr) return 'unknown';     // no OS known: the "?" monitor, never a plain one (a plain monitor read as "a PC")
@@ -750,7 +1404,8 @@ function osGlyph(osStr) {
     return GLYPHS.monitor;
 }
 function osHeaderColor(osStr) {
-    if (!osStr) return { bg:'#2c3e50', fg:'#ecf0f1' };
+    const dark = isDarkTheme();
+    if (!osStr) return { bg: dark ? '#0c4a6e' : '#2c3e50', fg: '#ecf0f1' };
     const s = osStr.toLowerCase();
     if (s.includes('windows')) return { bg:'#0078d7', fg:'#ffffff' };
     if (s.includes('android')) return { bg:'#3ddc84', fg:'#000000' };
@@ -758,7 +1413,7 @@ function osHeaderColor(osStr) {
     if (s.includes('mac')||s.includes('darwin')) return { bg:'#555555', fg:'#ffffff' };
     if (s.includes('cisco')||s.includes('router')||s.includes('switch')) return { bg:'#007ecc', fg:'#ffffff' };
     if (s.includes('android')) return { bg:'#3ddc84', fg:'#000000' };
-    return { bg:'#2c3e50', fg:'#ecf0f1' };
+    return { bg: dark ? '#0c4a6e' : '#2c3e50', fg: '#ecf0f1' };
 }
 function portDotColor(portCount) {
     if (portCount <= 2)   return '#2ecc71';
@@ -767,22 +1422,61 @@ function portDotColor(portCount) {
 }
 
 // ─── Filter Logic ───
+function stableNodeKey(node) {
+    if (!node) return null;
+    if (node.id === 0) return '0';
+    if (node._isGateway && node._gwIp) return 'gw:' + (node._subnet || '') + ':' + node._gwIp;
+    if (node._isSegment && node._subnet) return 'seg:' + node._subnet;
+    if (node._device && node._device.ip) return 'host:' + node._device.ip;
+    return null;
+}
+function consumeReloadState() {
+    try {
+        const raw = sessionStorage.getItem(RELOAD_STATE_KEY);
+        if (!raw) return null;
+        sessionStorage.removeItem(RELOAD_STATE_KEY);
+        return JSON.parse(raw);
+    } catch (e) {
+        return null;
+    }
+}
 function init() {
     const dateSet = new Set();
     const jobMap  = {};
     ALL_SCANS.forEach(s => {
         dateSet.add(s.date);
         if (!jobMap[s.job_id]) {
-            jobMap[s.job_id] = { id: s.job_id, name: s.job_name || `Job #${s.job_id}`, scan_type: s.scan_type, count: 0 };
+            jobMap[s.job_id] = { id: s.job_id, name: s.job_name || `${TOPO_T.jobPrefix}${s.job_id}`, scan_type: s.scan_type, count: 0 };
         }
         jobMap[s.job_id].count += s.hosts ? s.hosts.length : 0;
     });
     allDates = [...dateSet].sort().reverse();
     allJobs  = Object.values(jobMap);
-    allDates.forEach(d => selectedDates.add(d));
-    allJobs.forEach(j => selectedJobs.add(j.id));
+    const savedState = consumeReloadState();
+    if (savedState && Array.isArray(savedState.subnetChoice)) {
+        savedState.subnetChoice.forEach(e => { if (Array.isArray(e) && (e[1] === 'open' || e[1] === 'closed')) subnetChoice.set(String(e[0]), e[1]); });
+        if (Array.isArray(savedState.subnetFrozen)) savedState.subnetFrozen.forEach(k => { if (subnetChoice.has(String(k))) subnetFrozen.add(String(k)); });
+    }
+    if (savedState && Array.isArray(savedState.selectedDates)) {
+        const validDates = new Set(allDates);
+        selectedDates = new Set(savedState.selectedDates.filter(d => validDates.has(d)));
+    } else {
+        allDates.forEach(d => selectedDates.add(d));
+    }
+    if (savedState && Array.isArray(savedState.selectedJobs)) {
+        const validJobs = new Set(allJobs.map(j => j.id));
+        selectedJobs = new Set(savedState.selectedJobs.filter(id => validJobs.has(id)));
+    } else {
+        allJobs.forEach(j => selectedJobs.add(j.id));
+    }
+    if (savedState && savedState.quickMode !== undefined) {
+        document.querySelectorAll('.qf-btn').forEach(b => b.classList.remove('active'));
+        if (savedState.quickMode && document.getElementById(savedState.quickMode)) {
+            document.getElementById(savedState.quickMode).classList.add('active');
+        }
+    }
     renderFilterPanels();
-    buildAndDraw();
+    buildAndDraw(savedState);
 }
 
 function renderFilterPanels() {
@@ -804,11 +1498,13 @@ function renderFilterPanels() {
 
 function toggleDate(date, checked) {
     if (checked) selectedDates.add(date); else selectedDates.delete(date);
+    forgetFrozen();
     buildAndDraw();
 }
 function toggleJob(id, el) {
     if (selectedJobs.has(id)) { selectedJobs.delete(id); el.classList.remove('selected'); }
     else { selectedJobs.add(id); el.classList.add('selected'); }
+    forgetFrozen();
     buildAndDraw();
 }
 function quickFilter(mode) {
@@ -829,6 +1525,7 @@ function quickFilter(mode) {
         document.getElementById('btnWeek').classList.add('active');
     }
     renderFilterPanels();
+    forgetFrozen();
     buildAndDraw();
 }
 function resetFilters() {
@@ -847,8 +1544,552 @@ const isOpenPort = p => String((p && p.state) || '').toLowerCase() === 'open';
 const openPortCount = d => (d.ports || []).filter(isOpenPort).length;
 const portSummary = d => {
     const open = openPortCount(d), other = (d.ports || []).length - open;
-    return open + ' open' + (other ? ' · ' + other + ' not open' : '');
+    return open + ' ' + TOPO_T.portOpen + (other ? ' · ' + other + ' ' + TOPO_T.portNotOpen : '');
 };
+
+// ─── Big networks (2026-11-16): subnet bubbles, a limit on drawn devices, search, filters, marks and risk colour ───
+// docs/topology-plan.md, "Measurements": about 150 drawn devices stay smooth, so above that the biggest subnets start as ONE bubble each
+// (double-click, or the button in its pop-up, opens one) and Float pauses by itself. What the user opens or closes is remembered for the session.
+const DRAW_BUDGET = 150, FLOAT_AUTO_MAX = 150;
+const TIER_COLOR = {{ device_tier_color | tojson }};        // the dashboard's six device colours (DEVICE_TIER_COLOR in app.py)
+const OS_FAMILIES = ['Windows', 'Linux', 'Apple', 'Android', 'Other', 'Unknown'];
+const MARK_NEW_COLOR = '#2563eb', MARK_MISSING_COLOR = '#334155';
+const subnetChoice = new Map();        // subnet key -> 'open' | 'closed'; every subnet the user did not touch follows the limit
+const subnetFrozen = new Set();        // the keys of subnetChoice that were NOT chosen by the user but recorded when he opened or closed another subnet (see rememberPlan)
+let currentHosts = [], currentHostsBySubnet = {}, currentPlan = { collapsed: {}, sizes: {} }, currentNodesData = [];
+const deviceFilter = { os: new Set(), port: '', change: new Set() };
+
+const byId = id => document.getElementById(id);
+const subnetKeyOf = ip => subnetPrefix ? SubnetTopology.groupKey(ip, subnetPrefix) : 'all';
+const ipSortKey = ip => String(ip).split('.').map(n => n.padStart(3, '0')).join('.');
+const toggleSet = (set, value) => { if (set.has(value)) set.delete(value); else set.add(value); };
+
+function groupBySubnet(hosts) {
+    const out = {};
+    hosts.forEach(h => { const k = subnetKeyOf(h.ip); (out[k] = out[k] || []).push(h); });
+    return out;
+}
+
+// Which subnets are drawn as one bubble. What the user chose wins; then the biggest subnets the user did not open collapse until the number
+// of drawn devices fits the limit. A subnet of one device is never collapsed (a bubble would save nothing).
+function planCollapse(hosts) {
+    const collapsed = {}, by = groupBySubnet(hosts), sizes = {};
+    Object.keys(by).forEach(k => { sizes[k] = by[k].length; });
+    if (!subnetPrefix) return { collapsed, sizes };
+    let drawn = hosts.length;
+    Object.keys(sizes).forEach(k => { if (subnetChoice.get(k) === 'closed' && sizes[k] > 1) { collapsed[k] = true; drawn -= sizes[k]; } });
+    Object.keys(sizes).filter(k => !collapsed[k] && subnetChoice.get(k) !== 'open' && sizes[k] > 1)
+        .sort((a, b) => sizes[b] - sizes[a] || (a < b ? -1 : 1))
+        .forEach(k => { if (drawn > DRAW_BUDGET) { collapsed[k] = true; drawn -= sizes[k]; } });
+    return { collapsed, sizes };
+}
+
+// Once the user opens or closes a subnet by hand, every OTHER subnet keeps the state it has on screen: without this, opening one subnet pushed
+// the drawn total over the limit and the limit then collapsed another subnet that had just been drawn open. The recorded states are not the
+// user's choices (subnetFrozen): they are forgotten when the selected scans change, and a subnet that was collapsed by the limit still says so.
+function rememberPlan() {
+    Object.keys(currentPlan.sizes || {}).forEach(k => {
+        if (subnetChoice.has(k)) return;
+        subnetChoice.set(k, currentPlan.collapsed[k] ? 'closed' : 'open');
+        subnetFrozen.add(k);
+    });
+}
+function forgetFrozen() {
+    subnetFrozen.forEach(k => subnetChoice.delete(k));
+    subnetFrozen.clear();
+}
+const collapsedByLimit = key => !!currentPlan.collapsed[key] && (subnetChoice.get(key) !== 'closed' || subnetFrozen.has(key));
+
+// "New in the latest scan" / "not in the latest scan": only ever against the scan before it OF THE SAME KIND (same target, same scan type, same
+// options: the server's `group` key, scan_diff.comparable_key), and only among the scans that are selected. A device that is missing is "not
+// seen", never "gone": it may block ping or have been off. `filtered` is newest first.
+function computeMarks(filtered) {
+    const byKind = new Map();
+    filtered.forEach(sc => { if (sc.group) { if (!byKind.has(sc.group)) byKind.set(sc.group, []); byKind.get(sc.group).push(sc); } });
+    const marks = new Map(), seenLatest = new Set();
+    byKind.forEach(scans => {
+        const latest = scans[0], prev = scans[1];
+        const now = new Set((latest.hosts || []).map(h => h.ip).filter(Boolean));
+        now.forEach(ip => seenLatest.add(ip));
+        if (!prev) return;
+        const before = new Set((prev.hosts || []).map(h => h.ip).filter(Boolean));
+        now.forEach(ip => { if (!before.has(ip)) marks.set(ip, { kind: 'new', latest: latest.job_name, prev: prev.job_name }); });
+        before.forEach(ip => { if (!now.has(ip) && !marks.has(ip)) marks.set(ip, { kind: 'missing', latest: latest.job_name, prev: prev.job_name }); });
+    });
+    marks.forEach((m, ip) => { if (m.kind === 'missing' && seenLatest.has(ip)) marks.delete(ip); });     // the latest scan of another kind did see it
+    return marks;
+}
+
+function filtersActive() { return deviceFilter.os.size > 0 || deviceFilter.change.size > 0 || deviceFilter.port.trim() !== ''; }
+function hostMatches(h) {
+    if (deviceFilter.os.size && !deviceFilter.os.has(h.os_family)) return false;
+    if (deviceFilter.change.size && !(h.mark && deviceFilter.change.has(h.mark.kind))) return false;
+    const tokens = deviceFilter.port.toLowerCase().split(/[\s,;]+/).filter(Boolean);
+    if (tokens.length) {
+        const open = (h.ports || []).filter(isOpenPort);
+        const hit = tokens.some(t => open.some(p => /^\d+$/.test(t)
+            ? String(p.port) === t
+            : String(p.name || '').toLowerCase().includes(t) || String(p.version_info || '').toLowerCase().includes(t)));
+        if (!hit) return false;
+    }
+    return true;
+}
+
+// ─── how a device looks: the dot (open ports or risk), the mark under the IP, and the fade ───
+function dotColorFor(device) {
+    if (displaySettings.dotsBy === 'risk') return TIER_COLOR[device.tier && device.tier !== 'unknown' ? device.tier : 'unscanned'] || TIER_COLOR.unscanned;
+    return portDotColor(openPortCount(device));
+}
+function hostLabel(device) {
+    let label = displaySettings.dots ? `<b>●</b> ${device.ip}` : String(device.ip);
+    if (device.mark) label += '\n<i>' + (device.mark.kind === 'new' ? TOPO_T.markNew : TOPO_T.markMissing) + '</i>';
+    return label;
+}
+function deviceLook(device) {
+    const dimmed = filtersActive() && !hostMatches(device), missing = device.mark && device.mark.kind === 'missing';
+    return { opacity: dimmed ? 0.3 : (missing ? 0.72 : 1), dot: dotColorFor(device),
+             markColor: device.mark && device.mark.kind === 'new' ? MARK_NEW_COLOR : MARK_MISSING_COLOR };
+}
+function bubbleBreakdown(hostsIn) {
+    if (displaySettings.dotsBy === 'risk') {
+        const c = {};
+        hostsIn.forEach(h => { const t = h.tier || 'unknown'; c[t] = (c[t] || 0) + 1; });
+        return ['critical', 'high', 'medium', 'low', 'clean', 'unknown'].filter(t => c[t]).map(t => TOPO_T.tier[t] + ' ' + c[t]).join(' · ');
+    }
+    const c = [0, 0, 0];
+    hostsIn.forEach(h => { const n = openPortCount(h); c[n <= 2 ? 0 : n <= 6 ? 1 : 2]++; });
+    return [TOPO_T.legendLow + ' ' + c[0], TOPO_T.legendMid + ' ' + c[1], TOPO_T.legendHigh + ' ' + c[2]].join(' · ');
+}
+function bubbleText(n) {
+    const hostsIn = currentHostsBySubnet[n._subnet] || [];
+    let label = n._baseLabel + '\n' + TOPO_T.nDevices.replace('{n}', n._count);
+    if (filtersActive()) label += ' · ' + TOPO_T.bubbleMatch.replace('{n}', hostsIn.filter(hostMatches).length);
+    const head = (n._isGateway ? TOPO_T.lblRouter + ' ' + n._gwIp + ' · ' : '') + n._subnet;
+    return { label, title: [head, TOPO_T.nDevices.replace('{n}', n._count), bubbleBreakdown(hostsIn), TOPO_T.bubbleHint].join('\n') };
+}
+function bubbleIcon(count) {
+    const dark = isDarkTheme(), txt = count >= 1000 ? (Math.round(count / 100) / 10) + 'k' : String(count), fs = txt.length >= 4 ? 34 : 42;
+    const fill = dark ? '#123352' : '#eaf5fc', edge = dark ? '#7dd3fc' : '#4a9fd4', ink = dark ? '#e0f2fe' : '#1e3a5f';
+    return svgToDataUri('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">'
+        + `<circle cx="50" cy="50" r="47" fill="${fill}" stroke="${edge}" stroke-width="3.5"/>`
+        + `<circle cx="50" cy="50" r="40" fill="none" stroke="${edge}" stroke-width="1.5" stroke-dasharray="3 4"/>`
+        + `<text x="50" y="${50 + fs * 0.36}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="700" font-size="${fs}" fill="${ink}">${txt}</text></svg>`);
+}
+// a bubble none of whose devices matches the filters fades like a device does
+function bubbleOpacity(n) { return (filtersActive() && !(currentHostsBySubnet[n._subnet] || []).some(hostMatches)) ? 0.35 : 1; }
+// A collapsed subnet is one bigger hub with its device count inside it and its name under it
+function styleBubbles(nodesData) {
+    nodesData.forEach(n => {
+        if (!n._collapsed || !(n._isSegment || n._isGateway)) return;
+        n._baseLabel = n.label;
+        n.image = bubbleIcon(n._count);      // at the zoom of a fitted big network a label is too small to draw, so the count is part of the picture
+        n.size = 46 + Math.min(24, Math.round(Math.sqrt(n._count) * 2));
+        n.opacity = bubbleOpacity(n);
+        const b = bubbleText(n);
+        n.label = b.label; n.title = b.title;
+        n.font = Object.assign({}, n.font, { size: 15 });      // a little larger than a device label: the bubble is what a zoomed-out view has to read
+    });
+}
+// Updates every drawn node in place (no rebuild): after a filter, the dot colour or the dots switch changes
+function refreshLooks() {
+    syncSettingsPanel();
+    if (visNetwork && visNetwork.body && visNetwork.body.data) {
+        const nodes = visNetwork.body.data.nodes, updates = [];
+        nodes.get().forEach(n => {
+            if (n.id === 0) return;
+            if (n._collapsed && (n._isSegment || n._isGateway)) {
+                const b = bubbleText(n);
+                updates.push({ id: n.id, label: b.label, title: b.title, opacity: bubbleOpacity(n) });
+            } else if (n._device && !n._isGateway && !n._isSegment) {
+                const look = deviceLook(n._device), font = n.font || {};
+                updates.push({ id: n.id, label: hostLabel(n._device), opacity: look.opacity,
+                    font: Object.assign({}, font, { bold: Object.assign({}, font.bold || {}, { color: look.dot }), ital: { color: look.markColor, size: 11, face: 'sans-serif', mod: '' } }) });
+            }
+        });
+        if (updates.length) nodes.update(updates);
+    }
+    updateFilterStatus();
+}
+
+// ─── pop-up pieces ───
+function subnetAction(node) {
+    const total = node._count || 0;
+    if (!node._subnet || !subnetPrefix || total < 2) return null;
+    return { subnet: node._subnet, open: !node._collapsed, count: total };
+}
+const deviceUrl = ip => '/devices/' + encodeURIComponent(ip);
+function osConfRows(dev) {
+    return (typeof dev.os_accuracy === 'number' && !isUnknownOs(dev.os)) ? [[TOPO_T.lblOsConf, dev.os_accuracy + '%']] : [];
+}
+function riskRows(dev) {
+    const rows = [];
+    if (dev.tier) rows.push([TOPO_T.lblRisk, (TOPO_T.tier[dev.tier] || dev.tier) + (dev.cve_count ? ' · ' + dev.cve_count + ' CVE' : '') + (dev.tier_job ? ' (' + dev.tier_job + ')' : '')]);
+    else rows.push([TOPO_T.lblRisk, TOPO_T.valNotChecked]);
+    if (dev.mark) rows.push([TOPO_T.lblChange, (dev.mark.kind === 'new' ? TOPO_T.valNewDetail : TOPO_T.valMissingDetail).replace('{latest}', dev.mark.latest).replace('{prev}', dev.mark.prev)]);
+    return rows;
+}
+function popupFootHtml(info) {
+    const parts = [];
+    if (info.action) {
+        parts.push(`<button type="button" class="np-action" data-subnet="${escHtml(info.action.subnet)}" data-want="${info.action.open ? 'closed' : 'open'}">`
+            + escHtml(info.action.open ? TOPO_T.actCollapse : TOPO_T.actExpand.replace('{n}', info.action.count)) + '</button>');
+    }
+    if (info.link) parts.push(`<a class="np-link" href="${escHtml(info.link)}" target="_blank" rel="noopener">${escHtml(TOPO_T.actDevicePage)}</a>`);
+    return parts.length ? `<div class="np-foot">${parts.join('')}</div>` : '';
+}
+
+// ─── the "+" / "−" badge on a subnet's hub: one click expands or collapses it (double-click and the pop-up button still work) ───
+// Drawn over the diagram (afterDrawing), at the hub's top-right edge, a constant size on screen; the same geometry answers the click and the hover.
+const BADGE_R = 10, BADGE_MIN_R = 6;     // screen pixels
+let badgeHubs = [];                      // [{id, subnet, open}] of the hubs that can be opened or closed, set by buildAndDraw
+let badgeHover = null;                   // hub id whose badge the mouse is on
+let hubHover = null;                     // hub id the mouse is over (the badge shows then at any zoom)
+const MINUS_FADE_FROM = .25, MINUS_FADE_TO = .35;      // the "−" of an open subnet fades in between these zoom levels; the "+" of a collapsed one is always shown
+function badgeAlpha(h) {
+    if (!h.open || badgeHover === h.id || hubHover === h.id) return 1;
+    return Math.max(0, Math.min(1, (visNetwork.getScale() - MINUS_FADE_FROM) / (MINUS_FADE_TO - MINUS_FADE_FROM)));
+}
+function badgeGeom(id) {
+    const vn = visNetwork && visNetwork.body && visNetwork.body.nodes[id];
+    if (!vn || !vn.options) return null;
+    const scale = visNetwork.getScale(), size = vn.options.size || 30;
+    const rs = Math.max(BADGE_MIN_R, Math.min(BADGE_R, size * scale * 0.42));
+    return { x: vn.x + size * 0.74, y: vn.y - size * 0.74, r: rs / scale, rs, opacity: typeof vn.options.opacity === 'number' ? vn.options.opacity : 1 };
+}
+function badgeAt(pt) {
+    if (!pt || !visNetwork) return null;
+    for (const h of badgeHubs) {
+        const g = badgeAlpha(h) >= .5 && badgeGeom(h.id);
+        if (g && Math.hypot(pt.x - g.x, pt.y - g.y) <= (g.rs + 3) / visNetwork.getScale()) return h;
+    }
+    return null;
+}
+function drawBadges(ctx) {
+    if (!visNetwork || !badgeHubs.length) return;
+    const dark = isDarkTheme(), scale = visNetwork.getScale();
+    badgeHubs.forEach(h => {
+        const g = badgeGeom(h.id), al = badgeAlpha(h);
+        if (!g || al < .03) return;
+        const hot = badgeHover === h.id;
+        ctx.save();
+        ctx.globalAlpha = g.opacity * al;
+        ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2);
+        ctx.fillStyle = hot ? (dark ? '#1e4f78' : '#dbeefa') : (dark ? '#123352' : '#ffffff');
+        ctx.fill();
+        ctx.lineWidth = 1.5 / scale; ctx.strokeStyle = dark ? '#7dd3fc' : '#4a9fd4'; ctx.stroke();
+        const a = g.r * 0.5;
+        ctx.lineWidth = 2 / scale; ctx.lineCap = 'round'; ctx.strokeStyle = dark ? '#e0f2fe' : '#1e3a5f';
+        ctx.beginPath(); ctx.moveTo(g.x - a, g.y); ctx.lineTo(g.x + a, g.y);
+        if (!h.open) { ctx.moveTo(g.x, g.y - a); ctx.lineTo(g.x, g.y + a); }
+        ctx.stroke();
+        ctx.restore();
+    });
+    const hot = badgeHover !== null && badgeHubs.find(h => h.id === badgeHover), g = hot && badgeGeom(badgeHover);
+    if (g) {      // a small label beside the hovered badge, drawn last so no neighbouring badge covers it (the native tooltip would repeat the whole node text)
+        const text = hot.open ? TOPO_T.badgeCollapse : TOPO_T.badgeExpand, px = 1 / scale;
+        ctx.save();
+        ctx.font = (12 * px) + 'px "IBM Plex Sans Thai", "Segoe UI", sans-serif';
+        const w = ctx.measureText(text).width + 14 * px, hgt = 22 * px, x = g.x + g.r + 6 * px, y = g.y - hgt / 2;
+        ctx.fillStyle = 'rgba(30,41,59,.95)';
+        ctx.beginPath(); (ctx.roundRect ? ctx.roundRect(x, y, w, hgt, 6 * px) : ctx.rect(x, y, w, hgt)); ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.textBaseline = 'middle'; ctx.fillText(text, x + 7 * px, g.y);
+        ctx.restore();
+    }
+}
+function setBadgeHover(id) {
+    if (badgeHover === id) return;
+    badgeHover = id;
+    const box = document.getElementById('topoCanvas');
+    if (box) box.classList.toggle('badge-hover', id !== null);
+    if (visNetwork) visNetwork.redraw();
+}
+// Which device is this pop-up about? Every open pop-up and its device share a number: a small key-cap beside the device's IP (drawn in afterDrawing, the same size at
+// every zoom) and the same number in a chip at the start of the pop-up's header. While the mouse is over a pop-up (or it is being dragged) the rest of the
+// diagram fades and its device is drawn again on top at full colour (no ring or halo); hovering a device that has a pop-up outlines that pop-up (.np-hot) and raises it.
+let cardHot = null;
+const popupNum = new Map();      // node id -> the number of its pop-up
+function nextPopupNumber() { const used = new Set(popupNum.values()); let n = 1; while (used.has(n)) n++; return n; }
+function setCardHot(id) {
+    if (cardHot === id) return;
+    cardHot = id;
+    openPopups.forEach((p, k) => { p.classList.toggle('np-hot', id !== null && k === id); p.classList.toggle('np-back', id !== null && k !== id); });
+    if (visNetwork) visNetwork.redraw();
+}
+// The icons are not drawn in the middle of their picture (a router's body sits in its upper left), so the halo and the pin are centred on the visible
+// part of the icon: its opaque pixels are measured once per picture (fractions of the picture), then scaled to the node. Same code as topology-popups.js.
+const iconBoxCache = new WeakMap();
+function measureIcon(img) {
+    let f = iconBoxCache.get(img);
+    if (f) return f;
+    f = { fx: 0.5, fy: 0.5, fw: 1, fh: 1 };
+    try {
+        const W = 128, c = document.createElement('canvas'); c.width = W; c.height = W;
+        const x = c.getContext('2d'); x.drawImage(img, 0, 0, W, W);
+        const d = x.getImageData(0, 0, W, W).data;
+        let a = W, b = -1, e = W, g = -1;
+        for (let yy = 0; yy < W; yy++) for (let xx = 0; xx < W; xx++) if (d[(yy * W + xx) * 4 + 3] > 12) { if (xx < a) a = xx; if (xx > b) b = xx; if (yy < e) e = yy; if (yy > g) g = yy; }
+        if (b >= a && g >= e) f = { fx: (a + b + 1) / 2 / W, fy: (e + g + 1) / 2 / W, fw: (b - a + 1) / W, fh: (g - e + 1) / W };
+    } catch (err) { /* an image that cannot be read: the node's own centre is used */ }
+    iconBoxCache.set(img, f);
+    return f;
+}
+// { cx, cy, w, h }: the centre and the size of the VISIBLE part of the icon (world units)
+function iconBox(vn) {
+    const size = vn.options.size || 30, img = vn.imageObj && vn.imageObj.image;
+    let cx = vn.x, cy = vn.y, w = size * 1.7, h = size * 1.7;
+    if (img && img.width) {
+        const f = measureIcon(img);
+        cx = vn.x + (f.fx - 0.5) * 2 * size; cy = vn.y + (f.fy - 0.5) * 2 * size; w = f.fw * 2 * size; h = f.fh * 2 * size;
+    }
+    return { cx, cy, w, h };
+}
+// The key-cap sits just left of the device's IP label (its last line), 14 px at every zoom. Far out, where a label is not drawn (or is tiny), it moves to the
+// icon's top corner instead (the top left one for a router or subnet, whose +/- badge is on the right). Same code as topology-popups.js.
+const LABEL_MIN_SCALE = 0.5;
+// The line of the label that holds the IP (a router's is the last of two, a "new" mark puts it first); the lines come from vis-network's label module.
+function ipLineOf(L) {
+    const lines = L && L.lines;
+    if (!lines || !lines.length) return -1;
+    for (let i = 0; i < lines.length; i++) {
+        const t = (lines[i].blocks || []).map(x => x.text).join('');
+        if (/[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+/.test(t)) return i;
+    }
+    return lines.length - 1;
+}
+function keyCapPos(vn, cb, scale, hubSide) {
+    const L = vn.labelModule, ls = L && L.size, idx = ipLineOf(L);
+    let s = 14 / scale;
+    if (scale >= LABEL_MIN_SCALE && ls && ls.width > 0 && ls.height > 0 && idx >= 0) {
+        let above = 0; for (let k = 0; k < idx; k++) above += L.lines[k].height || 0;
+        const line = L.lines[idx], lineW = line.width || ls.width, lineH = line.height || ls.height / L.lines.length;
+        return { x: ls.left + ls.width / 2 - lineW / 2 - 4 / scale - s, y: ls.top + above + lineH / 2 - s / 2 + 1.5 / scale, s };
+    }
+    s = 15 / scale;
+    return { x: cb.cx + hubSide * cb.w / 2 - s / 2 + hubSide * 3 / scale, y: cb.cy - cb.h / 2 - s / 2 - 3 / scale, s };
+}
+function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
+}
+// Spotlight by contrast only (the owner's pick, option D of docs/design-options/device-highlight/): while a pop-up is hovered the rest of the diagram fades to
+// 88% and its device is drawn again on top at full colour with nothing added (far out, where the icon would be tiny, at least 22 px). Every open pop-up also has a
+// number key-cap beside its device's IP, accent blue for the hovered one.
+function drawPopupMarks(ctx) {
+    if (!visNetwork || !openPopups.size) return;
+    const dark = isDarkTheme(), scale = visNetwork.getScale(), nodes = visNetwork.body.nodes;
+    const hv = cardHot !== null && openPopups.has(cardHot) ? nodes[cardHot] : null;
+    if (hv && hv.options) {
+        const tl = visNetwork.DOMtoCanvas({ x: 0, y: 0 }), box = document.getElementById('topoCanvas');
+        const br = visNetwork.DOMtoCanvas({ x: box.clientWidth, y: box.clientHeight }), hb = iconBox(hv);
+        ctx.save();
+        ctx.fillStyle = dark ? 'rgba(14,22,33,.88)' : 'rgba(255,255,255,.88)'; ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+        ctx.restore();
+        const lift = Math.max(1, 22 / (Math.max(hb.w, hb.h) * scale));
+        ctx.save();
+        if (lift > 1) { ctx.translate(hb.cx, hb.cy); ctx.scale(lift, lift); ctx.translate(-hb.cx, -hb.cy); }
+        try { hv.draw(ctx); } catch (e) { /* the node is simply not redrawn */ }
+        ctx.restore();
+    }
+    openPopups.forEach((el, id) => {
+        const vn = nodes[id];
+        if (!vn || !vn.options || vn.options.hidden) return;
+        const cb = iconBox(vn), side = badgeHubs.some(h => h.id === id) ? -1 : 1, isHot = cardHot === id, k = keyCapPos(vn, cb, scale, side);
+        ctx.save();
+        ctx.globalAlpha = cardHot !== null && !isHot ? 0.4 : 1;
+        roundRectPath(ctx, k.x, k.y, k.s, k.s, 4 / scale);
+        ctx.fillStyle = isHot ? (dark ? '#7dd3fc' : '#2563eb') : (dark ? '#e2e8f0' : '#334155'); ctx.fill();
+        ctx.fillStyle = dark ? '#0e1621' : '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = '600 ' + (k.s * 0.68) + 'px "IBM Plex Sans Thai", "Segoe UI", sans-serif';
+        ctx.fillText(String(popupNum.get(id) || ''), k.x + k.s / 2, k.y + k.s / 2 + 0.5 / scale);
+        ctx.restore();
+    });
+}
+let badgeMouseBound = false;
+function bindBadgeMouse() {
+    const box = document.getElementById('topoCanvas');
+    if (!box || badgeMouseBound) return;
+    badgeMouseBound = true;
+    box.addEventListener('mousemove', e => {
+        if (!visNetwork || !badgeHubs.length || e.buttons) { if (badgeHover !== null && e.buttons) setBadgeHover(null); return; }
+        const r = box.getBoundingClientRect(), h = badgeAt(visNetwork.DOMtoCanvas({ x: e.clientX - r.left, y: e.clientY - r.top }));
+        setBadgeHover(h ? h.id : null);
+    });
+    box.addEventListener('mouseleave', () => setBadgeHover(null));
+}
+
+// ─── opening and closing a subnet, jumping to a device ───
+function setSubnetOpen(key, open) {
+    rememberPlan();                      // every other subnet keeps its state
+    subnetFrozen.delete(key);            // this one is the user's own choice now
+    subnetChoice.set(key, open ? 'open' : 'closed');
+    buildAndDraw();
+    if (open && visNetwork) {
+        const subnet = (currentSubnets || []).find(sn => sn.key === key);
+        if (subnet) {
+            const ids = [subnet.hubId].concat(subnet.members.map(i => i + 1)).filter(id => visNetwork.body.data.nodes.get(id));
+            setTimeout(() => { if (visNetwork) visNetwork.fit({ nodes: ids, animation: false }); }, 0);
+        }
+    }
+}
+function focusDevice(ip) {
+    if (!visNetwork) return;
+    const nodes = visNetwork.body.data.nodes, idx = currentHosts.findIndex(h => h.ip === ip);
+    let id = idx + 1;
+    if (idx < 0 || !nodes.get(id)) {
+        const hub = nodes.get().find(n => n._isGateway && n._gwIp === ip);      // a router that is a scanned host is drawn as its subnet's hub
+        if (!hub) return;
+        id = hub.id;
+    }
+    visNetwork.selectNodes([id]);
+    visNetwork.focus(id, { scale: Math.max(visNetwork.getScale(), 0.9),
+        animation: matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration: 450, easingFunction: 'easeInOutQuad' } });
+    const area = byId('topoCanvas');
+    openNodePopup({ nodes: [id], pointer: { DOM: { x: area.offsetWidth / 2, y: area.offsetHeight / 2 } } }, currentNodesData);
+    const pop = openPopups.get(id);
+    if (pop) pop.querySelector('.np-close').focus({ preventScroll: true });      // after Enter the focus was on the page body: a keyboard user could not reach the pop-up
+}
+function jumpToDevice(ip) {
+    const key = subnetKeyOf(ip);
+    if (currentPlan.collapsed[key]) {
+        rememberPlan(); subnetFrozen.delete(key); subnetChoice.set(key, 'open');
+        buildAndDraw();
+        setTimeout(() => focusDevice(ip), 60);      // buildAndDraw ends with a deferred fit(), which would otherwise undo the focus
+        return;
+    }
+    focusDevice(ip);
+}
+function setFloatNote(paused) {
+    const note = byId('floatNote');
+    if (!note) return;
+    note.hidden = !paused;
+    if (paused) note.textContent = TOPO_T.floatPaused.replace('{max}', FLOAT_AUTO_MAX);
+}
+
+// ─── the Devices section of the left panel: filters (fade the rest) and the search (jump to one) ───
+function updateFilterStatus() {
+    const box = byId('devFilterStatus'), clear = byId('devFilterClear');
+    const nOn = deviceFilter.os.size + deviceFilter.change.size + (deviceFilter.port.trim() ? 1 : 0), badge = byId('devMoreN');
+    if (badge) { badge.textContent = String(nOn); badge.hidden = !nOn; }
+    if (!box) return;
+    if (!filtersActive()) { box.textContent = ''; if (clear) clear.hidden = true; return; }
+    const matching = currentHosts.filter(hostMatches), hidden = matching.filter(h => currentPlan.collapsed[subnetKeyOf(h.ip)]).length;
+    box.textContent = TOPO_T.devStatus.replace('{n}', matching.length).replace('{total}', currentHosts.length);
+    if (hidden) {
+        const line = document.createElement('div');
+        line.textContent = TOPO_T.devStatusHidden.replace('{n}', hidden);
+        box.appendChild(line);
+    }
+    if (clear) clear.hidden = false;
+}
+function renderDeviceFilterUi() {
+    const osBox = byId('osChips'), chgBox = byId('chgChips');
+    if (!osBox || !chgBox) return;
+    const counts = { os: {}, new: 0, missing: 0 };
+    currentHosts.forEach(h => { counts.os[h.os_family] = (counts.os[h.os_family] || 0) + 1; if (h.mark) counts[h.mark.kind]++; });
+    const keep = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.key : null;
+    const chip = (key, label, n, pressed, onClick) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'dev-chip'; b.dataset.key = key; b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+        b.appendChild(document.createTextNode(label));
+        const c = document.createElement('span');
+        c.className = 'dev-chip-n'; c.textContent = String(n);
+        b.appendChild(c);
+        b.addEventListener('click', onClick);
+        return b;
+    };
+    const changed = () => { renderDeviceFilterUi(); refreshLooks(); };
+    osBox.replaceChildren(...OS_FAMILIES.filter(f => counts.os[f] || deviceFilter.os.has(f)).map(f =>
+        chip('os:' + f, TOPO_T.osFamily[f], counts.os[f] || 0, deviceFilter.os.has(f), () => { toggleSet(deviceFilter.os, f); changed(); })));
+    chgBox.replaceChildren(
+        chip('chg:new', TOPO_T.chgNew, counts.new, deviceFilter.change.has('new'), () => { toggleSet(deviceFilter.change, 'new'); changed(); }),
+        chip('chg:missing', TOPO_T.chgMissing, counts.missing, deviceFilter.change.has('missing'), () => { toggleSet(deviceFilter.change, 'missing'); changed(); }));
+    if (keep) { const again = document.querySelector('.dev-chip[data-key="' + keep + '"]'); if (again) again.focus(); }
+    updateFilterStatus();
+}
+(function enableDeviceFilters() {
+    const port = byId('devPort'), clear = byId('devFilterClear');
+    let timer = 0;
+    if (port) port.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => { deviceFilter.port = port.value; refreshLooks(); }, 150);
+    });
+    if (clear) clear.addEventListener('click', () => {
+        deviceFilter.os.clear(); deviceFilter.change.clear(); deviceFilter.port = '';
+        if (port) port.value = '';
+        renderDeviceFilterUi(); refreshLooks();
+    });
+})();
+(function enableDeviceSearch() {
+    const input = byId('devSearch'), list = byId('devSearchList');
+    if (!input || !list) return;
+    let shown = [], active = -1;
+    const close = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); active = -1; };
+    function find(q) {
+        q = q.trim().toLowerCase();
+        if (!q) return [];
+        const hex = q.replace(/[^0-9a-f]/g, ''), found = [];
+        currentHosts.forEach(h => {
+            const ip = String(h.ip), name = String(h.hostname || '').toLowerCase(), mac = String(h.mac || '').toLowerCase().replace(/[^0-9a-f]/g, '');
+            let rank = 99;
+            if (ip.startsWith(q)) rank = 0;
+            else if (ip.includes(q)) rank = 1;
+            else if (name.includes(q)) rank = 2;
+            else if (hex.length >= 4 && mac.includes(hex)) rank = 3;
+            else if (String(h.mac_vendor || '').toLowerCase().includes(q) || String(h.os || '').toLowerCase().includes(q) || String(h.ipv6 || '').toLowerCase().includes(q)) rank = 4;
+            if (rank < 99) found.push({ h, rank });
+        });
+        found.sort((a, b) => a.rank - b.rank || (ipSortKey(a.h.ip) < ipSortKey(b.h.ip) ? -1 : 1));
+        return found;
+    }
+    function render() {
+        input.removeAttribute('aria-activedescendant');
+        const found = find(input.value);
+        shown = found.slice(0, 8).map(f => f.h);
+        list.replaceChildren();
+        if (!input.value.trim()) { close(); return; }
+        if (!found.length) {
+            const none = document.createElement('div');
+            none.className = 'dev-opt-none'; none.textContent = TOPO_T.devSearchNone;
+            list.appendChild(none);
+        }
+        shown.forEach((h, i) => {
+            const opt = document.createElement('div');
+            opt.className = 'dev-opt'; opt.id = 'devOpt' + i; opt.setAttribute('role', 'option'); opt.setAttribute('aria-selected', 'false');
+            const ip = document.createElement('span');
+            ip.className = 'dev-opt-ip'; ip.textContent = h.ip;
+            const sub = document.createElement('span');
+            sub.className = 'dev-opt-sub';
+            sub.textContent = [h.hostname, h.mac_vendor, currentPlan.collapsed[subnetKeyOf(h.ip)] ? TOPO_T.devSearchCollapsed : ''].filter(Boolean).join(' · ');
+            opt.appendChild(ip);
+            if (sub.textContent) opt.appendChild(sub);
+            opt.addEventListener('mousedown', e => { e.preventDefault(); pick(h.ip); });      // mousedown: the input must not blur first
+            list.appendChild(opt);
+        });
+        if (found.length > shown.length) {
+            const more = document.createElement('div');
+            more.className = 'dev-opt-more'; more.textContent = TOPO_T.devSearchMore.replace('{n}', found.length - shown.length);
+            list.appendChild(more);
+        }
+        list.hidden = false; input.setAttribute('aria-expanded', 'true'); active = -1;
+    }
+    function move(delta) {
+        if (!shown.length) return;
+        active = (active + delta + shown.length) % shown.length;
+        shown.forEach((h, i) => byId('devOpt' + i).setAttribute('aria-selected', i === active ? 'true' : 'false'));
+        input.setAttribute('aria-activedescendant', 'devOpt' + active);
+        byId('devOpt' + active).scrollIntoView({ block: 'nearest' });
+    }
+    function pick(ip) { close(); input.blur(); jumpToDevice(ip); }
+    input.addEventListener('input', render);
+    input.addEventListener('focus', () => { if (input.value.trim()) render(); });
+    input.addEventListener('blur', () => setTimeout(close, 120));
+    input.addEventListener('keydown', e => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) render(); else move(1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+        else if (e.key === 'Enter') { if (shown.length) { e.preventDefault(); pick(shown[active >= 0 ? active : 0].ip); } }
+        else if (e.key === 'Escape') { e.stopPropagation(); if (!list.hidden) close(); else input.value = ''; }
+    });
+})();
 
 function buildGraphData() {
     const filtered = ALL_SCANS.filter(s => selectedDates.has(s.date) && selectedJobs.has(s.job_id));
@@ -857,12 +2098,14 @@ function buildGraphData() {
     filtered.forEach(scan => {
         (scan.hosts || []).forEach(h => {
             if (!h.ip) return;
+            if (!displaySettings.localhost && /^127\./.test(h.ip)) return;      // the cog switch "Localhost group"
             if (!hostMap[h.ip]) {
                 hostMap[h.ip] = { ip: h.ip, mac: '', os: '', hostname: '', ipv6: '', mac_vendor: '', discovery: {}, vm: '',
-                                  trace_hops: [], ports: [], jobs: new Set() };
+                                  trace_hops: [], ports: [], jobs: new Set(), os_family: '', os_accuracy: null, tier: '', cve_count: null, tier_job: '', mark: null };
             }
             const m = hostMap[h.ip];
-            if (isUnknownOs(m.os) && !isUnknownOs(h.os)) m.os = h.os;
+            // the family and nmap's confidence come from the SAME record that gave the OS name, never from an older, different guess
+            if (isUnknownOs(m.os) && !isUnknownOs(h.os)) { m.os = h.os; m.os_family = h.os_family || ''; m.os_accuracy = (typeof h.os_accuracy === 'number') ? h.os_accuracy : null; }
             if (isUnknownMac(m.mac) && !isUnknownMac(h.mac)) m.mac = h.mac;
             if (!m.mac_vendor && h.mac_vendor) m.mac_vendor = h.mac_vendor;
             if (!m.hostname && h.hostname) m.hostname = h.hostname;
@@ -871,6 +2114,8 @@ function buildGraphData() {
             if (!Object.keys(m.discovery).length && h.discovery) m.discovery = h.discovery;
             if (!m.trace_hops.length && h.trace_hops && h.trace_hops.length) m.trace_hops = h.trace_hops;
             m.jobs.add(scan.job_id);
+            // the risk tier comes from the newest SELECTED vulnerability scan that saw the device (only such a scan looks for CVEs)
+            if (!m.tier && h.tier) { m.tier = h.tier; m.cve_count = h.cve_count; m.tier_job = scan.job_name; }
             const seen = new Set(m.ports.map(p => p.port + '/' + (p.protocol || 'tcp')));
             (h.ports || []).forEach(p => {
                 const key = p.port + '/' + (p.protocol || 'tcp');
@@ -878,32 +2123,50 @@ function buildGraphData() {
             });
         });
     });
-    return { hosts: Object.values(hostMap), filtered };
+    const hosts = Object.values(hostMap), marks = computeMarks(filtered);
+    hosts.forEach(h => { h.os_family = isUnknownOs(h.os) ? 'Unknown' : (h.os_family || 'Other'); h.mark = marks.get(h.ip) || null; });
+    return { hosts, filtered };
 }
 
-function buildAndDraw() {
+function buildAndDraw(savedState) {
     closePopup();
     const { hosts, filtered } = buildGraphData();
+    currentFilteredScans = filtered;
+    const plan = planCollapse(hosts);
+    currentHosts = hosts; currentPlan = plan; currentHostsBySubnet = groupBySubnet(hosts);
+    const drawnCount = hosts.filter(h => !plan.collapsed[subnetKeyOf(h.ip)]).length;
+    renderDeviceFilterUi();
     const totalPorts = hosts.reduce((s, h) => s + openPortCount(h), 0);
     document.getElementById('statHosts').textContent = hosts.length;
     document.getElementById('statJobs').textContent  = filtered.length;
     document.getElementById('statPorts').textContent = totalPorts;
+    byId('statDrawnPill').hidden = drawnCount === hosts.length;      // "Drawn: N / M" only while a subnet is collapsed
+    byId('statDrawn').textContent = drawnCount + ' / ' + hosts.length;
     document.getElementById('topoEmpty').style.display = hosts.length === 0 ? 'flex' : 'none';
     document.getElementById('diagram-hint').style.display = hosts.length === 0 ? 'none' : 'block';
+    byId('diagram-hint').lastChild.textContent = ' ' + (drawnCount < hosts.length ? TOPO_T.hintBubble : TOPO_T.hint);
 
+    const dark = isDarkTheme();
+    const icons = dark ? ICON_SETS.dark : ICON_SETS.light;
+    const coreIcon = dark ? CORE_ICONS.dark : CORE_ICONS.light;
+    const themeOpt = dark ? 'dark' : 'light';
     const nodesData = [], edgesData = [];
 
     // The Internet is a symbol for "upstream", not a scanned device: it has no pop-up and never claims a router.
+    const inetMeta = internetNodeMeta(filtered);
     nodesData.push({
         id: 0,
-        label: 'Internet',
-        image: CORE_NETWORK_ICON,
+        label: inetMeta.label,
+        image: coreIcon,
         shape: 'image',
         size: 40,
-        font: { color:'#212529', size:12, face:'monospace', bold:true, vadjust:6, multi:'html' },
-        title: 'Internet / upstream network (a symbol, not a scanned device)',
-        shadow: { enabled:true, color:'rgba(33,37,41,0.22)', size:12 },
+        font: { color: dark ? '#f1f5f9' : '#212529', size:12, face:'monospace', bold:true, vadjust:6, multi:'html' },
+        title: inetMeta.title,
+        shadow: dark
+            ? { enabled:true, color:'rgba(56,189,248,0.68)', size:28, x:0, y:0 }
+            : { enabled:true, color:'rgba(33,37,41,0.22)', size:12 },
         fixed: true, x: 0, y: -330,
+        hidden: !displaySettings.internet,
         _device: null,
         _isGateway: false
     });
@@ -912,29 +2175,35 @@ function buildAndDraw() {
     // evidence, otherwise the subnet itself) and the links; the only host that loses its own node is one that is itself the router.
     hosts.forEach((device, i) => {
         const nodeId = i + 1;
+        if (plan.collapsed[subnetKeyOf(device.ip)]) return;        // a collapsed subnet is one bubble: no node for its devices (the ids of the others do not change)
         const openCount = openPortCount(device);
         const iconKey  = vmIconKey(device, osIconKey(device.os));
-        const dotColor = portDotColor(openCount);
+        const look = deviceLook(device), dotColor = look.dot;
         const sortedPorts = [...device.ports].sort((a, b) => a.port - b.port);
         const isLoopback = device.ip === '127.0.0.1';
 
         nodesData.push({
             id: nodeId,
-            label: `<b>●</b> ${device.ip}`,
-            image: ICON_URI[iconKey],
+            label: hostLabel(device),
+            image: icons[iconKey],
             shape: 'image',
             size: 34,
             font: {
-                color: isLoopback ? '#6c757d' : '#343a40',
+                color: isLoopback ? (dark ? '#64748b' : '#6c757d') : (dark ? '#e2e8f0' : '#343a40'),
                 size: 12,
                 face: 'monospace',
                 vadjust: 6,
                 multi: 'html',
-                bold: { color:dotColor, size:13, face:'monospace', mod:'bold' }
+                bold: { color:dotColor, size:13, face:'monospace', mod:'bold' },
+                ital: { color: look.markColor, size: 11, face: 'sans-serif', mod: '' }
             },
-            title: `คลิกเพื่อดูรายละเอียด: ${device.ip}${device.mac_vendor ? ' (' + device.mac_vendor + ')' : ''}`,
-            shadow: { enabled:true, color:'#00000018', size:8 },
+            opacity: look.opacity,
+            title: `${TOPO_T.clickInspect}: ${device.ip}${device.mac_vendor ? ' (' + device.mac_vendor + ')' : ''}`,
+            shadow: dark
+                ? { enabled:true, color:'rgba(56,189,248,0.22)', size:10, x:0, y:0 }
+                : { enabled:true, color:'#00000018', size:8 },
             _device: device,
+            _iconKey: iconKey,
             _portCnt: openCount,
             _sortedPorts: sortedPorts
         });
@@ -942,9 +2211,16 @@ function buildAndDraw() {
 
     currentSubnets = SubnetTopology.apply(nodesData, edgesData, hosts, subnetPrefix, {
         layout: topologyLayout,
-        gatewayIcon: ICON_URI['gateway'],
+        theme: themeOpt,
+        collapsed: plan.collapsed,
+        wideGroups: true,      // a /16 group of hundreds of devices is laid out wider than 4 columns (only the topology page asks for it)
+        gatewayIcon: icons['gateway'],
         gatewayForGroup: (subnetHosts, subnet) => SubnetTopology.detectGateway(subnetHosts, typeof SYSTEM_GATEWAY !== 'undefined' ? SYSTEM_GATEWAY : null, subnet)
     });
+    styleBubbles(nodesData);
+    currentNodesData = nodesData;
+    // the cog switch "Internet node": the symbol and every line that leaves it are hidden; the layout does not change
+    if (!displaySettings.internet) edgesData.forEach(e => { if (e.from === 0 || e.to === 0) e.hidden = true; });
     const container = document.getElementById('topoCanvas');
     if (visNetwork) { visNetwork.destroy(); visNetwork = null; }
 
@@ -953,14 +2229,67 @@ function buildAndDraw() {
     visNetwork = new vis.Network(
         container,
         { nodes: new vis.DataSet(nodesData), edges: new vis.DataSet(edgesData) },
-        SubnetTopology.visOptions(subnetPrefix)
+        SubnetTopology.visOptions(subnetPrefix, { theme: themeOpt })
     );
     // float: the devices bob gently on springs in both the Tree and the Star layout (the Internet node stays put)
-    SubnetTopology.attachRegions(visNetwork, () => currentSubnets, { float: !!subnetPrefix && topologyFloat });
-    if (subnetPrefix) setTimeout(() => { if (visNetwork) SubnetTopology.fit(visNetwork, false); }, 0);
+    SubnetTopology.attachRegions(visNetwork, () => currentSubnets, { float: !!subnetPrefix && topologyFloat && drawnCount <= FLOAT_AUTO_MAX, theme: themeOpt, highlight: displaySettings.highlight });
+    setFloatNote(!!subnetPrefix && topologyFloat && drawnCount > FLOAT_AUTO_MAX);      // Float pauses by itself on a big drawing (the cog says so)
+    syncGroupUi();
+    visNetwork.on('beforeDrawing', drawTopoGrid);
+    badgeHover = null; hubHover = null; container.classList.remove('badge-hover');
+    badgeHubs = nodesData.filter(n => n._isSegment || n._isGateway).map(n => ({ n, a: subnetAction(n) })).filter(x => x.a).map(x => ({ id: x.n.id, subnet: x.a.subnet, open: x.a.open }));
+    visNetwork.on('afterDrawing', drawBadges);
+    visNetwork.on('afterDrawing', drawPopupMarks);
+    bindBadgeMouse();
 
-    visNetwork.on('hoverNode', () => { container.style.cursor = 'pointer'; });
-    visNetwork.on('blurNode',  () => { container.style.cursor = 'default'; });
+    if (savedState && savedState.nodePositions && visNetwork.body && visNetwork.body.nodes) {
+        nodesData.forEach(n => {
+            const key = stableNodeKey(n);
+            const savedPos = key && savedState.nodePositions[key];
+            const visNode = visNetwork.body.nodes[n.id];
+            if (savedPos && visNode && typeof savedPos.x === 'number' && typeof savedPos.y === 'number') {
+                visNode.x = savedPos.x;
+                visNode.y = savedPos.y;
+            }
+        });
+        if (visNetwork.__syncFloatTargets) visNetwork.__syncFloatTargets();
+        visNetwork.redraw();
+    }
+
+    if (savedState && savedState.viewPosition && typeof savedState.scale === 'number') {
+        const restoreView = () => {
+            if (!visNetwork) return;
+            visNetwork.moveTo({ position: savedState.viewPosition, scale: savedState.scale, animation: false });
+        };
+        restoreView();
+        requestAnimationFrame(restoreView);
+    } else if (subnetPrefix) {
+        setTimeout(() => { if (visNetwork) SubnetTopology.fit(visNetwork, false); }, 0);
+    }
+
+    if (savedState && Array.isArray(savedState.openPopups)) {
+        savedState.openPopups.forEach(p => {
+            const target = nodesData.find(n => stableNodeKey(n) === p.key);
+            if (!target) return;
+            const el = openNodePopup({ nodes: [target.id], pointer: { DOM: { x: 20, y: 20 } } }, nodesData, p);
+            if (el && p.tab === 'port') {
+                const portBtn = el.querySelector('.popup-tab[data-tab="port"]');
+                if (portBtn) portBtn.click();
+            }
+        });
+    }
+
+    visNetwork.on('hoverNode', e => {
+        container.style.cursor = 'pointer';
+        if (badgeHubs.some(h => h.id === e.node)) { hubHover = e.node; visNetwork.redraw(); }
+        const pop = openPopups.get(e.node);      // this device has a pop-up: outline it and bring it forward
+        if (pop) { pop.classList.add('np-hot'); raisePopup(pop); }
+    });
+    visNetwork.on('blurNode',  () => {
+        container.style.cursor = 'default';
+        if (hubHover !== null) { hubHover = null; visNetwork.redraw(); }
+        openPopups.forEach(p => p.classList.remove('np-hot'));
+    });
 
     visNetwork.on('zoom', function() {
         const minScale = 0.15;
@@ -973,7 +2302,17 @@ function buildAndDraw() {
         }
     });
 
-    visNetwork.on('click', params => openNodePopup(params, nodesData));
+    visNetwork.on('click', params => {
+        const h = badgeAt(params.pointer && params.pointer.canvas);      // the "+" / "−" badge: expand or collapse, no pop-up
+        if (h) { setSubnetOpen(h.subnet, !h.open); return; }
+        openNodePopup(params, nodesData);
+    });
+    // double-click on a subnet's hub opens or collapses it
+    visNetwork.on('doubleClick', params => {
+        const n = nodesData.find(x => x.id === (params.nodes || [])[0]);
+        const action = n && (n._isSegment || n._isGateway) ? subnetAction(n) : null;
+        if (action) setSubnetOpen(action.subnet, !action.open);
+    });
 }
 
 // ─── Node pop-ups: any number of them can be open at once ───
@@ -987,43 +2326,48 @@ function describeNode(node, nodeId) {
     const dev = node._device;
     if (node._isSegment) {
         const rows = [
-            ['Type:',    'Network segment (subnet), not a device'],
-            ['Subnet:',  node._subnet],
-            ['Devices:', String(node._count)],
-            ['Router:',  'None identified in the scan data'],
-            ['Internet link:', 'Not verified'],
+            [TOPO_T.lblType,     TOPO_T.valSegment],
+            [TOPO_T.lblSubnet,   node._subnet],
+            [TOPO_T.lblDevices,  String(node._count)],
+            [TOPO_T.lblRouter,   TOPO_T.valNoRouter],
+            [TOPO_T.lblInetLink, TOPO_T.valNotVerified],
         ];
-        if (node._note) rows.push(['Note:', node._note]);
-        return { bg: '#475569', fg: '#ffffff', icon: GLYPHS.segment, title: node._subnet, rows, ports: null };
+        if (node._note) rows.push([TOPO_T.lblNote, node._note, true]);
+        if (node._collapsed && collapsedByLimit(node._subnet)) rows.push([TOPO_T.lblNote, TOPO_T.bubbleAuto.replace('{max}', DRAW_BUDGET), true]);
+        return { bg: isDarkTheme() ? '#1e293b' : '#475569', fg: '#ffffff', icon: GLYPHS.segment, title: node._subnet, rows, ports: null, action: subnetAction(node) };
     }
     if (node._isGateway) {
         // this computer's own routing-table details belong to that one router only, never to another subnet's router
         const sys = (typeof SYSTEM_GATEWAY !== 'undefined' && SYSTEM_GATEWAY && SYSTEM_GATEWAY.ip && SYSTEM_GATEWAY.ip === node._gwIp) ? SYSTEM_GATEWAY : null;
         const rows = [
             // the localhost group's router is this computer's own gateway, not the gateway of 127.0.0.0/24 (its note says so)
-            ['Role:',            node._gwNote ? "Router (this computer's default gateway)" : 'Router (gateway of this subnet)'],
-            ['IP Address:',      node._gwIp],
-            ['Identified by:',   node._gwReason || '–'],
-            ['In scan results:', node._gwInScan ? 'Yes' : "No (known from this computer's routing table)"],
+            [TOPO_T.lblRole,         node._gwNote ? TOPO_T.valRoleLocal : TOPO_T.valRoleSubnet],
+            [TOPO_T.lblIp,           node._gwIp],
+            [TOPO_T.lblIdentifiedBy, node._gwReason || '–'],
+            [TOPO_T.lblInScan,       node._gwInScan ? TOPO_T.valYes : TOPO_T.valNoSysroute],
         ];
-        if (node._gwNote) rows.push(['Note:', node._gwNote]);
+        if (node._collapsed) {
+            rows.push([TOPO_T.lblDevices, String(node._count)]);
+            if (collapsedByLimit(node._subnet)) rows.push([TOPO_T.lblNote, TOPO_T.bubbleAuto.replace('{max}', DRAW_BUDGET), true]);
+        }
+        if (node._gwNote) rows.push([TOPO_T.lblNote, node._gwNote, true]);
         if (dev) {
-            if (dev.hostname) rows.push(['Name:', dev.hostname]);
-            rows.push(['MAC:', dev.mac || 'Unknown']);
-            if (dev.mac_vendor) rows.push(['Vendor:', dev.mac_vendor]);
-            rows.push(['OS:', dev.os || '–'], ['Ports:', portSummary(dev)]);
+            if (dev.hostname) rows.push([TOPO_T.lblName, dev.hostname]);
+            rows.push([TOPO_T.lblMac, dev.mac || TOPO_T.valUnknown]);
+            if (dev.mac_vendor) rows.push([TOPO_T.lblVendor, dev.mac_vendor]);
+            rows.push([TOPO_T.lblOs, dev.os || '–'], ...osConfRows(dev), [TOPO_T.lblPorts, portSummary(dev)], ...riskRows(dev));
         } else if (sys) {
             // not scanned: the MAC is what this computer's own ARP cache holds for its gateway, so the card says so
-            if (sys.mac) rows.push(['MAC:', sys.mac], ['MAC source:', "This computer's ARP cache (not from a scan)"]);
-            if (sys.mac_vendor) rows.push(['Vendor:', sys.mac_vendor]);
+            if (sys.mac) rows.push([TOPO_T.lblMac, sys.mac], [TOPO_T.lblMacSrc, TOPO_T.valArpCache]);
+            if (sys.mac_vendor) rows.push([TOPO_T.lblVendor, sys.mac_vendor]);
         }
         if (sys) {
-            if (sys.interface) rows.push(["This computer's IP:", sys.interface]);
-            if (sys.metric !== undefined && sys.metric < 9999) rows.push(['Route metric:', sys.metric]);
+            if (sys.interface) rows.push([TOPO_T.lblThisIp, sys.interface]);
+            if (sys.metric !== undefined && sys.metric < 9999) rows.push([TOPO_T.lblMetric, sys.metric]);
         }
         // a router that is not in the scan has no port data at all: no Port tab, rather than a tab saying "No open ports"
         const ports = dev ? [...(dev.ports || [])].sort((a, b) => a.port - b.port) : null;
-        return { bg: '#1a6db5', fg: '#ffffff', icon: GLYPHS.router, title: node._gwIp, rows, ports };
+        return { bg: isDarkTheme() ? '#0c4a6e' : '#1a6db5', fg: '#ffffff', icon: GLYPHS.router, title: node._gwIp, rows, ports, action: subnetAction(node), link: dev ? deviceUrl(dev.ip) : '' };
     }
     if (!dev) return null;
     const hc = osHeaderColor(dev.os || '');
@@ -1032,34 +2376,42 @@ function describeNode(node, nodeId) {
     const upnpInfo = disc.ssdp || {};
     const upnp = [upnpInfo.manufacturer, upnpInfo.model].filter(Boolean).join(' ') || upnpInfo.server || '';
     const rows = [
-        ['Name:',   dev.hostname || dev.ip],
-        ['IPv4:',   dev.ip],
-        ['IPv6:',   dev.ipv6 || 'Not Available'],
-        ['MAC:',    dev.mac || 'Unknown'],
-        ...(dev.mac_vendor ? [['Vendor:', dev.mac_vendor]] : []),
-        ...(dev.vm ? [['Type:', 'Virtual Machine (' + dev.vm + ')']] : []),
-        ['OS:',     dev.os || '–'],
-        ['Ports:',  portSummary(dev)],
+        [TOPO_T.lblName,  dev.hostname || dev.ip],
+        [TOPO_T.lblIpv4,  dev.ip],
+        [TOPO_T.lblIpv6,  dev.ipv6 || TOPO_T.valNa],
+        [TOPO_T.lblMac,   dev.mac || TOPO_T.valUnknown],
+        ...(dev.mac_vendor ? [[TOPO_T.lblVendor, dev.mac_vendor]] : []),
+        ...(dev.vm ? [[TOPO_T.lblType, TOPO_T.valVmPrefix + ' (' + dev.vm + ')']] : []),
+        [TOPO_T.lblOs,    dev.os || '–'],
+        ...osConfRows(dev),
+        [TOPO_T.lblPorts, portSummary(dev)],
+        ...riskRows(dev),
         ...(bonjour ? [['Bonjour:', bonjour]] : []),
         ...(upnp ? [['UPnP:', upnp]] : []),
     ];
-    return { bg: hc.bg, fg: hc.fg, icon: osGlyph(dev.os || ''), title: dev.ip, rows, ports: node._sortedPorts || [] };
+    return { bg: hc.bg, fg: hc.fg, icon: osGlyph(dev.os || ''), title: dev.ip, rows, ports: node._sortedPorts || [], link: deviceUrl(dev.ip) };
 }
 
 // Names, services and versions come from the scanned hosts (or an uploaded nmap XML), so every value is escaped
 function popupRowsHtml(rows) {
-    return rows.map(([l, v]) => `<tr><td>${l}</td><td${l === 'Note:' ? ' class="np-note"' : ''}>${escHtml(v)}</td></tr>`).join('');
+    return rows.map(([l, v, isNote]) => `<tr><td>${escHtml(l)}</td><td${isNote ? ' class="np-note"' : ''}>${escHtml(v)}</td></tr>`).join('');
 }
 const PORT_REASON_TH = {{ PORT_REASON_TH | tojson }};   // Thai words for nmap's reason codes (scanner.PORT_REASON_TH)
 function popupPortsHtml(ports) {
-    if (!ports.length) return '<tr><td colspan="4" class="np-none">No open ports</td></tr>';
+    if (!ports.length) return `<tr><td colspan="4" class="np-none">${escHtml(TOPO_T.noOpenPorts)}</td></tr>`;
     return ports.map(p => {
-        const stateColor = p.state === 'open' ? '#198754' : '#6c757d';
+        const stateCls = p.state === 'open' ? 'np-state-open' : 'np-state-other';
         const version = (p.version_info && p.version_info !== 'Unknown Version') ? p.version_info : '–';
+        // the state in the page's language; where that differs from nmap's own word, nmap's word is the tooltip (as on the device page).
+        // A state this table does not know is shown exactly as nmap wrote it.
+        const known = Object.prototype.hasOwnProperty.call(TOPO_T.states, p.state);
+        const stateWord = known ? TOPO_T.states[p.state] : (p.state || TOPO_T.stateUnknown);
+        const stateTip = known && TOPO_T.states[p.state] !== p.state ? ` title="${escHtml(p.state)}"` : '';
         // nmap's reason for a state that is not open ("ไม่มีการตอบกลับ" for a filtered port), muted, the nmap word in the tooltip; scans from before it was kept have none
-        const why = (p.reason && p.state !== 'open') ? `<div style="font-weight:400;font-size:11px;color:#6b7280;" title="${escHtml(p.reason)}">${escHtml(PORT_REASON_TH[p.reason] || p.reason)}</div>` : '';
+        const reasonText = TOPO_LANG === 'en' ? p.reason : (PORT_REASON_TH[p.reason] || p.reason);
+        const why = (p.reason && p.state !== 'open') ? `<div class="np-reason" title="${escHtml(p.reason)}">${escHtml(reasonText)}</div>` : '';
         return `<tr><td><span class="badge bg-primary">${escHtml(p.port)}/${escHtml((p.protocol || 'tcp').toUpperCase())}</span></td>`
-             + `<td style="color:${stateColor};font-weight:600;">${escHtml(p.state || 'unknown')}${why}</td>`
+             + `<td class="${stateCls}"><span${stateTip}>${escHtml(stateWord)}</span>${why}</td>`
              + `<td>${escHtml(p.name || '–')}</td><td class="np-version">${escHtml(version)}</td></tr>`;
     }).join('');
 }
@@ -1070,52 +2422,72 @@ function updateDiagramHint() {
     if (hint) hint.style.display = openPopups.size ? 'none' : (visNetwork && visNetwork.body.nodeIndices.length ? 'block' : 'none');
 }
 
-function openNodePopup(params, nodesData) {
+function openNodePopup(params, nodesData, savedPos) {
     if (!params.nodes.length) return;          // a click on empty space leaves the open pop-ups alone: each has its own close button
     const nodeId = params.nodes[0];
     const node = nodesData.find(n => n.id === nodeId);
     if (!node) return;
     const open = openPopups.get(nodeId);
-    if (open) { raisePopup(open); return; }    // already open: bring it to the front
+    if (open) { raisePopup(open); return open; }    // already open: bring it to the front
     const info = describeNode(node, nodeId);
-    if (!info) return;
+    if (!info) return null;
+    const num = nextPopupNumber();
 
     const el = document.createElement('div');
     el.className = 'node-popup';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', info.title);
     el.dataset.node = String(nodeId);
+    el._nodeRef = node;
     el.innerHTML =
         `<div class="np-header" style="background:${info.bg}">`
+      +   `<span class="np-pin" aria-hidden="true">${num}</span>`
       +   `<div class="np-icon" style="color:${info.fg}">${info.icon}</div>`
       +   `<span class="np-ip" style="color:${info.fg}">${escHtml(info.title)}</span>`
-      +   `<button type="button" class="np-close" style="color:${info.fg}" aria-label="Close">✕</button>`
+      +   `<button type="button" class="np-close" style="color:${info.fg}" aria-label="${escHtml(TOPO_T.closeLabel)}">✕</button>`
       + `</div>`
       + (info.ports ? `<div class="popup-tabs">`
-      +   `<button type="button" class="popup-tab active" data-tab="detail">Detail</button>`
-      +   `<button type="button" class="popup-tab" data-tab="port">Port</button>`
+      +   `<button type="button" class="popup-tab active" data-tab="detail">${escHtml(TOPO_T.tabDetail)}</button>`
+      +   `<button type="button" class="popup-tab" data-tab="port">${escHtml(TOPO_T.tabPort)}</button>`
       + `</div>` : '')
-      + `<div class="np-detail"><table><tbody>${popupRowsHtml(info.rows)}</tbody></table></div>`
-      + (info.ports ? `<div class="np-port"><table><thead><tr><th>Port</th><th>State</th><th>Service</th><th>Version</th></tr></thead><tbody>${popupPortsHtml(info.ports)}</tbody></table></div>` : '');
+      + `<div class="np-detail"><table><tbody>${popupRowsHtml(info.rows)}</tbody></table>${popupFootHtml(info)}</div>`
+      + (info.ports ? `<div class="np-port"><table><thead><tr><th>${escHtml(TOPO_T.colPort)}</th><th>${escHtml(TOPO_T.colState)}</th><th>${escHtml(TOPO_T.colService)}</th><th>${escHtml(TOPO_T.colVersion)}</th></tr></thead><tbody>${popupPortsHtml(info.ports)}</tbody></table></div>` : '');
 
     // beside the click, kept inside the diagram, and nudged so it never lands exactly on one that is already open
     const area = document.getElementById('topoCanvas'), W = area.offsetWidth, H = area.offsetHeight, at = params.pointer.DOM;
-    let left = at.x + 16, top = at.y - 20;
-    if (left + 390 > W) left = at.x - 390;
-    if (top + 420 > H) top = H - 430;
-    const taken = (l, t) => [...openPopups.values()].some(p => Math.abs(parseFloat(p.style.left) - l) < 14 && Math.abs(parseFloat(p.style.top) - t) < 14);
-    for (let i = 0; i < 8 && taken(left, top); i++) { left += 26; top += 26; }
-    el.style.left = Math.max(4, Math.min(left, W - 310)) + 'px';
-    el.style.top  = Math.max(10, top) + 'px';
+    if (savedPos && typeof savedPos.left === 'string' && typeof savedPos.top === 'string') {
+        const l = parseFloat(savedPos.left), t = parseFloat(savedPos.top);
+        el.style.left = (Number.isFinite(l) ? Math.max(4, Math.min(l, Math.max(4, W - 310))) : 16) + 'px';
+        el.style.top  = (Number.isFinite(t) ? Math.max(10, Math.min(t, Math.max(10, H - 120))) : 16) + 'px';
+    } else {
+        let left = at.x + 16, top = at.y - 20;
+        if (left + 390 > W) left = at.x - 390;
+        if (top + 420 > H) top = H - 430;
+        const taken = (l, t) => [...openPopups.values()].some(p => Math.abs(parseFloat(p.style.left) - l) < 14 && Math.abs(parseFloat(p.style.top) - t) < 14);
+        for (let i = 0; i < 8 && taken(left, top); i++) { left += 26; top += 26; }
+        el.style.left = Math.max(4, Math.min(left, W - 310)) + 'px';
+        el.style.top  = Math.max(10, top) + 'px';
+    }
 
     document.querySelector('.topo-canvas-wrapper').appendChild(el);
+    // the card is as tall as its content (a router bubble about 580px): keep all of it inside the diagram, its rows scroll when the diagram is lower
+    el.style.top  = Math.max(10, Math.min(parseFloat(el.style.top)  || 10, H - el.offsetHeight - 10)) + 'px';
+    el.style.left = Math.max(4,  Math.min(parseFloat(el.style.left) || 4,  W - el.offsetWidth  - 4))  + 'px';
     openPopups.set(nodeId, el);
+    popupNum.set(nodeId, num);
     raisePopup(el);
     updateDiagramHint();
+    if (visNetwork) visNetwork.redraw();
+    return el;
 }
 
 function closeNodePopup(el) {
     const id = Number(el.dataset.node);
     el.remove();
     openPopups.delete(id);
+    popupNum.delete(id);
+    if (cardHot === id) cardHot = null;
+    if (visNetwork) visNetwork.redraw();
     if (visNetwork && visNetwork.getSelectedNodes().includes(id)) visNetwork.unselectAll();
     updateDiagramHint();
 }
@@ -1124,6 +2496,8 @@ function closeNodePopup(el) {
 function closePopup() {
     openPopups.forEach(el => el.remove());
     openPopups.clear();
+    popupNum.clear();
+    cardHot = null;
     if (visNetwork) visNetwork.unselectAll();
     updateDiagramHint();
 }
@@ -1150,14 +2524,27 @@ function closePopup() {
         const maxTop = parent ? parent.clientHeight - moving.offsetHeight : Infinity;
         moving.style.left = Math.max(0, Math.min(startLeft + (e.clientX - startX), maxLeft)) + 'px';
         moving.style.top  = Math.max(0, Math.min(startTop + (e.clientY - startY), maxTop)) + 'px';
+        if (cardHot !== null && visNetwork) visNetwork.redraw();      // the halo stays with the device, nothing else moves
     });
-    document.addEventListener('mouseup', function () {
-        if (moving) { moving = null; document.body.style.userSelect = ''; }
+    document.addEventListener('mouseup', function (e) {
+        if (!moving) return;
+        moving = null; document.body.style.userSelect = '';
+        if (!(e.target.closest && e.target.closest('.node-popup'))) setCardHot(null);      // released outside every pop-up
+    });
+    document.addEventListener('mouseover', function (e) {
+        const p = e.target.closest && e.target.closest('.node-popup');
+        if (p && p.dataset.node !== undefined) setCardHot(Number(p.dataset.node));
+    });
+    document.addEventListener('mouseout', function (e) {
+        const p = e.target.closest && e.target.closest('.node-popup');
+        if (p && !moving && !p.contains(e.relatedTarget)) setCardHot(null);
     });
     document.addEventListener('click', function (e) {
         const popup = e.target.closest && e.target.closest('.node-popup');
         if (!popup) return;
         if (e.target.closest('.np-close')) { closeNodePopup(popup); return; }
+        const act = e.target.closest('.np-action');
+        if (act) { setSubnetOpen(act.dataset.subnet, act.dataset.want === 'open'); return; }
         const tab = e.target.closest('.popup-tab');
         if (tab) {
             const detail = tab.dataset.tab === 'detail';
@@ -1176,7 +2563,7 @@ function closePopup() {
 
 function formatDate(d) {
     const dt = new Date(d + 'T00:00:00');
-    return dt.toLocaleDateString('th-TH', { year:'numeric', month:'short', day:'numeric' });
+    return dt.toLocaleDateString(TOPO_LANG === 'en' ? 'en-GB' : 'th-TH', { year:'numeric', month:'short', day:'numeric' });
 }
 
 function resetZoom() {
@@ -1191,8 +2578,30 @@ function resetLayoutPositions() {
     if (visNetwork && visNetwork.__resetLayout) visNetwork.__resetLayout();
 }
 
-function changeSubnetPrefix(value) {
-    subnetPrefix = parseInt(value, 10) || 0;
+// Group by subnet (/24, the default), by /16 (fewer, larger groups) or no grouping. Without grouping every device is drawn at once around one centre, so the subnet bubbles,
+// the badge, the Tree / Star layouts and Float do not apply (their rows dim) and a big network gets a warning. Remembered per user.
+function syncGroupUi() {
+    const off = !subnetPrefix;
+    document.querySelectorAll('#groupRow [data-group]').forEach(b => b.setAttribute('aria-pressed', (Number(b.dataset.group) === subnetPrefix) ? 'true' : 'false'));
+    const lr = byId('layoutRow');
+    if (lr) { lr.classList.toggle('is-off', off); lr.querySelectorAll('button').forEach(b => { b.disabled = off; }); }
+    const ft = byId('floatToggle');
+    if (ft) { ft.classList.toggle('is-off', off); ft.disabled = off; }
+    const note = byId('groupNote');
+    if (!note) return;
+    const n = currentHosts.length, big = off && n > DRAW_BUDGET;
+    note.hidden = !off;
+    note.classList.toggle('is-warn', big);
+    note.textContent = off ? TOPO_T.groupNoneNote + (big ? ' ' + TOPO_T.groupNoneSlow.replace('{n}', n) : '') : '';
+}
+function changeGrouping(value) {
+    const next = ({ '0': 0, '16': 16, '24': 24 })[String(value)];
+    if (next === undefined) return;
+    if (next === subnetPrefix) return;
+    subnetPrefix = next;
+    subnetChoice.clear(); subnetFrozen.clear();      // the keys of one grouping mean nothing in the other
+    try { localStorage.setItem(GROUP_KEY, next ? String(next) : 'none'); } catch (e) { /* storage blocked: the choice just isn't remembered */ }
+    syncGroupUi();
     buildAndDraw();
 }
 
@@ -1224,10 +2633,267 @@ function toggleFloat() {
     buildAndDraw();
 }
 
+// ─── Diagram settings: the grid, the panel and the switches that change the drawing in place ───
+const GRID_STEP = 40, GRID_ALPHA = .12;     // world units between lines, and how strong a line is (slate grey on the white canvas)
+// A faint grid behind the diagram, in the diagram's own coordinates, so it moves and zooms with it. The lines are 1 screen pixel wide and
+// sit on whole device pixels. Zooming out doubles the spacing (the new half-spaced lines fade in as the zoom goes back in), so it never
+// turns into a grey wash. Light theme only: the dark canvas keeps its own drawn grid for now.
+function drawTopoGrid(ctx) {
+    if (!displaySettings.grid || isDarkTheme() || !visNetwork || !visNetwork.body || !visNetwork.body.view) return;
+    const view = visNetwork.body.view, scale = view.scale, tr = view.translation;
+    if (!(scale > 0) || !tr) return;
+    const w = ctx.canvas.clientWidth, h = ctx.canvas.clientHeight;
+    if (!(w > 0 && h > 0)) return;
+    const dpr = window.devicePixelRatio || 1;
+    const snap = v => (Math.floor(v * dpr) + .5) / dpr;
+    let coarse = GRID_STEP;
+    while (coarse * scale < 28) coarse *= 2;
+    while (coarse * scale >= 56) coarse /= 2;
+    const fine = coarse / 2, fineAlpha = Math.max(0, Math.min(1, (fine * scale - 14) / 14));
+    const x0 = -tr.x / scale, x1 = (w - tr.x) / scale, y0 = -tr.y / scale, y1 = (h - tr.y) / scale;
+    ctx.save();
+    ctx.lineWidth = 1 / scale;
+    const draw = (step, alpha, skipEven) => {
+        if (alpha < .01) return;
+        ctx.strokeStyle = 'rgba(100,116,139,' + (GRID_ALPHA * alpha).toFixed(3) + ')';
+        ctx.beginPath();
+        for (let i = Math.floor(x0 / step); i <= Math.ceil(x1 / step); i++) {
+            if (skipEven && i % 2 === 0) continue;
+            const x = (snap(i * step * scale + tr.x) - tr.x) / scale;
+            ctx.moveTo(x, y0); ctx.lineTo(x, y1);
+        }
+        for (let j = Math.floor(y0 / step); j <= Math.ceil(y1 / step); j++) {
+            if (skipEven && j % 2 === 0) continue;
+            const y = (snap(j * step * scale + tr.y) - tr.y) / scale;
+            ctx.moveTo(x0, y); ctx.lineTo(x1, y);
+        }
+        ctx.stroke();
+    };
+    draw(coarse, 1, false);
+    draw(fine, fineAlpha, true);
+    ctx.restore();
+}
+
+function applyInternetNode() {
+    if (!visNetwork || !visNetwork.body || !visNetwork.body.data) return;
+    const hide = !displaySettings.internet, edges = visNetwork.body.data.edges;
+    const inetMeta = internetNodeMeta(currentFilteredScans);
+    visNetwork.body.data.nodes.update([{ id: 0, hidden: hide, label: inetMeta.label, title: inetMeta.title }]);
+    const updates = edges.get().filter(e => e.from === 0 || e.to === 0).map(e => ({ id: e.id, hidden: hide }));
+    if (updates.length) edges.update(updates);
+}
+
+function saveDisplaySettings() {
+    try { localStorage.setItem(DISPLAY_KEY, JSON.stringify(displaySettings)); } catch (e) { /* storage blocked: the choice just isn't remembered */ }
+}
+// Rows show the saved state, and the colour legend only means something while the dots are there
+function syncSettingsPanel() {
+    const canvasBox = document.getElementById('topoCanvas');
+    if (canvasBox) canvasBox.classList.toggle('no-tips', !displaySettings.tooltips);
+    if (canvasBox) canvasBox.classList.toggle('no-grid', !displaySettings.grid);      // light: drawTopoGrid() reads the switch; dark: the lines are CSS, this class removes them
+    document.querySelectorAll('#topoSettings [data-setting]').forEach(row => {
+        row.setAttribute('aria-checked', displaySettings[row.dataset.setting] ? 'true' : 'false');
+    });
+    const pubRow = document.querySelector('#topoSettings [data-setting="publicIp"]');
+    if (pubRow) {
+        pubRow.disabled = !displaySettings.internet;
+        pubRow.classList.toggle('is-off', !displaySettings.internet);
+    }
+    document.querySelectorAll('#topoSettings [data-dotsby]').forEach(btn => {
+        btn.setAttribute('aria-pressed', btn.dataset.dotsby === displaySettings.dotsBy ? 'true' : 'false');
+        btn.disabled = !displaySettings.dots;
+        const row = btn.closest('.tcp-row');
+        if (row) row.classList.toggle('is-off', !displaySettings.dots);
+    });
+    // the colour legend only means something while the dots are there, and it follows what the dots show
+    const byRisk = displaySettings.dotsBy === 'risk', ports = document.getElementById('topoLegend'), risk = document.getElementById('topoLegendRisk');
+    if (ports) ports.hidden = !displaySettings.dots || byRisk;
+    if (risk) risk.hidden = !displaySettings.dots || !byRisk;
+}
+function setDisplay(key, value) {
+    if (!TOPO_SETTINGS[key] || displaySettings[key] === value) return;
+    displaySettings[key] = value;
+    saveDisplaySettings();
+    syncSettingsPanel();
+    TOPO_SETTINGS[key].apply();
+}
+// Everything in the panel back to its default: the switches above, Float on and the Tree layout
+function resetTopoSettings() {
+    let changed = false;
+    Object.keys(TOPO_SETTINGS).forEach(key => {
+        if (displaySettings[key] !== TOPO_SETTINGS[key].def) { displaySettings[key] = TOPO_SETTINGS[key].def; changed = true; }
+    });
+    if (topologyLayout !== 'tree') {
+        topologyLayout = 'tree'; changed = true;
+        try { localStorage.setItem(LAYOUT_KEY, 'tree'); } catch (e) { /* storage blocked */ }
+    }
+    if (subnetPrefix !== 24) {
+        subnetPrefix = 24; changed = true; subnetChoice.clear(); subnetFrozen.clear();
+        try { localStorage.setItem(GROUP_KEY, '24'); } catch (e) { /* storage blocked */ }
+    }
+    if (!topologyFloat) {
+        topologyFloat = true; changed = true;
+        try { localStorage.setItem(FLOAT_KEY, 'on'); } catch (e) { /* storage blocked */ }
+    }
+    if (!changed) return;
+    saveDisplaySettings();
+    syncSettingsPanel(); syncLayoutButtons(); syncFloatToggle(); syncGroupUi();
+    buildAndDraw();
+}
+
+// The cog opens and closes the panel; a click anywhere else and Esc close it (Esc goes to the panel before a node pop-up)
+(function enableSettingsPanel() {
+    const btn = document.getElementById('topoCog'), panel = document.getElementById('topoSettings');
+    if (!btn || !panel) return;
+    const setOpen = open => { panel.hidden = !open; btn.setAttribute('aria-expanded', open ? 'true' : 'false'); };
+    btn.addEventListener('click', () => setOpen(panel.hidden));
+    panel.addEventListener('click', e => {
+        const row = e.target.closest('[data-setting]');
+        if (row) setDisplay(row.dataset.setting, row.getAttribute('aria-checked') !== 'true');
+        const seg = e.target.closest('[data-dotsby]');
+        if (seg) setDisplay('dotsBy', seg.dataset.dotsby);
+    });
+    document.addEventListener('mousedown', e => {
+        if (!panel.hidden && !panel.contains(e.target) && !btn.contains(e.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Escape' || panel.hidden) return;
+        const inside = panel.contains(document.activeElement) || document.activeElement === btn;
+        setOpen(false);
+        if (inside) btn.focus();
+        e.stopPropagation();
+    }, true);
+})();
+
+function applyThemeInPlace() {
+    if (!visNetwork || !visNetwork.body || !visNetwork.body.data) return;
+    // Compute pre-resize camera center from canvasViewCenter & view.translation because
+    // documentElement[data-theme] has already updated CSS wrapper margins before clylar:theme fires,
+    // which otherwise skews getViewPosition() by half the wrapper margin delta.
+    const savedScale = visNetwork.getScale();
+    const cCenter = visNetwork.canvas && visNetwork.canvas.canvasViewCenter;
+    const vTrans = visNetwork.body && visNetwork.body.view && visNetwork.body.view.translation;
+    const savedView = {
+        position: (cCenter && vTrans && savedScale)
+            ? { x: (cCenter.x - vTrans.x) / savedScale, y: (cCenter.y - vTrans.y) / savedScale }
+            : visNetwork.getViewPosition(),
+        scale: savedScale
+    };
+    const dark = isDarkTheme();
+    const icons = dark ? ICON_SETS.dark : ICON_SETS.light;
+    const coreIcon = dark ? CORE_ICONS.dark : CORE_ICONS.light;
+    const themeOpt = dark ? 'dark' : 'light';
+
+    const nodeData = visNetwork.body.data.nodes;
+    if (nodeData) {
+        const updates = [];
+        nodeData.get().forEach(n => {
+            if (n.id === 0) {
+                updates.push({
+                    id: 0,
+                    image: coreIcon,
+                    font: Object.assign({}, n.font || {}, { color: dark ? '#f1f5f9' : '#212529' }),
+                    shadow: dark
+                        ? { enabled: true, color: 'rgba(56,189,248,0.68)', size: 28, x: 0, y: 0 }
+                        : { enabled: true, color: 'rgba(33,37,41,0.22)', size: 12 }
+                });
+            } else if (n._device) {
+                const isLoopback = n._device.ip === '127.0.0.1';
+                updates.push({
+                    id: n.id,
+                    image: icons[n._iconKey || vmIconKey(n._device, osIconKey(n._device.os))],
+                    font: Object.assign({}, n.font || {}, {
+                        color: isLoopback ? (dark ? '#64748b' : '#6c757d') : (dark ? '#e2e8f0' : '#343a40')
+                    }),
+                    shadow: dark
+                        ? { enabled: true, color: 'rgba(56,189,248,0.22)', size: 10, x: 0, y: 0 }
+                        : { enabled: true, color: '#00000018', size: 8 }
+                });
+            }
+        });
+        if (updates.length) nodeData.update(updates);
+    }
+
+    SubnetTopology.setTheme(visNetwork, { theme: themeOpt, gatewayIcon: icons['gateway'] });
+    // setTheme() puts the plain router / subnet icon back on every hub: a collapsed subnet must keep its count disc (drawn in the new theme's colours)
+    const bubbleFix = nodeData ? nodeData.get().filter(n => n._collapsed && (n._isSegment || n._isGateway)).map(n => ({ id: n.id, image: bubbleIcon(n._count) })) : [];
+    if (bubbleFix.length) nodeData.update(bubbleFix);
+
+    // Update any open pop-up header tint in-place (the body/tabs/ports follow CSS :root[data-theme="dark"] automatically)
+    openPopups.forEach((el, nodeId) => {
+        if (!el._nodeRef) return;
+        const info = describeNode(el._nodeRef, nodeId);
+        const header = el.querySelector('.np-header');
+        if (info && header) header.style.background = info.bg;
+    });
+
+    // Lock the camera across wrapper margin changes between Light (0px) and Dark (12px) frames:
+    // passing a concrete px size briefly forces vis-network to re-measure the canvas backing width before moveTo().
+    const restoreView = () => {
+        if (!visNetwork) return;
+        const container = document.getElementById('topoCanvas');
+        if (container) {
+            const rect = container.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                visNetwork.setSize(Math.round(rect.width) + 'px', Math.round(rect.height) + 'px');
+                visNetwork.setSize('100%', '100%');
+            }
+        }
+        visNetwork.moveTo({ position: savedView.position, scale: savedView.scale, animation: false });
+        visNetwork.redraw();
+    };
+    if (window.__topoThemeRestoreTimer) clearTimeout(window.__topoThemeRestoreTimer);
+    if (window.__topoThemeRestoreRaf) cancelAnimationFrame(window.__topoThemeRestoreRaf);
+    restoreView();
+    window.__topoThemeRestoreRaf = requestAnimationFrame(restoreView);
+    window.__topoThemeRestoreTimer = setTimeout(restoreView, 150);
+}
+
+function saveReloadState() {
+    try {
+        const activeQf = document.querySelector('.qf-btn.active');
+        const state = {
+            quickMode: activeQf ? activeQf.id : null,
+            selectedDates: [...selectedDates],
+            selectedJobs: [...selectedJobs],
+            scale: visNetwork ? visNetwork.getScale() : null,
+            viewPosition: visNetwork ? visNetwork.getViewPosition() : null,
+            nodePositions: {},
+            openPopups: [],
+            subnetChoice: [...subnetChoice],
+            subnetFrozen: [...subnetFrozen]
+        };
+        if (visNetwork && visNetwork.body && visNetwork.body.data && visNetwork.body.data.nodes) {
+            const positions = visNetwork.getPositions();
+            visNetwork.body.data.nodes.get().forEach(n => {
+                const key = stableNodeKey(n);
+                const pos = positions[n.id];
+                if (key && pos) state.nodePositions[key] = { x: pos.x, y: pos.y };
+            });
+        }
+        openPopups.forEach(el => {
+            const key = stableNodeKey(el._nodeRef);
+            if (!key) return;
+            const activeTab = el.querySelector('.popup-tab.active');
+            state.openPopups.push({
+                key,
+                left: el.style.left,
+                top: el.style.top,
+                tab: activeTab ? activeTab.dataset.tab : 'detail'
+            });
+        });
+        sessionStorage.setItem(RELOAD_STATE_KEY, JSON.stringify(state));
+    } catch (e) { /* storage blocked: fall back to a fresh fit */ }
+}
+
 // ─── Go ───
 syncLayoutButtons();
 syncFloatToggle();
+syncSettingsPanel();
+syncGroupUi();
 init();
+document.addEventListener('clylar:theme', applyThemeInPlace);
+document.addEventListener('clylar:before-reload', saveReloadState);
 </script>
 
 {% endblock %}

@@ -12,6 +12,7 @@ db = SQLAlchemy()
 
 
 class User(UserMixin, db.Model):
+    __table_args__ = {'sqlite_autoincrement': True}
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
@@ -20,9 +21,17 @@ class User(UserMixin, db.Model):
     # admin ที่สร้าง user/admin คนนี้
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=now_th)
+    # Suspended (2026-11-17): the account cannot sign in and its session ends at the next request, but nothing it owns is deleted (scans,
+    # schedules, its key). NULL / False = active. Flask-Login reads `is_active`, so login_user() also refuses a suspended account.
+    is_suspended = db.Column(db.Boolean, default=False)
+    suspended_at = db.Column(db.DateTime, nullable=True)
 
     subordinates = db.relationship('User', backref=db.backref('creator', remote_side=[id]),
                                    foreign_keys=[created_by])
+
+    @property
+    def is_active(self):
+        return not self.is_suspended
 
     @property
     def is_superadmin(self):
@@ -82,7 +91,8 @@ class ScanJob(db.Model):
 class AppSetting(db.Model):
     """A setting for the whole app, as key / text value (a new table, so db.create_all() adds it to an existing database).
     Keys in use: 'ai_enabled' ('1' / '0': whether the chatbot may call Gemini at all; missing = on);
-    'chat_button_hidden.<user id>' ('1' = that admin hid the floating chat button; missing = shown)."""
+    'chat_button_hidden.<user id>' ('1' = that admin hid the floating chat button; missing = shown);
+    'chat_hint_seen.<user id>' ('1' = that admin has seen the one-time "you can hide this button in Settings" hint; missing = not yet)."""
     key = db.Column(db.String(50), primary_key=True)
     value = db.Column(db.String(500), nullable=True)
     updated_at = db.Column(db.DateTime, default=now_th, onupdate=now_th)
@@ -104,6 +114,19 @@ class GeminiCall(db.Model):
     total_tokens = db.Column(db.Integer, nullable=True)
 
 
+class ChatAnswer(db.Model):
+    """An AI answer worked out in the BACKGROUND (2026-11-19), so it is not lost when the person leaves the page while it is being written.
+    `id` is the unguessable ticket the page keeps; `status` is pending, done, error or interrupted (a restart cut it off); `result` is the JSON the chat
+    endpoint would have answered with. Only the person who asked can read it. A new table, so db.create_all() adds it to an existing database."""
+    id = db.Column(db.String(32), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    status = db.Column(db.String(12), nullable=False, default='pending')
+    engine = db.Column(db.String(10), nullable=True)
+    result = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=now_th, index=True)
+    finished_at = db.Column(db.DateTime, nullable=True)
+
+
 class HistoryQuery(db.Model):
     """A query of the History page's advanced filter. Every search is kept as a "recent" one (the newest 10 per user); one the user
     names and saves has is_saved set and stays until they delete it. `criteria` is the JSON the filter builder produces."""
@@ -114,6 +137,22 @@ class HistoryQuery(db.Model):
     is_saved = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=now_th)
     last_used_at = db.Column(db.DateTime, default=now_th)
+
+
+class Notification(db.Model):
+    """One entry of the bell's Activity panel, for ONE user (so each person has their own read state). `kind` picks the Thai / English text
+    (locales `notif.<kind>`), `params` is the JSON that fills it, so the text follows the reader's language. `cat` is the filter group:
+    scan, device, vuln. `tone` is the colour family: ok, info, amber, crit. `read_at` NULL = unread. A new table, so db.create_all() adds it."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    kind = db.Column(db.String(30), nullable=False)
+    cat = db.Column(db.String(10), nullable=False, default='scan')
+    tone = db.Column(db.String(10), nullable=False, default='info')
+    params = db.Column(db.Text, nullable=True)
+    link = db.Column(db.String(200), nullable=True)
+    job_id = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=now_th, index=True)
+    read_at = db.Column(db.DateTime, nullable=True)
 
 
 class SavedTarget(db.Model):
@@ -151,3 +190,12 @@ class ScheduledScan(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     # owner ของ schedule (admin/superadmin)
     owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+
+class LoginThrottle(db.Model):
+    """Tracks failed sign-in attempts per username ('user:<name>') and per IP ('ip:<addr>') to block brute-force attacks.
+    Stored in SQLite so lockouts survive server restarts. A new table, so db.create_all() adds it to an existing database."""
+    key = db.Column(db.String(120), primary_key=True)
+    failures = db.Column(db.Integer, nullable=False, default=0)
+    first_failed_at = db.Column(db.DateTime, nullable=True)
+    locked_until = db.Column(db.DateTime, nullable=True)

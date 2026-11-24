@@ -5,15 +5,15 @@
 <div class="adv-switch scan-adv-mc">
     <div class="adv-switch-text">
         <div class="d-flex align-items-center gap-1">
-            <label class="adv-label" for="{{ prefix }}_dns_input">ไม่ค้นหาชื่ออุปกรณ์ผ่าน DNS (-n)</label>
-            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายการไม่ค้นหาชื่อผ่าน DNS">
+            <label class="adv-label" for="{{ prefix }}_dns_input">{{ t('tasks.adv.dns') }}</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="{{ t('tasks.adv.dns_aria') }}">
                 <i class="ti ti-info-circle"></i>
                 <div class="scan-adv-info-card">
-                    <div class="text-secondary" style="font-size:0.77rem;">ทั้ง nmap และระบบจะไม่ถามเซิร์ฟเวอร์ DNS ว่าแต่ละที่อยู่ IP มีชื่ออะไร สแกนจึงเร็วขึ้นและไม่ส่งที่อยู่ IP ภายในไปยังเซิร์ฟเวอร์ DNS แต่ผลสแกนจะไม่มีชื่อจาก DNS ระบบยังอ่านชื่อ NetBIOS ที่ถามจากตัวอุปกรณ์ได้ อุปกรณ์และพอร์ตที่พบไม่เปลี่ยน</div>
+                    <div class="text-secondary" style="font-size:0.77rem;">{{ t('tasks.adv.dns_card') }}</div>
                 </div>
             </span>
         </div>
-        <div class="adv-help">เร็วขึ้น ไม่ส่ง IP ภายในไปยัง DNS แต่จะไม่มีชื่อจาก DNS</div>
+        <div class="adv-help">{{ t('tasks.adv.dns_help') }}</div>
     </div>
     <div class="form-check form-switch m-0 p-0">
         <input class="form-check-input" type="checkbox" role="switch" name="no_dns" value="1" id="{{ prefix }}_dns_input">

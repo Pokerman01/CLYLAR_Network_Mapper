@@ -34,11 +34,31 @@ def _hosts(scan):
     return out
 
 
-def _open_ports(host):
+def _udp_unknown(host):
+    """True when the UDP result of this host is not known in that scan: the UDP run failed, the host ran out of its UDP time, or the UDP run never
+    covered it (an IPv6 address, or nmap did not report it). Such a host lists no UDP port, which says nothing about whether one is open."""
+    return any(host.get(k) is True for k in ('udp_failed', 'udp_timed_out', 'udp_not_scanned'))
+
+
+def _ports_unknown(host):
+    """True when this host's port list cannot be trusted as "what is open": the scan never listed ports for it (no list), nmap's --host-timeout cut it
+    off (`timed_out`, its `ports` key was removed), or nmap collapsed some of its OPEN ports into a summary (`ports_unlisted` {"open": N}), so the
+    list holds fewer open ports than the host has. Comparing such a host would call every port "no longer open" and every CVE "not found now"."""
+    if not isinstance(host.get('ports'), list) or host.get('timed_out') is True:
+        return True
+    ul = host.get('ports_unlisted')
+    n = ul.get('open') if isinstance(ul, dict) else None
+    return isinstance(n, int) and not isinstance(n, bool) and n > 0
+
+
+def _open_ports(host, skip_udp=False):
     ports = {}
     for p in (host.get('ports') or []):
         if isinstance(p, dict) and str(p.get('state') or '').lower() == 'open' and p.get('port') not in (None, ''):
-            ports[(_port_number(p.get('port')), str(p.get('protocol') or 'tcp'))] = p
+            proto = str(p.get('protocol') or 'tcp')
+            if skip_udp and proto.lower() == 'udp':
+                continue
+            ports[(_port_number(p.get('port')), proto)] = p
     return ports
 
 
@@ -54,10 +74,10 @@ def _port_label(key, p):
     return '%s/%s%s' % (key[0], key[1], (' ' + name) if name and name != 'unknown' else '')
 
 
-def _cves(host):
+def _cves(host, skip_udp=False):
     """{(port key, cve id): the CVE record} from the OPEN ports of one host, plus {port key: cve_status or None}."""
     found, status = {}, {}
-    for key, p in _open_ports(host).items():
+    for key, p in _open_ports(host, skip_udp).items():
         status[key] = p.get('cve_status')
         for c in (p.get('cves') or []):
             if isinstance(c, dict) and c.get('cve_id'):
@@ -97,12 +117,18 @@ def compare_scans(prev, cur, prev_admin=None, cur_admin=None):
     missing = [{'ip': ip, 'os': _real_os(ph[ip]), 'mac': _real_mac(ph[ip]), 'vendor': str(ph[ip].get('mac_vendor') or '')}
                for ip in sorted(set(ph) - set(ch), key=_ip_key)]
 
+    # A host whose UDP result is unknown in either scan lists no UDP port there, so comparing its UDP ports would call a failed run "no longer open"
+    # (or the other way round "newly open"). Its UDP ports are left out of the comparison, ports and CVEs alike, and the count says how many hosts.
+    # The same for a host whose whole port list is unknown in either scan (no list, timed out, open ports left unlisted): nothing about its ports or CVEs is compared.
+    both = set(ph) & set(ch)
+    ports_skipped = {ip for ip in both if has_ports and (_ports_unknown(ph[ip]) or _ports_unknown(ch[ip]))}
+    udp_skipped = {ip for ip in both if has_ports and (_udp_unknown(ph[ip]) or _udp_unknown(ch[ip]))} - ports_skipped
+
     port_changes = []
     if has_ports:
-        for ip in sorted(set(ph) & set(ch), key=_ip_key):
-            if ph[ip].get('ports') is None or ch[ip].get('ports') is None:
-                continue
-            before, after = _open_ports(ph[ip]), _open_ports(ch[ip])
+        for ip in sorted(both - ports_skipped, key=_ip_key):
+            skip = ip in udp_skipped
+            before, after = _open_ports(ph[ip], skip), _open_ports(ch[ip], skip)
             opened = sorted(set(after) - set(before))
             closed = sorted(set(before) - set(after))
             if opened or closed:
@@ -112,11 +138,14 @@ def compare_scans(prev, cur, prev_admin=None, cur_admin=None):
     cve_compared = scan_type == 'vuln_scan'
     if cve_compared:
         for ip in sorted(ch, key=_ip_key):
-            now, now_status = _cves(ch[ip])
+            if ip in ports_skipped:
+                continue
+            skip = ip in udp_skipped
+            now, now_status = _cves(ch[ip], skip)
             if ip not in ph:
                 new_cves += [_cve_row(ip, k, c, basis='new_device') for (k, _), c in now.items()]
                 continue
-            was, was_status = _cves(ph[ip])
+            was, was_status = _cves(ph[ip], skip)
             was_ids = {cid for (_, cid) in was}
             for (key, cid), c in now.items():
                 if (key, cid) in was or cid in was_ids:
@@ -143,7 +172,11 @@ def compare_scans(prev, cur, prev_admin=None, cur_admin=None):
     caveats = []
     if prev_admin is not None and cur_admin is not None and prev_admin != cur_admin:
         caveats.append('admin_differs')       # one run had Administrator rights and the other did not: devices can differ for that reason alone
-    counts = {'new_devices': len(new_devices), 'missing_devices': len(missing), 'port_changes': len(port_changes),
+    if ports_skipped:
+        caveats.append('ports_unknown')       # some hosts' ports and CVEs were not compared because one of the scans does not know their ports
+    if udp_skipped:
+        caveats.append('udp_unknown')         # some hosts' UDP ports were not compared because one of the scans does not know them
+    counts = {'ports_not_compared': len(ports_skipped), 'udp_not_compared': len(udp_skipped), 'new_devices': len(new_devices), 'missing_devices': len(missing), 'port_changes': len(port_changes),
               'ports_opened': sum(len(x['opened']) for x in port_changes), 'ports_closed': sum(len(x['closed']) for x in port_changes),
               'new_cves': len(new_cves), 'fixed_cves': len(fixed_cves),
               'new_kev': sum(1 for x in new_cves if x['kev'])}

@@ -3,11 +3,11 @@
 {% if voice_page %}
 <!-- The Voice page (/voice): the SAME element ids as the Assistant page, laid out as one big microphone with a ring of bars around it. The microphone, Whisper, the parser and
      the confirmation card are the shared code in base.html; the page script is in voice.html. -->
-<section id="vp-root" class="vp" data-state="idle" role="region" aria-label="คำสั่งเสียง CLYLAR">
+<section id="vp-root" class="vp" data-state="idle" role="region" aria-label="{{ t('chat.voice_region') }}">
   <div class="vp-top">
     <div class="vp-meta">
-      <button class="vp-lang" id="cb-vlang" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="vp-langmenu">AUTO</button>
-      <div class="vp-menu" id="vp-langmenu" role="menu" aria-label="ภาษาที่ใช้พูด" hidden>
+      <button class="vp-lang" id="cb-vlang" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="vp-langmenu">{{ t('chat.v.langPillAuto') }}</button>
+      <div class="vp-menu" id="vp-langmenu" role="menu" aria-label="{{ t('chat.spoken_lang') }}" hidden>
         <button type="button" role="menuitemradio" data-mode="auto" aria-checked="false"><i class="ti ti-check" aria-hidden="true"></i><span></span></button>
         <button type="button" role="menuitemradio" data-mode="th" aria-checked="false"><i class="ti ti-check" aria-hidden="true"></i><span></span></button>
         <button type="button" role="menuitemradio" data-mode="en" aria-checked="false"><i class="ti ti-check" aria-hidden="true"></i><span></span></button>
@@ -18,8 +18,8 @@
     <div class="vp-right">
     {% include 'partials/_autorun_switch.html' %}
     <div class="vp-helpwrap">
-      <button class="vp-rbtn xs" id="cb-help-btn" type="button" onclick="toggleHelp()" title="คำสั่งที่ใช้ได้" aria-label="คำสั่งที่ใช้ได้" aria-expanded="false" aria-controls="cb-help"><i class="ti ti-question-mark" aria-hidden="true"></i></button>
-      <div class="cb-help" id="cb-help" role="region" aria-label="คำสั่งที่ใช้ได้" hidden></div>
+      <button class="vp-rbtn xs" id="cb-help-btn" type="button" onclick="toggleHelp()" title="{{ t('chat.v.helpBtn') }}" aria-label="{{ t('chat.v.helpBtn') }}" aria-expanded="false" aria-controls="cb-help"><i class="ti ti-question-mark" aria-hidden="true"></i></button>
+      <div class="cb-help" id="cb-help" role="region" aria-label="{{ t('chat.v.helpBtn') }}" hidden></div>
     </div>
     </div>
   </div>
@@ -27,13 +27,13 @@
   <div class="cb-panel active" id="panel-chat">
     <div class="vp-center">
       <div class="vp-row">
-        <button class="vp-rbtn" id="vp-type" type="button" aria-pressed="false" aria-controls="vp-typed" title="พิมพ์คำสั่งแทนการพูด" aria-label="พิมพ์คำสั่งแทนการพูด"><i class="ti ti-keyboard" aria-hidden="true"></i></button>
+        <button class="vp-rbtn" id="vp-type" type="button" aria-pressed="false" aria-controls="vp-typed" title="{{ t('chat.vp_type') }}" aria-label="{{ t('chat.vp_type') }}"><i class="ti ti-keyboard" aria-hidden="true"></i></button>
         <div class="vp-ringwrap" id="vp-ring">
           <div class="vp-glow" aria-hidden="true"></div>
           <canvas class="vp-cv" id="vp-cv" aria-hidden="true"></canvas>
           <button class="cb-mic vp-disc" id="cb-mic" type="button" onclick="voiceToggle()"><i class="ti ti-microphone ic-mic" aria-hidden="true"></i><i class="ti ti-player-stop-filled ic-stop" aria-hidden="true"></i></button>
         </div>
-        <button class="vp-rbtn" id="vp-close" type="button" title="ยกเลิกและล้างหน้าจอ (Esc)" aria-label="ยกเลิกและล้างหน้าจอ"><i class="ti ti-x" aria-hidden="true"></i></button>
+        <button class="vp-rbtn" id="vp-close" type="button" title="{{ t('chat.vp_close_title') }}" aria-label="{{ t('chat.vp_close') }}"><i class="ti ti-x" aria-hidden="true"></i></button>
       </div>
 
       <div class="vp-text">
@@ -52,8 +52,8 @@
 
     <div class="vp-bottom">
       <div class="vp-typed" id="vp-typed" hidden>
-        <input class="cb-input" id="cb-input" type="text" placeholder="พิมพ์คำสั่ง เช่น มีกี่อุปกรณ์" aria-label="พิมพ์คำสั่ง" autocomplete="off" onkeydown="if(event.key==='Enter') sendMsg()">
-        <button class="vp-send" type="button" onclick="sendMsg()" title="ส่งคำสั่ง" aria-label="ส่งคำสั่ง"><i class="ti ti-arrow-up" aria-hidden="true"></i></button>
+        <input class="cb-input" id="cb-input" type="text" placeholder="{{ t('chat.vp_input_ph') }}" aria-label="{{ t('chat.vp_input') }}" autocomplete="off" onkeydown="if(event.key==='Enter') sendMsg()">
+        <button class="vp-send" type="button" onclick="sendMsg()" title="{{ t('chat.vp_send') }}" aria-label="{{ t('chat.vp_send') }}"><i class="ti ti-arrow-up" aria-hidden="true"></i></button>
       </div>
       <p class="vp-note" id="vp-note" hidden></p>
     </div>
@@ -62,19 +62,25 @@
   </div>
 </section>
 {% elif assistant_page %}
-<!-- The Assistant page (/assistant): the same widget laid out as one quiet centred column with a floating composer; the chat list is a drawer. -->
-<div id="chatbot-popup" class="is-page" role="region" aria-label="ผู้ช่วย CLYLAR">
+<!-- The Assistant page (/assistant): Orbital Focus — centred minimal empty canvas with a collapsible command guide beneath the composer; transitions smoothly into a docked conversation. -->
+<div id="chatbot-popup" class="is-page" role="region" aria-label="{{ t('chat.assistant_name') }}">
   <div class="cb-top">
-    <div class="cb-ttl"><span class="lab">แชทนี้</span><h2 id="cb-title">แชทใหม่</h2></div>
+    <button type="button" class="cb-icon-btn cb-hist-trigger" id="cb-hist-btn" onclick="pageToggleDrawer()" title="{{ t('chat.history') }}" aria-label="{{ t('chat.history') }}" aria-expanded="false" aria-controls="panel-history"><i class="ti ti-history" aria-hidden="true"></i></button>
+    <div class="cb-ttl">
+      <span class="lab" hidden>{{ t('chat.v.thisChat') }}</span>
+      <div class="cb-ttl-row">
+        <h2 id="cb-title">{{ t('chat.v.newChatTitle') }}</h2>
+        <span class="cb-ai-chip{% if not chat_ai_on %} is-off{% endif %}" id="cb-ai-chip"><span class="cb-ai-chip-dot" aria-hidden="true"></span><span>AI</span></span>
+      </div>
+    </div>
     <div class="cb-acts">
-      <button type="button" class="cb-pbtn" id="cb-hist-btn" onclick="pageToggleDrawer()" aria-expanded="false" aria-controls="panel-history"><i class="ti ti-history" aria-hidden="true"></i>ประวัติแชท</button>
-      <button type="button" class="cb-pbtn" onclick="pageNewChat()"><i class="ti ti-plus" aria-hidden="true"></i>แชทใหม่</button>
-      <button class="cb-icon-btn" id="cb-help-btn" type="button" onclick="toggleHelp()" title="คำสั่งที่ใช้ได้" aria-label="คำสั่งที่ใช้ได้" aria-expanded="false" aria-controls="cb-help"><i class="ti ti-help" aria-hidden="true"></i></button>
+      <button type="button" class="cb-pbtn" onclick="pageNewChat()"><i class="ti ti-plus" aria-hidden="true"></i>{{ t('chat.v.newChatTitle') }}</button>
+      <button class="cb-icon-btn cb-help-trigger" id="cb-help-btn" type="button" onclick="toggleHelp()" title="{{ t('chat.v.helpBtn') }}" aria-label="{{ t('chat.v.helpBtn') }}" aria-expanded="false" aria-controls="cb-help"><i class="ti ti-help" aria-hidden="true"></i></button>
     </div>
   </div>
 
   <div class="cb-panel active" id="panel-chat">
-    <div class="cb-help" id="cb-help" role="region" aria-label="คำสั่งที่ใช้ได้" hidden></div>
+    <div class="cb-help" id="cb-help" role="region" aria-label="{{ t('chat.v.helpBtn') }}" hidden></div>
     <div class="cb-messages" id="cb-messages"><div class="cb-start" id="cb-start"></div></div>
     <div class="cb-quick-replies" id="cb-quick-replies"></div><!-- not used on the page; the shared code still looks for it -->
     <div class="cb-dock">
@@ -86,91 +92,92 @@
           <button class="cb-vs-stop" id="cb-vs-stop" type="button" onclick="voiceStop()" hidden></button>
         </div>
         <div class="cb-input-bar">
-          <input class="cb-input" id="cb-input" type="text" placeholder="พิมพ์ข้อความ หรือกดปุ่มไมโครโฟนเพื่อพูด" aria-label="ข้อความ" autocomplete="off" onkeydown="if(event.key==='Enter') sendMsg()">
+          <input class="cb-input" id="cb-input" type="text" placeholder="{{ t('chat.v.inputPlaceholderPage') }}" aria-label="{{ t('chat.msg_label') }}" autocomplete="off" onkeydown="if(event.key==='Enter') sendMsg()">
           <button class="cb-mic" id="cb-mic" type="button" onclick="voiceToggle()"><i class="ti ti-microphone" aria-hidden="true"></i></button>
-          <button class="cb-send" type="button" onclick="sendMsg()" title="ส่ง" aria-label="ส่ง"><i class="ti ti-send" aria-hidden="true"></i></button>
+          <button class="cb-send" type="button" onclick="sendMsg()" title="{{ t('chat.send') }}" aria-label="{{ t('chat.send') }}"><i class="ti ti-send" aria-hidden="true"></i></button>
         </div>
         <div class="cb-foot">
-          <div class="cb-status" id="cb-status"><span class="cb-dot{% if not chat_ai_on %} off{% endif %}" id="cb-status-dot"></span><span class="cb-status-ai{% if not chat_ai_on %} is-off{% endif %}" id="cb-status-text">{{ 'AI เปิดอยู่' if chat_ai_on else 'AI ปิดอยู่' }}</span><span class="cb-status-sep" id="cb-status-sep" aria-hidden="true" hidden>·</span><span class="cb-status-voice" id="cb-status-voice" hidden></span></div>
-          <div class="cb-foot-r"><button class="cb-vlang" id="cb-vlang" type="button" onclick="voiceSwitchLang()">AUTO</button>{% include 'partials/_autorun_switch.html' %}</div>
+          <div class="cb-status" id="cb-status"><span class="cb-dot{% if not chat_ai_on %} off{% endif %}" id="cb-status-dot"></span><span class="cb-status-ai{% if not chat_ai_on %} is-off{% endif %}" id="cb-status-text">{{ t('chat.v.statusAiOn') if chat_ai_on else t('chat.v.statusAiOff') }}</span><span class="cb-status-sep" id="cb-status-sep" aria-hidden="true" hidden>·</span><span class="cb-status-voice" id="cb-status-voice" hidden></span></div>
+          <div class="cb-foot-r"><button class="cb-vlang" id="cb-vlang" type="button" onclick="voiceSwitchLang()">{{ t('chat.v.langPillAuto') }}</button>{% include 'partials/_autorun_switch.html' %}</div>
         </div>
       </div>
+      <div class="cb-guide-wrap" id="cb-guide-wrap"></div>
     </div>
   </div>
 
-  <button type="button" class="cb-scrim" id="cb-scrim" onclick="pageCloseDrawer()" aria-label="ปิดรายการแชท" tabindex="-1"></button>
-  <aside class="cb-drawer" id="panel-history" aria-label="ประวัติแชท">
-    <div class="cb-drawer-head"><span>ประวัติแชท</span><button class="cb-icon-btn" id="cb-drawer-close" type="button" onclick="pageCloseDrawer()" title="ปิด" aria-label="ปิดรายการแชท"><i class="ti ti-x" aria-hidden="true"></i></button></div>
+  <button type="button" class="cb-scrim" id="cb-scrim" onclick="pageCloseDrawer()" aria-label="{{ t('chat.list_close') }}" tabindex="-1"></button>
+  <aside class="cb-drawer" id="panel-history" aria-label="{{ t('chat.history') }}">
+    <div class="cb-drawer-head"><span>{{ t('chat.history') }}</span><button class="cb-icon-btn" id="cb-drawer-close" type="button" onclick="pageCloseDrawer()" title="{{ t('common.close') }}" aria-label="{{ t('chat.list_close') }}"><i class="ti ti-x" aria-hidden="true"></i></button></div>
     <div class="cb-hist-search-bar" id="cb-hist-search-bar" style="display: none;">
       <div class="cb-hist-search-wrap">
         <span class="cb-hist-search-icon"><i class="ti ti-search" aria-hidden="true"></i></span>
-        <input class="cb-hist-search-input" id="cb-hist-search-input" type="text" placeholder="ค้นหาข้อความ, IP, วันที่..." aria-label="ค้นหาประวัติแชท" oninput="onHistSearchInput(this.value)" onkeydown="if(event.key==='Escape') toggleHistSearch(false)">
-        <button class="cb-hist-search-clear" id="cb-hist-search-clear" type="button" onclick="clearHistSearch()" title="ล้างการค้นหา" aria-label="ล้างการค้นหา"><i class="ti ti-x" aria-hidden="true"></i></button>
+        <input class="cb-hist-search-input" id="cb-hist-search-input" type="text" placeholder="{{ t('chat.search_ph') }}" aria-label="{{ t('chat.search_aria') }}" oninput="onHistSearchInput(this.value)" onkeydown="if(event.key==='Escape') toggleHistSearch(false)">
+        <button class="cb-hist-search-clear" id="cb-hist-search-clear" type="button" onclick="clearHistSearch()" title="{{ t('chat.search_clear') }}" aria-label="{{ t('chat.search_clear') }}"><i class="ti ti-x" aria-hidden="true"></i></button>
       </div>
       <div class="cb-hist-search-info" id="cb-hist-search-info"></div>
     </div>
     <div class="cb-history-panel" id="cb-history-list"></div>
     <div class="cb-hist-footer">
-      <button class="cb-hist-footer-btn" id="cb-hist-search-btn" type="button" onclick="toggleHistSearch()" title="ค้นหาประวัติแชท"><i class="ti ti-search" aria-hidden="true"></i>ค้นหาแชท</button>
-      <button class="cb-hist-footer-btn" type="button" onclick="clearAllHistory()" title="ลบประวัติที่บันทึกไว้ทั้งหมด"><i class="ti ti-trash" aria-hidden="true"></i>ลบประวัติทั้งหมด</button>
+      <button class="cb-hist-footer-btn" id="cb-hist-search-btn" type="button" onclick="toggleHistSearch()" title="{{ t('chat.search_aria') }}"><i class="ti ti-search" aria-hidden="true"></i>{{ t('chat.search_btn') }}</button>
+      <button class="cb-hist-footer-btn" type="button" onclick="clearAllHistory()" title="{{ t('chat.delete_all_title') }}"><i class="ti ti-trash" aria-hidden="true"></i>{{ t('chat.delete_all') }}</button>
     </div>
   </aside>
 </div>
 {% else %}
 <!-- Chat popup -->
-<div id="chatbot-popup" role="dialog" aria-label="CLYLAR Assistant">
+<div id="chatbot-popup" role="dialog" aria-label="{{ t('chat.assistant_name') }}">
   <!-- Resize grip: drag it to change the window's size (the expand button in the header does the same in one click) -->
-  <div class="cb-grip" id="cb-grip" title="ลากเพื่อปรับขนาดหน้าต่าง" aria-hidden="true"></div>
+  <div class="cb-grip" id="cb-grip" title="{{ t('chat.grip') }}" aria-hidden="true"></div>
   <!-- Header (draggable) -->
   <div class="cb-header" id="cb-drag-handle">
     <div class="cb-avatar"><i class="ti ti-message-circle" aria-hidden="true"></i></div>
     <div class="cb-header-info">
-      <h6>CLYLAR Assistant <i class="ti ti-grip-horizontal cb-drag-hint" title="ลากเพื่อย้ายหน้าต่าง" aria-hidden="true"></i></h6>
-      <div class="cb-status" id="cb-status"><span class="cb-dot{% if not chat_ai_on %} off{% endif %}" id="cb-status-dot"></span><span class="cb-status-ai" id="cb-status-text">{{ 'AI เปิดอยู่' if chat_ai_on else 'AI ปิดอยู่' }}</span><span class="cb-status-sep" id="cb-status-sep" aria-hidden="true" hidden>·</span><span class="cb-status-voice" id="cb-status-voice" hidden></span></div>
+      <h6>{{ t('chat.assistant_name') }} <i class="ti ti-grip-horizontal cb-drag-hint" title="{{ t('chat.drag') }}" aria-hidden="true"></i></h6>
+      <div class="cb-status" id="cb-status"><span class="cb-dot{% if not chat_ai_on %} off{% endif %}" id="cb-status-dot"></span><span class="cb-status-ai" id="cb-status-text">{{ t('chat.v.statusAiOn') if chat_ai_on else t('chat.v.statusAiOff') }}</span><span class="cb-status-sep" id="cb-status-sep" aria-hidden="true" hidden>·</span><span class="cb-status-voice" id="cb-status-voice" hidden></span></div>
     </div>
     <div class="cb-header-actions">
-      <button class="cb-icon-btn" id="cb-help-btn" type="button" onclick="toggleHelp()" title="คำสั่งที่ใช้ได้" aria-label="คำสั่งที่ใช้ได้" aria-expanded="false" aria-controls="cb-help"><i class="ti ti-help" aria-hidden="true"></i></button>
-      <button class="cb-icon-btn" id="cb-size-btn" type="button" onclick="cbToggleSize()" title="ขยายหน้าต่าง" aria-label="ขยายหน้าต่าง" aria-pressed="false"><i class="ti ti-arrows-maximize" aria-hidden="true"></i></button>
-      <button class="cb-icon-btn" type="button" onclick="askClearChat()" title="ล้างแชทปัจจุบัน" aria-label="ล้างแชทปัจจุบัน"><i class="ti ti-eraser" aria-hidden="true"></i></button>
-      <button class="cb-icon-btn" type="button" onclick="toggleChat()" title="ปิด" aria-label="ปิดแชท"><i class="ti ti-x" aria-hidden="true"></i></button>
+      <button class="cb-icon-btn" id="cb-help-btn" type="button" onclick="toggleHelp()" title="{{ t('chat.v.helpBtn') }}" aria-label="{{ t('chat.v.helpBtn') }}" aria-expanded="false" aria-controls="cb-help"><i class="ti ti-help" aria-hidden="true"></i></button>
+      <button class="cb-icon-btn" id="cb-size-btn" type="button" onclick="cbToggleSize()" title="{{ t('chat.v.sizeExpand') }}" aria-label="{{ t('chat.v.sizeExpand') }}" aria-pressed="false"><i class="ti ti-arrows-maximize" aria-hidden="true"></i></button>
+      <button class="cb-icon-btn" type="button" onclick="askClearChat()" title="{{ t('chat.clear_current') }}" aria-label="{{ t('chat.clear_current') }}"><i class="ti ti-eraser" aria-hidden="true"></i></button>
+      <button class="cb-icon-btn" type="button" onclick="toggleChat()" title="{{ t('common.close') }}" aria-label="{{ t('chat.v.closeChat') }}"><i class="ti ti-x" aria-hidden="true"></i></button>
     </div>
   </div>
 
   <!-- Asked before the chat is cleared -->
   <div class="cb-confirm" id="cb-clear-confirm" role="alert" hidden>
-    <span>ต้องการล้างแชทนี้หรือไม่ ข้อความที่พิมพ์จะเก็บไว้ในแท็บประวัติ แต่ข้อความจากคำสั่งเสียงจะหายไป</span>
+    <span>{{ t('chat.clear_q') }}</span>
     <div class="cb-confirm-actions">
-      <button type="button" class="cb-confirm-yes" onclick="confirmClearChat()">ล้างแชท</button>
-      <button type="button" class="cb-confirm-no" onclick="hideClearConfirm()">ยกเลิก</button>
+      <button type="button" class="cb-confirm-yes" onclick="confirmClearChat()">{{ t('chat.clear_yes') }}</button>
+      <button type="button" class="cb-confirm-no" onclick="hideClearConfirm()">{{ t('chat.v.cancel') }}</button>
     </div>
   </div>
 
   <!-- Tabs, and the way to the full-page Assistant -->
   <div class="cb-tabrow">
     <div class="cb-tabs">
-      <button class="cb-tab active" id="tab-chat" type="button" onclick="switchTab('chat')"><i class="ti ti-message-circle" aria-hidden="true"></i>แชท</button>
-      <button class="cb-tab" id="tab-history" type="button" onclick="switchTab('history')"><i class="ti ti-history" aria-hidden="true"></i>ประวัติ</button>
+      <button class="cb-tab active" id="tab-chat" type="button" onclick="switchTab('chat')"><i class="ti ti-message-circle" aria-hidden="true"></i>{{ t('chat.tab.chat') }}</button>
+      <button class="cb-tab" id="tab-history" type="button" onclick="switchTab('history')"><i class="ti ti-history" aria-hidden="true"></i>{{ t('chat.tab.history') }}</button>
     </div>
     {% include 'partials/_autorun_switch.html' %}
-    <button class="cb-icon-btn" type="button" onclick="cbOpenFullPage()" title="เปิดเป็นหน้าเต็ม" aria-label="เปิดเป็นหน้าเต็ม"><i class="ti ti-arrows-diagonal" aria-hidden="true"></i></button>
+    <button class="cb-icon-btn" type="button" onclick="cbOpenFullPage()" title="{{ t('chat.fullpage') }}" aria-label="{{ t('chat.fullpage') }}"><i class="ti ti-arrows-diagonal" aria-hidden="true"></i></button>
   </div>
 
   <!-- Panel: Chat -->
   <div class="cb-panel active" id="panel-chat">
-    <div class="cb-help" id="cb-help" role="region" aria-label="คำสั่งที่ใช้ได้" hidden></div>
+    <div class="cb-help" id="cb-help" role="region" aria-label="{{ t('chat.v.helpBtn') }}" hidden></div>
     <div class="cb-messages" id="cb-messages">
       <div class="cb-msg bot">
         <div>
-          <div class="cb-bubble">CLYLAR Assistant ตอบคำถามจากข้อมูลของระบบได้ เช่น อุปกรณ์ พอร์ต และช่องโหว่ที่พบ<br>สั่งสแกนได้ด้วยการพิมพ์หรือพูด โดยจะขอให้ยืนยันก่อนสแกน เว้นแต่เปิดตัวเลือกสแกนทันที</div>
-          <div class="cb-time">เมื่อสักครู่</div>
+          <div class="cb-bubble">{{ t('chat.v.greetA') }}<br>{{ t('chat.v.greetB') }}</div>
+          <div class="cb-time">{{ t('chat.v.justNow') }}</div>
         </div>
       </div>
     </div>
     <div class="cb-quick-replies" id="cb-quick-replies">
-      <button class="cb-qr" type="button" onclick="sendQuick('IP ที่พบทั้งหมดมีอะไรบ้าง')"><i class="ti ti-device-desktop" aria-hidden="true"></i>IP ทั้งหมด</button>
-      <button class="cb-qr" type="button" onclick="sendQuick('สแกนล่าสุดผลเป็นอย่างไร')"><i class="ti ti-history" aria-hidden="true"></i>สแกนล่าสุด</button>
-      <button class="cb-qr" type="button" onclick="sendQuick('มีช่องโหว่ CVE อะไรบ้าง')"><i class="ti ti-shield-exclamation" aria-hidden="true"></i>ช่องโหว่</button>
-      <button class="cb-qr" type="button" onclick="promptScan()"><i class="ti ti-radar" aria-hidden="true"></i>สั่งสแกน</button>
+      <button class="cb-qr" type="button" onclick='sendQuick({{ t("chat.qr.ips_q") | tojson }})'><i class="ti ti-device-desktop" aria-hidden="true"></i>{{ t('chat.qr.ips') }}</button>
+      <button class="cb-qr" type="button" onclick='sendQuick({{ t("chat.qr.latest_q") | tojson }})'><i class="ti ti-history" aria-hidden="true"></i>{{ t('chat.qr.latest') }}</button>
+      <button class="cb-qr" type="button" onclick='sendQuick({{ t("chat.qr.vulns_q") | tojson }})'><i class="ti ti-shield-exclamation" aria-hidden="true"></i>{{ t('chat.qr.vulns') }}</button>
+      <button class="cb-qr" type="button" onclick="promptScan()"><i class="ti ti-radar" aria-hidden="true"></i>{{ t('chat.qr.scan') }}</button>
     </div>
     <div class="cb-vstrip" id="cb-vstrip" role="status" aria-live="polite" hidden>
       <span class="cb-vs-ico" aria-hidden="true"><span class="cb-meter"><i></i><i></i><i></i><i></i><i></i></span><i class="ti ti-loader-2 cb-vs-spin"></i></span>
@@ -179,10 +186,10 @@
       <button class="cb-vs-stop" id="cb-vs-stop" type="button" onclick="voiceStop()" hidden></button>
     </div>
     <div class="cb-input-bar">
-      <input class="cb-input" id="cb-input" type="text" placeholder="พิมพ์ข้อความ..." aria-label="ข้อความ" onkeydown="if(event.key==='Enter') sendMsg()">
-      <button class="cb-vlang" id="cb-vlang" type="button" onclick="voiceSwitchLang()">AUTO</button>
+      <input class="cb-input" id="cb-input" type="text" placeholder="{{ t('chat.v.inputPlaceholder') }}" aria-label="{{ t('chat.msg_label') }}" onkeydown="if(event.key==='Enter') sendMsg()">
+      <button class="cb-vlang" id="cb-vlang" type="button" onclick="voiceSwitchLang()">{{ t('chat.v.langPillAuto') }}</button>
       <button class="cb-mic" id="cb-mic" type="button" onclick="voiceToggle()"><i class="ti ti-microphone" aria-hidden="true"></i></button>
-      <button class="cb-send" type="button" onclick="sendMsg()" title="ส่ง" aria-label="ส่ง"><i class="ti ti-send" aria-hidden="true"></i></button>
+      <button class="cb-send" type="button" onclick="sendMsg()" title="{{ t('chat.send') }}" aria-label="{{ t('chat.send') }}"><i class="ti ti-send" aria-hidden="true"></i></button>
     </div>
   </div>
 
@@ -192,16 +199,16 @@
     <div class="cb-hist-search-bar" id="cb-hist-search-bar" style="display: none;">
       <div class="cb-hist-search-wrap">
         <span class="cb-hist-search-icon"><i class="ti ti-search" aria-hidden="true"></i></span>
-        <input class="cb-hist-search-input" id="cb-hist-search-input" type="text" placeholder="ค้นหาข้อความ, IP, วันที่..." aria-label="ค้นหาประวัติแชท" oninput="onHistSearchInput(this.value)" onkeydown="if(event.key==='Escape') toggleHistSearch(false)">
-        <button class="cb-hist-search-clear" id="cb-hist-search-clear" type="button" onclick="clearHistSearch()" title="ล้างการค้นหา" aria-label="ล้างการค้นหา"><i class="ti ti-x" aria-hidden="true"></i></button>
+        <input class="cb-hist-search-input" id="cb-hist-search-input" type="text" placeholder="{{ t('chat.search_ph') }}" aria-label="{{ t('chat.search_aria') }}" oninput="onHistSearchInput(this.value)" onkeydown="if(event.key==='Escape') toggleHistSearch(false)">
+        <button class="cb-hist-search-clear" id="cb-hist-search-clear" type="button" onclick="clearHistSearch()" title="{{ t('chat.search_clear') }}" aria-label="{{ t('chat.search_clear') }}"><i class="ti ti-x" aria-hidden="true"></i></button>
       </div>
       <div class="cb-hist-search-info" id="cb-hist-search-info"></div>
     </div>
 
     <div class="cb-history-panel" id="cb-history-list"></div>
     <div class="cb-hist-footer">
-      <button class="cb-hist-footer-btn" id="cb-hist-search-btn" type="button" onclick="toggleHistSearch()" title="ค้นหาประวัติแชท"><i class="ti ti-search" aria-hidden="true"></i>ค้นหาแชท</button>
-      <button class="cb-hist-footer-btn" type="button" onclick="clearAllHistory()" title="ลบประวัติที่บันทึกไว้ทั้งหมด"><i class="ti ti-trash" aria-hidden="true"></i>ลบประวัติทั้งหมด</button>
+      <button class="cb-hist-footer-btn" id="cb-hist-search-btn" type="button" onclick="toggleHistSearch()" title="{{ t('chat.search_aria') }}"><i class="ti ti-search" aria-hidden="true"></i>{{ t('chat.search_btn') }}</button>
+      <button class="cb-hist-footer-btn" type="button" onclick="clearAllHistory()" title="{{ t('chat.delete_all_title') }}"><i class="ti ti-trash" aria-hidden="true"></i>{{ t('chat.delete_all') }}</button>
     </div>
   </div>
 </div>

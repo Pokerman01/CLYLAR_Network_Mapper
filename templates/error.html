@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="{{ ui_lang }}" data-theme="{{ ui_theme }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="{{ 'dark' if ui_theme == 'dark' else 'normal' }}">
+<title>{{ code }} · {{ t('err.' ~ code ~ '.title') }} · CLYLAR</title>
+<link rel="icon" href="{{ url_for('favicon') }}">
+<style>
+  :root { --bg: #f7f8fa; --card: #ffffff; --border: #eef0f3; --text: #363a42; --muted: #6b7280; --gold: #f5c518; --ink: #1f2024; --code: #94a3b8; }
+  :root[data-theme="dark"] { --bg: #2a2b2f; --card: #34353a; --border: #46474e; --text: #f3f3f5; --muted: #b8bac2; --code: #80828b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--bg); color: var(--text);
+         font-family: 'IBM Plex Sans', 'Segoe UI', Tahoma, sans-serif; }
+  .card { width: min(480px, 100%); text-align: center; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 40px 28px; }
+  .code { font-size: 3.2rem; font-weight: 700; color: var(--code); line-height: 1; letter-spacing: .02em; }
+  h1 { font-size: 1.35rem; margin: 14px 0 8px; font-weight: 600; }
+  p { margin: 0 0 24px; color: var(--muted); line-height: 1.7; }
+  a.btn { display: inline-block; padding: 9px 20px; border-radius: 10px; background: var(--gold); color: var(--ink); font-weight: 600; text-decoration: none; }
+  a.btn:hover { filter: brightness(.96); }
+  a.btn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="code" aria-hidden="true">{{ code }}</div>
+    <h1>{{ t('err.' ~ code ~ '.title') }}</h1>
+    <p>{{ t('err.' ~ code ~ '.text') }}</p>
+    {% if current_user.is_authenticated %}
+    <a class="btn" href="{{ url_for('dashboard') }}">{{ t('err.home') }}</a>
+    {% else %}
+    <a class="btn" href="{{ url_for('login') }}">{{ t('err.login') }}</a>
+    {% endif %}
+  </main>
+</body>
+</html>

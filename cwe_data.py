@@ -84,10 +84,14 @@ CWE_SHORT_NAMES = {
 }
 
 # Plain-language explanations (in Thai, like the rest of the UI) written for this app, not quoted from NVD,
-# of what NVD's two catch-all buckets mean. They start with "หมายเหตุจากแอป" (note from this app).
+# of what NVD's two catch-all buckets mean. They start with "หมายเหตุจากระบบ" (note from the system).
 CWE_NOTES = {
-    'NVD-CWE-Other': "หมายเหตุจากแอป: NVD จัดประเภท CVE ตามชุดย่อยของรายการ CWE เท่านั้น NIST จึงจัดช่องโหว่นี้เป็น 'Other' เพราะไม่อยู่ในชุดย่อยดังกล่าว",
-    'NVD-CWE-noinfo': "หมายเหตุจากแอป: NIST มีข้อมูลไม่เพียงพอที่จะจัดประเภทช่องโหว่นี้",
+    'NVD-CWE-Other': "หมายเหตุจากระบบ: NVD จัดประเภท CVE ตามชุดย่อยของรายการ CWE เท่านั้น NIST จึงจัดช่องโหว่นี้เป็น 'Other' เพราะไม่อยู่ในชุดย่อยดังกล่าว",
+    'NVD-CWE-noinfo': "หมายเหตุจากระบบ: NIST มีข้อมูลไม่เพียงพอที่จะจัดประเภทช่องโหว่นี้",
+}
+CWE_NOTES_EN = {
+    'NVD-CWE-Other': "App note: NVD categorizes CVEs against a subset of the CWE list only, so NIST marks this weakness as 'Other' because it falls outside that subset.",
+    'NVD-CWE-noinfo': "App note: NIST does not have enough information to classify this weakness.",
 }
 
 COMPACT_LIMIT = 40  # characters of an official name shown before the "show more" dots
@@ -141,7 +145,7 @@ def compact_name(name):
     return cut.rstrip(' ,;:-')
 
 
-def cwe_info(cve):
+def cwe_info(cve, lang='th'):
     """What to show for a CVE record's weakness, or None when it has none.
     {'id', 'name' (official, '' if not in the table), 'compact', 'more' (compact differs from name), 'url', 'label'}"""
     cid = cwe_id_of(cve) if isinstance(cve, dict) else normalize_cwe_id(cve)
@@ -149,5 +153,6 @@ def cwe_info(cve):
         return None
     name = CWE_OFFICIAL_NAMES.get(cid, '')
     compact = compact_name(name) if name else ''
+    notes = CWE_NOTES_EN if lang == 'en' else CWE_NOTES
     return {'id': cid, 'name': name, 'compact': compact, 'more': bool(name) and compact != name,
-            'url': cwe_url(cid), 'label': f'{cid} · {name}' if name else cid, 'note': CWE_NOTES.get(cid, '')}
+            'url': cwe_url(cid), 'label': f'{cid} · {name}' if name else cid, 'note': notes.get(cid, '')}

@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 
-{% block page_title %}<div class="topbar-page-title">ผู้ช่วย</div>{% endblock %}
-{% block page_subtitle %}<div class="topbar-page-subtitle">ถามข้อมูล สั่งสแกน เปิดหน้า</div>{% endblock %}
-{% block page_context %}"หน้า: ผู้ช่วย (แชทเต็มหน้า)"{% endblock %}
+{% block page_title %}<div class="topbar-page-title">{{ t('nav.assistant') }}</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">{{ t('assistant.subtitle') }}</div>{% endblock %}
+{% block page_context %}{{ t('assistant.context') | tojson }}{% endblock %}
 
 {% block content %}
 {# The widget itself (markup in partials/_chat_widget.html, CSS and JavaScript in base.html) laid out as a page. The workspace height is the window's, so the

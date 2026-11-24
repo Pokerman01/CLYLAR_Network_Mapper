@@ -1,0 +1,17 @@
+{
+  "vulnscan.stat_cve_found": "CVE Found",
+  "vulnscan.cve_by_sev": "CVE by severity",
+  "vulnscan.tab_result": "Scan Result",
+  "vulnscan.tab_cve": "CVE / Vulnerability",
+  "vulnscan.col.version_cve": "Version / CVE",
+  "vulnscan.col.cve_id": "CVE ID",
+  "vulnscan.col.cvss": "CVSS",
+  "vulnscan.col.severity": "Severity",
+  "vulnscan.col.description": "Description",
+  "vulnscan.kev_tip": "CISA lists this vulnerability as actively exploited (Known Exploited Vulnerabilities catalog)",
+  "vulnscan.kev_added": " · Added {date}",
+  "vulnscan.kev_badge": "Exploited",
+  "vulnscan.empty_title": "No CVEs Found",
+  "vulnscan.empty_sub": "No CVE vulnerabilities were found in this scan"
+}
+

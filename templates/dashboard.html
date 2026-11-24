@@ -1,18 +1,18 @@
 {% extends 'base.html' %}
 
-{% block page_title %}<div class="topbar-page-title">แดชบอร์ด</div>{% endblock %}
-{% block page_subtitle %}<div class="topbar-page-subtitle">ภาพรวมระบบสแกนเครือข่าย</div>{% endblock %}
+{% block page_title %}<div class="topbar-page-title">{{ t('nav.dashboard') }}</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">{{ t('dash.subtitle') }}</div>{% endblock %}
 
 {# the "ปรับแต่งหน้านี้" menu sits in the top bar, beside the date (the slot is in base.html) #}
 {% block topbar_actions %}
 <div class="dropdown">
-  <button class="dw-btn" type="button" id="dw-toggle" title="ปรับแต่งหน้านี้" aria-label="ปรับแต่งหน้านี้" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-    <i class="ti ti-adjustments-horizontal" aria-hidden="true"></i><span class="dw-label">ปรับแต่งหน้านี้</span><span class="dw-count" id="dw-count" hidden></span>
+  <button class="dw-btn" type="button" id="dw-toggle" title="{{ t('dash.customize') }}" aria-label="{{ t('dash.customize') }}" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+    <i class="ti ti-adjustments-horizontal" aria-hidden="true"></i><span class="dw-label">{{ t('dash.customize') }}</span><span class="dw-count" id="dw-count" hidden></span>
   </button>
   <div class="dropdown-menu dropdown-menu-end dw-menu" aria-labelledby="dw-toggle">
-    <div class="dw-title">เลือกส่วนที่ต้องการแสดง</div>
+    <div class="dw-title">{{ t('dash.customize_title') }}</div>
     <div id="dw-list"></div>
-    <div class="dw-foot"><button type="button" class="dw-reset" id="dw-reset">แสดงทั้งหมด</button></div>
+    <div class="dw-foot"><button type="button" class="dw-reset" id="dw-reset">{{ t('dash.show_all') }}</button></div>
   </div>
 </div>
 {% endblock %}
@@ -47,25 +47,124 @@
     document.head.appendChild(style);
   })();
 </script>
+<script>
+  // The page's script texts, in the site language (locales/th.json and en.json: 'dash.js.*'); `{x}` marks a value filled in by dtf(). themeVar reads a CSS token.
+  const DT = {
+    tierCritical: {{ t('dash.js.tierCritical') | tojson }},
+    tierHigh: {{ t('dash.js.tierHigh') | tojson }},
+    tierMedium: {{ t('dash.js.tierMedium') | tojson }},
+    tierLow: {{ t('dash.js.tierLow') | tojson }},
+    tierClean: {{ t('dash.js.tierClean') | tojson }},
+    tierUnscanned: {{ t('dash.js.tierUnscanned') | tojson }},
+    bannerCH: {{ t('dash.js.bannerCH') | tojson }},
+    bannerML: {{ t('dash.js.bannerML') | tojson }},
+    bannerClean: {{ t('dash.js.bannerClean') | tojson }},
+    bannerUnscanned: {{ t('dash.js.bannerUnscanned') | tojson }},
+    nDevicesLabel: {{ t('dash.js.nDevicesLabel') | tojson }},
+    nDevicesLabelOne: {{ t('dash.js.nDevicesLabelOne') | tojson }},
+    groupEmpty: {{ t('dash.js.groupEmpty') | tojson }},
+    taskNone: {{ t('dash.js.taskNone') | tojson }},
+    taskSub: {{ t('dash.js.taskSub') | tojson }},
+    taskSubOne: {{ t('dash.js.taskSubOne') | tojson }},
+    devicesTitle: {{ t('dash.js.devicesTitle') | tojson }},
+    devicesTitleOne: {{ t('dash.js.devicesTitleOne') | tojson }},
+    devicesSub: {{ t('dash.js.devicesSub') | tojson }},
+    filterMatchDev: {{ t('dash.js.filterMatchDev') | tojson }},
+    filterHintGroup: {{ t('dash.js.filterHintGroup') | tojson }},
+    filterClear: {{ t('dash.js.filterClear') | tojson }},
+    portsCve: {{ t('dash.js.portsCve') | tojson }},
+    portsCveItem: {{ t('dash.js.portsCveItem') | tojson }},
+    portsCveTitle: {{ t('dash.js.portsCveTitle') | tojson }},
+    portsBadge: {{ t('dash.js.portsBadge') | tojson }},
+    portsBadgeOne: {{ t('dash.js.portsBadgeOne') | tojson }},
+    portsCveItemOne: {{ t('dash.js.portsCveItemOne') | tojson }},
+    portsNone: {{ t('dash.js.portsNone') | tojson }},
+    portsSub: {{ t('dash.js.portsSub') | tojson }},
+    portsNote: {{ t('dash.js.portsNote') | tojson }},
+    cveNone: {{ t('dash.js.cveNone') | tojson }},
+    cveTitle: {{ t('dash.js.cveTitle') | tojson }},
+    cveTitleOne: {{ t('dash.js.cveTitleOne') | tojson }},
+    cveSub: {{ t('dash.js.cveSub') | tojson }},
+    cveLimit: {{ t('dash.js.cveLimit') | tojson }},
+    cveMatch: {{ t('dash.js.cveMatch') | tojson }},
+    cveHint: {{ t('dash.js.cveHint') | tojson }},
+    statusDone: {{ t('dash.js.statusDone') | tojson }},
+    statusWait: {{ t('dash.js.statusWait') | tojson }},
+    statusRunning: {{ t('dash.js.statusRunning') | tojson }},
+    statusCancelled: {{ t('dash.js.statusCancelled') | tojson }},
+    statusFailed: {{ t('dash.js.statusFailed') | tojson }},
+    tasksSched: {{ t('dash.kpi.tasks_sched') | tojson }},
+    nJobs: {{ t('dash.js.nJobs') | tojson }},
+    nJobsOne: {{ t('dash.js.nJobsOne') | tojson }},
+    tasksTitle: {{ t('dash.js.tasksTitle') | tojson }},
+    tasksTitleOne: {{ t('dash.js.tasksTitleOne') | tojson }},
+    tasksSub: {{ t('dash.js.tasksSub') | tojson }},
+    detailsTitle: {{ t('dash.js.detailsTitle') | tojson }},
+    cveNoData: {{ t('dash.js.cveNoData') | tojson }},
+    cveUnspecified: {{ t('dash.js.cveUnspecified') | tojson }},
+    kevLine: {{ t('dash.js.kevLine') | tojson }},
+    cveNoDesc: {{ t('dash.js.cveNoDesc') | tojson }},
+    hostTitle: {{ t('dash.js.hostTitle') | tojson }},
+    moreHosts: {{ t('dash.js.moreHosts') | tojson }},
+    viewNvd: {{ t('dash.js.viewNvd') | tojson }},
+    lblCvss: {{ t('dash.js.lblCvss') | tojson }},
+    lblWeak: {{ t('dash.js.lblWeak') | tojson }},
+    lblDesc: {{ t('dash.js.lblDesc') | tojson }},
+    lblHosts: {{ t('dash.js.lblHosts') | tojson }},
+    pillTitle: {{ t('dash.js.pillTitle') | tojson }},
+    dwHidden: {{ t('dash.js.dwHidden') | tojson }},
+    nDevicesTip: {{ t('dash.js.nDevicesTip') | tojson }},
+    nDevicesTipOne: {{ t('dash.js.nDevicesTipOne') | tojson }},
+    reasonWorst: {{ t('dash.js.reasonWorst') | tojson }},
+    reasonClean: {{ t('dash.js.reasonClean') | tojson }},
+    reasonCleanOne: {{ t('dash.js.reasonCleanOne') | tojson }},
+    reasonUnscanned: {{ t('dash.js.reasonUnscanned') | tojson }},
+    reasonUnscannedOne: {{ t('dash.js.reasonUnscannedOne') | tojson }},
+    portsTitle: {{ t('dash.js.portsTitle') | tojson }},
+    portsTitleOne: {{ t('dash.js.portsTitleOne') | tojson }},
+    portLabel: {{ t('dash.js.portLabel') | tojson }},
+    legDone: {{ t('dash.legend.done') | tojson }},
+    legWait: {{ t('dash.legend.wait') | tojson }},
+    legRunning: {{ t('dash.legend.running') | tojson }},
+    legCancelled: {{ t('dash.legend.cancelled') | tojson }},
+    legFailed: {{ t('dash.legend.failed') | tojson }},
+    ofTotal: {{ t('dash.ts.of_total') | tojson }}
+  };
+  // Short names of the six device tiers and the four severity words (the Vulnerabilities page's severity cards use the same Thai words), and the Task Status texts.
+  const TIER_NAME = {{ {'critical': t('dash.tier.critical'), 'high': t('dash.tier.high'), 'medium': t('dash.tier.medium'), 'low': t('dash.tier.low'),
+                        'clean': t('dash.tier.clean'), 'unscanned': t('dash.tier.unscanned'), 'unknown': t('dash.tier.unknown')} | tojson }};
+  const CAT_TEXT = {{ {'complete': {'label': t('dash.cat.complete'), 'long': t('dash.cat.complete_long'), 'at': t('dash.ts.at_complete'), 'more': t('dash.ts.more_complete')},
+                       'wait': {'label': t('dash.cat.wait'), 'long': t('dash.cat.wait_long'), 'at': t('dash.ts.at_wait'), 'more': t('dash.ts.more_wait')},
+                       'running': {'label': t('dash.cat.running'), 'long': t('dash.cat.running_long'), 'at': t('dash.ts.at_running'), 'more': t('dash.ts.more_running')},
+                       'cancelled': {'label': t('dash.cat.cancelled'), 'long': t('dash.cat.cancelled_long'), 'at': t('dash.ts.at_cancelled'), 'more': t('dash.ts.more_cancelled')},
+                       'failed': {'label': t('dash.cat.failed'), 'long': t('dash.cat.failed_long'), 'at': t('dash.ts.at_failed'), 'more': t('dash.ts.more_failed')}} | tojson }};
+  const TS_TEXT = {{ {'job': t('dash.ts.job'), 'repeat': t('dash.ts.repeat'), 'type': t('dash.ts.type'), 'target': t('dash.ts.target'),
+                      'daily': t('dash.ts.daily'), 'weekly': t('dash.ts.weekly'), 'monthly': t('dash.ts.monthly')} | tojson }};
+  const catText = key => CAT_TEXT[key] || { label: String(key), long: '', at: '', more: '{n}' };
+  const sevName = s => { const k = String(s == null ? '' : s).toLowerCase(); return TIER_NAME[k] || (k ? k.charAt(0).toUpperCase() + k.slice(1) : TIER_NAME.unknown); };
+  function dtf(key, vars) { return String(DT[key]).replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? vars[k] : m)); }
+  function dtn(key, n, vars) { const k = (Number(n) === 1 && (key + 'One') in DT) ? key + 'One' : key; return dtf(k, Object.assign({ n: n }, vars || {})); }      // the singular text when the count is 1 (DT['<key>One'])
+  const themeVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+</script>
 <div id="dw-empty" class="text-center text-muted py-5" hidden role="status">
-  <i class="ti ti-eye-off" style="font-size:2rem;color:#cbd5e1;" aria-hidden="true"></i>
-  <p class="mt-2 mb-2">ซ่อนทุกส่วนของแดชบอร์ดไว้</p>
-  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('dw-reset').click()">แสดงทั้งหมด</button>
+  <i class="ti ti-eye-off" style="font-size:2rem;color:var(--surface-4);" aria-hidden="true"></i>
+  <p class="mt-2 mb-2">{{ t('dash.all_hidden') }}</p>
+  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('dw-reset').click()">{{ t('dash.show_all') }}</button>
 </div>
 
 <!-- ===== KPI SUMMARY CARDS ===== -->
 {# Footer trend of a card (see _kpi_trend in app.py): "↑ 8%" with a caption under it, or "—" when nothing changed. None = nothing to compare. #}
-{% macro kpi_trend(t) %}{% if t %}
-        <span class="kpi-trend is-{{ t.dir }}">
-          {% if t.dir == 'flat' %}<b>—</b><small>ไม่มีการเปลี่ยนแปลง</small>{% else %}<b>{{ '↑' if t.dir == 'up' else '↓' }} {{ t.pct }}%</b><small>จากสแกนก่อนหน้า</small>{% endif %}
+{% macro kpi_trend(trend) %}{% if trend %}
+        <span class="kpi-trend is-{{ trend.dir }}">
+          {% if trend.dir == 'flat' %}<b>—</b><small>{{ t('dash.trend.flat') }}</small>{% else %}<b>{{ '↑' if trend.dir == 'up' else '↓' }} {{ trend.pct }}%</b><small>{{ t('dash.trend.since') }}</small>{% endif %}
         </span>{% endif %}{% endmacro %}
-{# The Total Task card's status counts, in the Task Status chart's own colours (task_categories). Running is left out; Failed only shows when something failed. #}
-{% macro kpi_task_legend() %}{% set legend_label = {'complete': 'Done', 'wait': 'Wait', 'running': 'Running', 'failed': 'Failed'} %}{% for c in task_categories if c.key != 'running' and (c.key != 'failed' or c.count) %}
+{# The Total Task card's status counts, in the Task Status chart's own colours (task_categories). Complete always shows; other statuses show when non-zero so the legend sums to total_tasks. #}
+{% macro kpi_task_legend() %}{% set legend_label = {'complete': t('dash.legend.done'), 'wait': t('dash.legend.wait'), 'running': t('dash.legend.running'), 'cancelled': t('dash.legend.cancelled'), 'failed': t('dash.legend.failed')} %}{% for c in task_categories if c.key == 'complete' or c.count %}
             <li><i style="background:{{ c.color }};"></i><b>{{ c.count }}</b> {{ legend_label.get(c.key, c.label) }}</li>{% endfor %}{% endmacro %}
 <div class="row g-3 mb-4 dw-row" id="kpi-cards-row">
 
   <!-- Total Devices -->
-  <div class="col-6 col-md-3" data-widget="kpi-devices" data-widget-label="อุปกรณ์ทั้งหมด" data-widget-group="สรุปตัวเลข">
+  <div class="col-6 col-md-3" data-widget="kpi-devices" data-widget-label="{{ t('dash.w.devices') }}" data-widget-group="{{ t('dash.w.group_numbers') }}">
     <div class="stat-card card h-100 shadow-sm" id="card-devices" data-card="devices"
       style="cursor:pointer; transform-origin: center center;">
       <div class="card-body kpi-body">
@@ -76,19 +175,19 @@
             </svg>
           </div>
           <div class="kpi-text">
-            <span class="stat-card-label">อุปกรณ์ทั้งหมด</span>
-            <div class="stat-card-value">{{ total_devices }}<span class="stat-card-unit">อุปกรณ์</span></div>
+            <span class="stat-card-label">{{ t('dash.kpi.devices') }}</span>
+            <div class="stat-card-value">{{ total_devices }}<span class="stat-card-unit">{{ t('dash.unit.devices_one' if total_devices == 1 else 'dash.unit.devices') }}</span></div>
           </div>
         </div>
         <div class="stat-card-footer">
-          <span class="kpi-caption kpi-link">ดูรายละเอียด →</span>
+          <span class="kpi-caption kpi-link">{{ t('dash.view_details') }}</span>
         </div>
       </div>
     </div>
   </div>
 
   <!-- Open Ports -->
-  <div class="col-6 col-md-3" data-widget="kpi-ports" data-widget-label="Open Ports" data-widget-group="สรุปตัวเลข">
+  <div class="col-6 col-md-3" data-widget="kpi-ports" data-widget-label="{{ t('dash.kpi.ports') }}" data-widget-group="{{ t('dash.w.group_numbers') }}">
     <div class="stat-card card h-100 shadow-sm" id="card-ports" data-card="ports"
       style="cursor:pointer; transform-origin: center center;">
       <div class="card-body kpi-body">
@@ -100,19 +199,19 @@
             </svg>
           </div>
           <div class="kpi-text">
-            <span class="stat-card-label">Open Ports</span>
-            <div class="stat-card-value">{{ total_open_ports }}<span class="stat-card-unit">พอร์ต</span></div>
+            <span class="stat-card-label">{{ t('dash.kpi.ports') }}</span>
+            <div class="stat-card-value">{{ total_open_ports }}<span class="stat-card-unit">{{ t('dash.unit.ports_one' if total_open_ports == 1 else 'dash.unit.ports') }}</span></div>
           </div>
         </div>
         <div class="stat-card-footer">
-          <span class="kpi-caption">unique port จากทุกการสแกน</span>{{ kpi_trend(ports_trend) }}
+          <span class="kpi-caption">{{ t('dash.kpi.ports_caption') }}</span>{{ kpi_trend(ports_trend) }}
         </div>
       </div>
     </div>
   </div>
 
   <!-- CVE Found -->
-  <div class="col-6 col-md-3" data-widget="kpi-cve" data-widget-label="CVE Found" data-widget-group="สรุปตัวเลข">
+  <div class="col-6 col-md-3" data-widget="kpi-cve" data-widget-label="{{ t('dash.kpi.cve') }}" data-widget-group="{{ t('dash.w.group_numbers') }}">
     <div class="stat-card card h-100 shadow-sm" id="card-cve" data-card="cve"
       style="cursor:pointer; transform-origin: center center;">
       <div class="card-body kpi-body">
@@ -123,20 +222,20 @@
             </svg>
           </div>
           <div class="kpi-text">
-            <span class="stat-card-label">CVE Found</span>
-            <div class="stat-card-value">{{ total_cves_found }}<span class="stat-card-unit">รายการ</span></div>
+            <span class="stat-card-label">{{ t('dash.kpi.cve') }}</span>
+            <div class="stat-card-value">{{ total_cves_found }}<span class="stat-card-unit">{{ t('dash.unit.items_one' if total_cves_found == 1 else 'dash.unit.items') }}</span></div>
           </div>
         </div>
         <div class="stat-card-footer">
           {# how much of what the vulnerability scans looked at could be evaluated (found + none, of all open services); the rest is "not evaluated", never "clean" #}
-          <span class="kpi-caption"{% if cve_coverage %} title="พอร์ตที่เปิดอยู่ซึ่งการสแกนช่องโหว่ตรวจ {{ cve_coverage.services }} พอร์ต: ประเมินได้ {{ cve_coverage.evaluated }} (พบ CVE {{ cve_coverage.found }} · ไม่พบ {{ cve_coverage.none }}) · ประเมินไม่ได้ {{ cve_coverage.not_evaluated }} (ดูสาเหตุในหน้าช่องโหว่)"{% endif %}>{% if cve_coverage %}ประเมินได้ {{ cve_coverage.evaluated }} จาก {{ cve_coverage.services }} พอร์ต{% else %}ช่องโหว่ทั้งหมด{% endif %}</span>{{ kpi_trend(cve_trend) }}
+          <span class="kpi-caption"{% if cve_coverage %} title="{{ t('dash.kpi.cve_tip', services=cve_coverage.services, evaluated=cve_coverage.evaluated, found=cve_coverage.found, none=cve_coverage.none, not_evaluated=cve_coverage.not_evaluated) }}"{% endif %}>{% if cve_coverage %}{{ t('dash.kpi.cve_caption', evaluated=cve_coverage.evaluated, services=cve_coverage.services) }}{% else %}{{ t('dash.kpi.cve_all') }}{% endif %}</span>{{ kpi_trend(cve_trend) }}
         </div>
       </div>
     </div>
   </div>
 
   <!-- Total Tasks -->
-  <div class="col-6 col-md-3" data-widget="kpi-tasks" data-widget-label="Total Task" data-widget-group="สรุปตัวเลข">
+  <div class="col-6 col-md-3" data-widget="kpi-tasks" data-widget-label="{{ t('dash.kpi.tasks') }}" data-widget-group="{{ t('dash.w.group_numbers') }}">
     <div class="stat-card card h-100 shadow-sm" id="card-tasks" data-card="tasks"
       style="cursor:pointer; transform-origin: center center;">
       <div class="card-body kpi-body">
@@ -147,14 +246,14 @@
             </svg>
           </div>
           <div class="kpi-text">
-            <span class="stat-card-label">Total Task</span>
-            <div class="stat-card-value">{{ total_tasks }}<span class="stat-card-unit">งาน</span></div>
+            <span class="stat-card-label">{{ t('dash.kpi.tasks') }}</span>
+            <div class="stat-card-value">{{ total_tasks }}<span class="stat-card-unit">{{ t('dash.unit.jobs_one' if total_tasks == 1 else 'dash.unit.jobs') }}</span></div>
           </div>
           {# a wide card shows the status counts here, beside the number; a narrow one shows them in the footer (see the @container rule) #}
           <ul class="kpi-legend is-side">{{ kpi_task_legend() }}</ul>
         </div>
         <div class="stat-card-footer">
-          <span class="kpi-caption kpi-wide-only">งานสแกนทั้งหมด</span>
+          <span class="kpi-caption kpi-wide-only">{{ t('dash.kpi.tasks_caption') }}{% if task_wait %} · {{ t('dash.kpi.tasks_sched', n=task_wait) }}{% endif %}</span>
           <ul class="kpi-legend is-foot">{{ kpi_task_legend() }}</ul>
         </div>
       </div>
@@ -166,20 +265,20 @@
 {% if total_devices > 0 %}
 <div class="row g-3 mb-3 dw-row">
 
-  <div class="col-md-6" data-widget="device-status" data-widget-label="Device Status" data-widget-group="กราฟและรายการ">
+  <div class="col-md-6" data-widget="device-status" data-widget-label="{{ t('dash.card.device_status') }}" data-widget-group="{{ t('dash.w.group_charts') }}">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body d-flex flex-column">
         <div class="d-flex align-items-baseline gap-2 mb-3">
-          <h6 class="fw-bold mb-0">Device Status</h6>
-          <span class="text-muted" style="font-size:.72rem;" title="Port counts are aggregated from all scan jobs in history">Across all scan history</span>
+          <h6 class="fw-bold mb-0">{{ t('dash.card.device_status') }}</h6>
+          <span class="text-muted" style="font-size:.72rem;" title="{{ t('dash.card.device_status_tip') }}">{{ t('dash.card.device_status_sub') }}</span>
         </div>
         <div class="d-flex align-items-center flex-grow-1 gap-4">
           <!-- Donut chart with center label -->
           <div style="position:relative;flex-shrink:0;width:200px;height:200px;isolation:isolate;">
             <canvas id="deviceStatusChart" style="max-height:200px;max-width:200px;position:relative;z-index:1;"></canvas>
             <div id="donutCenterLabel" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;z-index:0;">
-              <span id="donutCenterCount" style="font-size:1.7rem;font-weight:700;color:#0f172a;line-height:1;"></span>
-              <span style="font-size:.72rem;color:#94a3b8;margin-top:2px;">Devices</span>
+              <span id="donutCenterCount" style="font-size:1.7rem;font-weight:700;color:var(--fg-0);line-height:1;"></span>
+              <span style="font-size:.72rem;color:var(--fg-6);margin-top:2px;">{{ t('dash.card.devices_word') }}</span>
             </div>
           </div>
           <!-- Legend -->
@@ -188,7 +287,7 @@
           </div>
         </div>
         <!-- Majority insight banner -->
-        <div id="donutInfoBanner" style="display:none;margin-top:16px;background:var(--nt-gold-bg,#fff8e1);border:1px solid #fde68a;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#92702a;align-items:center;gap:8px;">
+        <div id="donutInfoBanner" style="display:none;margin-top:16px;background:var(--nt-gold-bg);border:1px solid var(--banner-line);border-radius:10px;padding:10px 14px;font-size:.8rem;color:var(--warn-ink);align-items:center;gap:8px;">
           <i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0;"></i>
           <span id="donutInfoText"></span>
         </div>
@@ -198,8 +297,8 @@
             style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <span id="donut-filter-title" style="font-weight:600;font-size:.9rem;"></span>
             <button id="donut-filter-clear"
-              style="background:none;border:1px solid #dee2e6;border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;color:#6c757d;"
-              onclick="clearDonutFilter()">✕ ล้าง</button>
+              style="background:none;border:1px solid var(--line-clear);border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;color:var(--user-role);"
+              onclick="clearDonutFilter()">{{ t('dash.clear') }}</button>
           </div>
           <div id="donut-device-list" style="display:flex;flex-direction:column;gap:6px;"></div>
         </div>
@@ -208,14 +307,14 @@
   </div>
 
   <!-- Task Status: ring + table, compacted into a half-width card -->
-  <div class="col-md-6" data-widget="task-status" data-widget-label="Task Status" data-widget-group="กราฟและรายการ">
+  <div class="col-md-6" data-widget="task-status" data-widget-label="{{ t('dash.card.task_status') }}" data-widget-group="{{ t('dash.w.group_charts') }}">
     <div class="card border-0 shadow-sm ts-scope h-100">
       <div class="card-body">
 
         <div class="ts-header">
           <div>
-            <h1 id="ts-title">Task Status</h1>
-            <p id="ts-subtitle">{{ task_ring_total }} total tasks</p>
+            <h1 id="ts-title">{{ t('dash.card.task_status') }}</h1>
+            <p id="ts-subtitle">{{ t('dash.card.task_total', n=task_ring_total) }}</p>
           </div>
         </div>
 
@@ -236,16 +335,16 @@
         <div id="task-detail-view" style="display:none;">
           <button id="task-back-btn" class="ts-back-btn" onclick="closeTaskDetail()">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            กลับ
+            {{ t('dash.back') }}
           </button>
 
           <div class="ts-stat-panel">
             <svg width="92" height="92" viewBox="0 0 128 128" style="flex-shrink:0">
-              <circle cx="64" cy="64" r="54" fill="none" stroke="#E1E4E9" stroke-width="12"/>
+              <circle cx="64" cy="64" r="54" fill="none" class="ts-ring-track" stroke-width="12"/>
               <circle id="ts-ring-arc" cx="64" cy="64" r="54" fill="none" stroke-width="12"
                       stroke-linecap="round" transform="rotate(-90 64 64)"/>
-              <text id="ts-ring-count" x="64" y="58" text-anchor="middle" class="ts-mono" font-size="30" font-weight="500" fill="#12161C"></text>
-              <text id="ts-ring-of" x="64" y="80" text-anchor="middle" font-size="12" fill="#4B5563"></text>
+              <text id="ts-ring-count" x="64" y="58" text-anchor="middle" class="ts-mono" font-size="30" font-weight="500" fill="currentColor"></text>
+              <text id="ts-ring-of" x="64" y="80" text-anchor="middle" font-size="12" style="fill:var(--ts-ink-2)"></text>
             </svg>
             <div class="ts-figures" id="ts-figures">
               <!-- Populated by JS: one clickable figure per category -->
@@ -280,16 +379,16 @@
 <div class="row g-3 mb-3 dw-row">
 
   <!-- Top Open Ports -->
-  <div class="col-md-6" data-widget="top-ports" data-widget-label="Top Open Ports" data-widget-group="กราฟและรายการ">
+  <div class="col-md-6" data-widget="top-ports" data-widget-label="{{ t('dash.card.top_ports') }}" data-widget-group="{{ t('dash.w.group_charts') }}">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body p-4">
         <div class="d-flex align-items-center gap-2 mb-3">
-          <h6 class="fw-bold mb-0">Top Open Ports</h6>
+          <h6 class="fw-bold mb-0">{{ t('dash.card.top_ports') }}</h6>
           {% if top_ports %}
           {# No percentage and no bar. The % was a share of ALL devices ever seen, most of which were never port-scanned, so it read as "the others
              don't have this port" when that is unknown; the bar that replaced it was flat whenever the counts tie (every port on 2 devices). What
              differs from row to row is WHICH devices, so the row names them (first 3, "+N" opens the Open Ports pop-up). #}
-          <span class="text-muted ms-1" style="font-size:.72rem;">{{ top_ports | length }} อันดับแรกที่พบบนอุปกรณ์มากที่สุด</span>
+          <span class="text-muted ms-1" style="font-size:.72rem;">{{ t('dash.top_ports.sub', n=top_ports | length) }}</span>
           {% endif %}
         </div>
         {% if top_ports %}
@@ -297,10 +396,10 @@
         <table class="table table-borderless mb-0" style="font-size:.82rem;">
           <thead>
             <tr>
-              <th class="text-muted ps-0" style="font-weight:600;font-size:.72rem;">พอร์ต</th>
-              <th class="text-muted" style="font-weight:600;font-size:.72rem;">บริการ</th>
-              <th class="text-muted" style="font-weight:600;font-size:.72rem;">เครื่องที่เปิดพอร์ตนี้</th>
-              <th class="text-muted pe-0 text-end" style="font-weight:600;font-size:.72rem;">จำนวน</th>
+              <th class="text-muted ps-0" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.port') }}</th>
+              <th class="text-muted" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.service') }}</th>
+              <th class="text-muted" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.devices_with') }}</th>
+              <th class="text-muted pe-0 text-end" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.count') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -309,58 +408,58 @@
             {% set svc_name = label.split('/', 1)[1] if '/' in label else '?' %}
             {% set devs = top_ports_detail[loop.index0].devices %}
             <tr>
-              <td class="ps-0 py-2 fw-semibold" style="color:#0f172a;">{{ port_num }}</td>
+              <td class="ps-0 py-2 fw-semibold" style="color:var(--fg-0);">{{ port_num }}</td>
               <td class="py-2 text-muted">{{ svc_name }}</td>
               <td class="py-2">
                 <span class="tp-chips">
-                  {% for d in devs[:3] %}<a class="tp-chip" href="{{ url_for('device_detail', ip=d.ip) }}" title="ดูรายละเอียดอุปกรณ์ {{ d.ip }}">{{ d.ip }}</a>{% endfor %}
-                  {% if devs | length > 3 %}<button type="button" class="tp-more" aria-label="ดูอีก {{ devs | length - 3 }} เครื่องในหน้าต่างพอร์ตที่เปิด" title="{{ devs[3:43] | map(attribute='ip') | join(', ') }}{{ ' …' if devs | length > 43 }}">+{{ devs | length - 3 }}</button>{% endif %}
+                  {% for d in devs[:3] %}<a class="tp-chip" href="{{ url_for('device_detail', ip=d.ip) }}" title="{{ t('dash.device_title', ip=d.ip) }}">{{ d.ip }}</a>{% endfor %}
+                  {% if devs | length > 3 %}<button type="button" class="tp-more" aria-label="{{ t('dash.more_devices', n=devs | length - 3) }}" title="{{ devs[3:43] | map(attribute='ip') | join(', ') }}{{ ' …' if devs | length > 43 }}">+{{ devs | length - 3 }}</button>{% endif %}
                 </span>
               </td>
-              <td class="py-2 pe-0 text-end" style="color:#0f172a;" title="พอร์ตนี้เปิดบน {{ count }} เครื่อง จากการสแกนทั้งหมด">{{ count }} เครื่อง</td>
+              <td class="py-2 pe-0 text-end" style="color:var(--fg-0);" title="{{ t('dash.port_on_devices', n=count) }}">{{ t('dash.n_devices_one' if count == 1 else 'dash.n_devices', n=count) }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
         </div>
         {% else %}
-        <div class="text-center text-muted py-4" style="font-size:.85rem;">ยังไม่พบข้อมูล Port</div>
+        <div class="text-center text-muted py-4" style="font-size:.85rem;">{{ t('dash.no_port_data') }}</div>
         {% endif %}
       </div>
     </div>
   </div>
 
   <!-- Top OS -->
-  <div class="col-md-6" data-widget="top-os" data-widget-label="Top OS" data-widget-group="กราฟและรายการ">
+  <div class="col-md-6" data-widget="top-os" data-widget-label="{{ t('dash.card.top_os') }}" data-widget-group="{{ t('dash.w.group_charts') }}">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body p-4">
         <div class="d-flex align-items-center gap-2 mb-3">
-          <h6 class="fw-bold mb-0">Top OS</h6>
-          {% if os_rows %}<span class="text-muted ms-1" style="font-size:.72rem;">แยกตามตระกูลระบบปฏิบัติการ · {{ total_devices }} เครื่อง</span>{% endif %}
+          <h6 class="fw-bold mb-0">{{ t('dash.card.top_os') }}</h6>
+          {% if os_rows %}<span class="text-muted ms-1" style="font-size:.72rem;">{{ t('dash.os.sub', n=total_devices) }}</span>{% endif %}
         </div>
         {% if os_rows %}
         {# Every device is in exactly one row (its newest real OS guess, else "ไม่ทราบ"), so the bars are shares of ALL devices and nothing is left out.
            A row opens the Devices page filtered to that family (the same labels as that page's filter). #}
-        {% set fam_th = {'Unknown': 'ไม่ทราบ', 'Other': 'อื่น ๆ'} %}
+        {% set fam_th = {'Unknown': t('dash.os.unknown'), 'Other': t('dash.os.other')} %}
         <ul class="os-list">
           {% for r in os_rows %}
           <li>
             <a class="os-row{{ ' is-unknown' if r.family == 'Unknown' }}" href="{{ url_for('devices_page', os=r.family) }}"
-               title="{% if r.family == 'Unknown' %}ดูอุปกรณ์ที่ยังไม่มีผลระบุ OS{% else %}ดูอุปกรณ์กลุ่มนี้: {% for n in r.names %}{{ n.name }} ({{ n.count }}{% if n.acc_n %} · ความมั่นใจ {{ n.acc_min }}{% if n.acc_max != n.acc_min %}–{{ n.acc_max }}{% endif %}%{% endif %}){{ ', ' if not loop.last }}{% endfor %}{% endif %}">
+               title="{% if r.family == 'Unknown' %}{{ t('dash.os.view_unknown') }}{% else %}{{ t('dash.os.view_group') }} {% for n in r.names %}{{ n.name }} ({{ n.count }}{% if n.acc_n %} · {{ t('dash.os.confidence') }} {{ n.acc_min }}{% if n.acc_max != n.acc_min %}–{{ n.acc_max }}{% endif %}%{% endif %}){{ ', ' if not loop.last }}{% endfor %}{% endif %}">
               <span class="os-name">{{ fam_th.get(r.family, r.family) }}</span>
               <span class="os-mid">
                 <span class="os-track" aria-hidden="true"><i style="width:{{ ((r.count / total_devices) * 100) | round(1) }}%;"></i></span>
                 {# nmap's confidence in the OS guess: the lowest to the highest of the devices that have one recorded (the older scans did not keep it) #}
-                {% if r.family != 'Unknown' %}{% if r.acc_n %}<small class="os-conf">ความมั่นใจ {{ r.acc_min }}{% if r.acc_max != r.acc_min %}–{{ r.acc_max }}{% endif %}%{% if r.acc_n < r.count %} (บันทึกไว้ {{ r.acc_n }} จาก {{ r.count }} เครื่อง){% endif %}</small>{% elif os_acc_any %}<small class="os-conf">ยังไม่ได้บันทึกความมั่นใจ</small>{% endif %}{% endif %}
+                {% if r.family != 'Unknown' %}{% if r.acc_n %}<small class="os-conf">{{ t('dash.os.confidence') }} {{ r.acc_min }}{% if r.acc_max != r.acc_min %}–{{ r.acc_max }}{% endif %}%{% if r.acc_n < r.count %} ({{ t('dash.os.recorded', n=r.acc_n, m=r.count) }}){% endif %}</small>{% elif os_acc_any %}<small class="os-conf">{{ t('dash.os.no_conf') }}</small>{% endif %}{% endif %}
               </span>
-              <span class="os-count">{{ r.count }} เครื่อง</span>
+              <span class="os-count">{{ t('dash.n_devices_one' if r.count == 1 else 'dash.n_devices', n=r.count) }}</span>
             </a>
           </li>
           {% endfor %}
         </ul>
-        <div class="os-note">OS เป็นการคาดเดาของ nmap · ไม่ทราบ = ยังไม่มีผลระบุ OS จากการสแกน</div>
+        <div class="os-note">{{ t('dash.os.note') }}</div>
         {% else %}
-        <div class="text-center text-muted py-4" style="font-size:.85rem;">ยังไม่พบอุปกรณ์</div>
+        <div class="text-center text-muted py-4" style="font-size:.85rem;">{{ t('dash.os.none') }}</div>
         {% endif %}
       </div>
     </div>
@@ -370,34 +469,34 @@
 
 <!-- ===== CHANGES SINCE THE LAST SCAN ===== -->
 <div class="row g-3 mb-3 dw-row">
-  <div class="col-12" data-widget="changes" data-widget-label="เปลี่ยนแปลงจากสแกนก่อน" data-widget-group="กราฟและรายการ">
+  <div class="col-12" data-widget="changes" data-widget-label="{{ t('dash.w.changes') }}" data-widget-group="{{ t('dash.w.group_charts') }}">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body p-4">
         <div class="d-flex align-items-baseline justify-content-between flex-wrap gap-1 mb-2">
-          <h6 class="fw-bold mb-0">เปลี่ยนแปลงจากสแกนครั้งก่อน</h6>
-          {% if latest_changes %}<a href="{{ url_for('scan_detail', scan_id=latest_changes.job.id) }}" style="font-size:.8rem;color:var(--nt-gold-dark);font-weight:600;text-decoration:none;">ดูรายละเอียด →</a>{% endif %}
+          <h6 class="fw-bold mb-0">{{ t('dash.changes.title') }}</h6>
+          {% if latest_changes %}<a href="{{ url_for('scan_detail', scan_id=latest_changes.job.id) }}" style="font-size:.8rem;color:var(--nt-gold-dark);font-weight:600;text-decoration:none;">{{ t('dash.view_details') }}</a>{% endif %}
         </div>
         {% if latest_changes %}
         {% set d = latest_changes.diff %}
         <div class="text-muted mb-3" style="font-size:.76rem;">
-          Job #{{ latest_changes.job.seq }} เทียบกับ Job #{{ latest_changes.prev.seq }} · {{ latest_changes.job.target }} · {{ latest_changes.job.type | scan_label }} · {{ latest_changes.job.when }}
+          {{ t('dash.changes.compared', job=latest_changes.job.seq, prev=latest_changes.prev.seq) }} · {{ latest_changes.job.target }} · {{ latest_changes.job.type | scan_label }} · {{ latest_changes.job.when | ui_year }}
         </div>
         <div class="chg-tiles">
-          <div class="chg-tile{% if not d.counts.new_devices %} is-zero{% endif %}"><b>{{ d.counts.new_devices }}</b><span>อุปกรณ์ใหม่</span></div>
-          <div class="chg-tile{% if not d.counts.missing_devices %} is-zero{% endif %}"><b>{{ d.counts.missing_devices }}</b><span>ไม่พบในสแกนนี้</span></div>
+          <div class="chg-tile{% if not d.counts.new_devices %} is-zero{% endif %}"><b>{{ d.counts.new_devices }}</b><span>{{ t('dash.changes.new_devices') }}</span></div>
+          <div class="chg-tile{% if not d.counts.missing_devices %} is-zero{% endif %}"><b>{{ d.counts.missing_devices }}</b><span>{{ t('dash.changes.missing') }}</span></div>
           {% if latest_changes.job.type != 'discovery' %}
-          <div class="chg-tile{% if not d.counts.ports_opened %} is-zero{% endif %}"><b>{{ d.counts.ports_opened }}</b><span>พอร์ตเปิดเพิ่ม</span></div>
-          <div class="chg-tile{% if not d.counts.ports_closed %} is-zero{% endif %}"><b>{{ d.counts.ports_closed }}</b><span>พอร์ตไม่เปิดแล้ว</span></div>
+          <div class="chg-tile{% if not d.counts.ports_opened %} is-zero{% endif %}"><b>{{ d.counts.ports_opened }}</b><span>{{ t('dash.changes.ports_opened') }}</span></div>
+          <div class="chg-tile{% if not d.counts.ports_closed %} is-zero{% endif %}"><b>{{ d.counts.ports_closed }}</b><span>{{ t('dash.changes.ports_closed') }}</span></div>
           {% endif %}
           {% if d.cve_compared %}
-          <div class="chg-tile{% if not d.counts.new_cves %} is-zero{% endif %}"><b>{{ d.counts.new_cves }}</b><span>CVE ใหม่</span></div>
-          <div class="chg-tile{% if not d.counts.fixed_cves %} is-zero{% endif %}"><b>{{ d.counts.fixed_cves }}</b><span>CVE ที่ไม่พบแล้ว</span></div>
+          <div class="chg-tile{% if not d.counts.new_cves %} is-zero{% endif %}"><b>{{ d.counts.new_cves }}</b><span>{{ t('dash.changes.new_cves') }}</span></div>
+          <div class="chg-tile{% if not d.counts.fixed_cves %} is-zero{% endif %}"><b>{{ d.counts.fixed_cves }}</b><span>{{ t('dash.changes.fixed_cves') }}</span></div>
           {% endif %}
         </div>
-        {% if not d.changed %}<div class="text-muted mt-2" style="font-size:.78rem;">ไม่มีการเปลี่ยนแปลงจากสแกนครั้งก่อน</div>{% endif %}
-        {% if d.counts.new_kev %}<div class="mt-2" style="font-size:.78rem;color:#7a5a12;">มี {{ d.counts.new_kev }} CVE ใหม่ที่ CISA ระบุว่ามีการโจมตีใช้จริง</div>{% endif %}
+        {% if not d.changed %}<div class="text-muted mt-2" style="font-size:.78rem;">{{ t('dash.changes.none') }}</div>{% endif %}
+        {% if d.counts.new_kev %}<div class="mt-2" style="font-size:.78rem;color:var(--kev-ink);">{{ t('dash.changes.new_kev', n=d.counts.new_kev) }}</div>{% endif %}
         {% else %}
-        <div class="text-muted py-2" style="font-size:.82rem;">ยังไม่มีสแกนซ้ำที่เทียบกันได้ — สแกนเป้าหมายเดิมด้วยชนิดสแกนเดิมอีกครั้ง (หรือตั้งเวลาสแกนทุกวัน) แล้วอุปกรณ์ใหม่ พอร์ตที่เปลี่ยน และ CVE ใหม่จะแสดงที่นี่</div>
+        <div class="text-muted py-2" style="font-size:.82rem;">{{ t('dash.changes.empty') }}</div>
         {% endif %}
       </div>
     </div>
@@ -408,47 +507,50 @@
 <div class="row g-3 mb-4 dw-row">
 
   <!-- Recent Scan Tasks -->
-  <div class="col-12" data-widget="recent-tasks" data-widget-label="Recent Scan Tasks" data-widget-group="กราฟและรายการ">
+  <div class="col-12" data-widget="recent-tasks" data-widget-label="{{ t('dash.card.recent') }}" data-widget-group="{{ t('dash.w.group_charts') }}">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body p-4">
         <div class="d-flex align-items-center justify-content-between mb-3">
-          <h6 class="fw-bold mb-0">Recent Scan Tasks</h6>
-          <a href="{{ url_for('history_page') }}" style="font-size:.8rem;color:var(--nt-gold-dark);font-weight:600;text-decoration:none;">ดูทั้งหมด →</a>
+          <h6 class="fw-bold mb-0">{{ t('dash.card.recent') }}</h6>
+          <a href="{{ url_for('history_page') }}" style="font-size:.8rem;color:var(--nt-gold-dark);font-weight:600;text-decoration:none;">{{ t('dash.view_all') }}</a>
         </div>
         {% if history %}
         <div class="table-responsive">
           <table class="table align-middle mb-0" style="font-size:.82rem;">
             <thead>
               <tr>
-                <th class="text-muted ps-0" style="font-weight:600;font-size:.72rem;">ชื่อการสแกน</th>
-                <th class="text-muted" style="font-weight:600;font-size:.72rem;">เป้าหมาย</th>
-                <th class="text-muted" style="font-weight:600;font-size:.72rem;">สถานะ</th>
-                <th class="text-muted" style="font-weight:600;font-size:.72rem;">เริ่มต้น</th>
-                <th class="text-muted pe-0" style="font-weight:600;font-size:.72rem;">ผลลัพธ์</th>
+                <th class="text-muted ps-0" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.name') }}</th>
+                <th class="text-muted" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.target') }}</th>
+                <th class="text-muted" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.status') }}</th>
+                <th class="text-muted" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.started') }}</th>
+                <th class="text-muted pe-0" style="font-weight:600;font-size:.72rem;">{{ t('dash.th.result') }}</th>
               </tr>
             </thead>
             <tbody>
               {% for job in history[:5] %}
-              <tr style="border-top:1px solid #f1f3f5;cursor:pointer;" onclick="window.location='{{ url_for('scan_detail', scan_id=job.id) }}'">
-                <td class="ps-0 py-2 fw-semibold" style="color:#0f172a;">{{ job.scan_name or ('Job #' ~ owner_seq_map.get(job.id, job.id)) }}</td>
+              <tr style="border-top:1px solid var(--line-row);cursor:pointer;" onclick="window.location='{{ url_for('scan_detail', scan_id=job.id) }}'">
+                <td class="ps-0 py-2 fw-semibold" style="color:var(--fg-0);">{{ job.scan_name or (owner_seq_map.get(job.id, job.id) | job_label) }}</td>
                 <td class="py-2 text-muted">{{ job.target }}</td>
                 <td class="py-2">
                   {% if job.status == 'Completed' %}
-                  <span class="badge rounded-pill" style="background:#dcfce7;color:#16a34a;font-weight:600;"><i class="ti ti-check" style="font-size:11px;"></i> Complete</span>
+                  <span class="badge rounded-pill" style="background:var(--badge-ok-bg);color:var(--green-ink);font-weight:600;"><i class="ti ti-check" style="font-size:11px;"></i> {{ t('status.completed') }}</span>
                   {% elif job.status == 'Running' %}
-                  <span class="badge rounded-pill" style="background:#dbeafe;color:#2563eb;font-weight:600;"><i class="ti ti-loader-2" style="font-size:11px;"></i> Running</span>
+                  <span class="badge rounded-pill" style="background:var(--blue-tint-2);color:var(--link);font-weight:600;"><i class="ti ti-loader-2" style="font-size:11px;"></i> {{ t('status.running') }}</span>
                   {% elif job.status == 'Queued' %}
-                  <span class="badge rounded-pill" style="background:#f1f5f9;color:#475569;font-weight:600;"><i class="ti ti-clock" style="font-size:11px;"></i> Queued</span>
+                  <span class="badge rounded-pill" style="background:var(--surface-2);color:var(--text-2);font-weight:600;"><i class="ti ti-clock" style="font-size:11px;"></i> {{ t('status.queued') }}</span>
                   {% elif job.status == 'Failed' %}
-                  <span class="badge rounded-pill" style="background:#fee2e2;color:#dc2626;font-weight:600;"><i class="ti ti-x" style="font-size:11px;"></i> Failed</span>
+                  <span class="badge rounded-pill" style="background:var(--kpi-red-bg);color:var(--kpi-red);font-weight:600;"><i class="ti ti-x" style="font-size:11px;"></i> {{ t('status.failed') }}</span>
                   {% else %}
-                  <span class="badge rounded-pill" style="background:#f1f3f5;color:#6c757d;font-weight:600;">{{ job.status }}</span>
+                  <span class="badge rounded-pill" style="background:var(--toggle-hover);color:var(--user-role);font-weight:600;">{% set sk = 'status.' ~ (job.status | lower) %}{{ t(sk) if t(sk) != sk else job.status }}</span>
                   {% endif %}
                 </td>
-                <td class="py-2 text-muted">{{ job.timestamp.strftime('%Y-%m-%d %H:%M') if job.timestamp else '—' }}</td>
+                <td class="py-2 text-muted">{{ (job.timestamp | fdt) if job.timestamp else '—' }}</td>
                 <td class="py-2 pe-0 text-muted">
-                  {% set host_count = (job.result_data | from_json | length) if job.result_data else 0 %}
-                  {{ host_count }} Devices
+                  {% if job.status == 'Completed' %}
+                  {{ t('dash.recent.n_devices', n=(job | host_count)) }}
+                  {% else %}
+                  —
+                  {% endif %}
                 </td>
               </tr>
               {% endfor %}
@@ -456,7 +558,7 @@
           </table>
         </div>
         {% else %}
-        <div class="text-center text-muted py-4" style="font-size:.85rem;">ยังไม่มีประวัติการสแกน</div>
+        <div class="text-center text-muted py-4" style="font-size:.85rem;">{{ t('dash.no_history') }}</div>
         {% endif %}
       </div>
     </div>
@@ -486,19 +588,33 @@
   // "no vulnerability-scan data", not "assessed as safe".
   const TIER_COLOR = {{ device_tier_color | tojson }};
   const DEVICE_TIERS = [
-    { key: 'critical',  label: 'Critical',       thai: 'ความเสี่ยงสูงมาก (พบ CVE ระดับ Critical)',    color: TIER_COLOR.critical,  onFill: '#fff' },
-    { key: 'high',      label: 'High',           thai: 'ความเสี่ยงสูง (พบ CVE ระดับ High)',           color: TIER_COLOR.high,      onFill: '#fff' },
-    { key: 'medium',    label: 'Medium',         thai: 'พบช่องโหว่ระดับ Medium',                      color: TIER_COLOR.medium,    onFill: '#fff' },
-    { key: 'low',       label: 'Low',            thai: 'พบช่องโหว่ระดับ Low',                         color: TIER_COLOR.low,       onFill: '#fff' },
-    { key: 'clean',     label: 'No Findings', thai: 'ไม่พบช่องโหว่ (ผ่านการสแกน Vulnerability)',    color: TIER_COLOR.clean,     onFill: '#fff' },
-    { key: 'unscanned', label: 'Not Scanned',    thai: 'ยังไม่ได้สแกนหาช่องโหว่',                      color: TIER_COLOR.unscanned, onFill: '#fff' },
+    { key: 'critical',  label: TIER_NAME.critical,  thai: DT.tierCritical,    color: TIER_COLOR.critical,  onFill: '#fff' },
+    { key: 'high',      label: TIER_NAME.high,      thai: DT.tierHigh,        color: TIER_COLOR.high,      onFill: '#fff' },
+    { key: 'medium',    label: TIER_NAME.medium,    thai: DT.tierMedium,      color: TIER_COLOR.medium,    onFill: '#fff' },
+    { key: 'low',       label: TIER_NAME.low,       thai: DT.tierLow,         color: TIER_COLOR.low,       onFill: '#fff' },
+    { key: 'clean',     label: TIER_NAME.clean,     thai: DT.tierClean,       color: TIER_COLOR.clean,     onFill: '#fff' },
+    { key: 'unscanned', label: TIER_NAME.unscanned, thai: DT.tierUnscanned,   color: TIER_COLOR.unscanned, onFill: '#fff' },
   ];
 
   // The tier and task colours also colour small text on white. The bright fills of green and lime are too pale for that, so
   // text gets a deeper shade of the same hue (for green, the one the rest of the dashboard uses for green text). High's orange
   // is used as it is, so its text matches its dot (the owner's choice; a deeper #c2410c was tried).
   const TEXT_INK = { [GOOD_GREEN]: '#16a34a', [TIER_COLOR.low]: '#4d7c0f' };
-  function inkOf(color) { return TEXT_INK[color] || color; }
+  // On the dark theme the bright fills read well as text except the dark ones (Critical red, the grey of "not scanned", the task blue and red), which get a lighter shade
+  // of the same hue (4.5:1 on the card). The deep green and lime of the light theme are not used there: the fills themselves are light enough.
+  const TEXT_INK_DARK = { [TIER_COLOR.critical]: '#f69aa1', [TIER_COLOR.high]: '#ff9a4d', [GOOD_GREEN]: '#5fd48a', [TIER_COLOR.unscanned]: '#adb5bd', '#3b82f6': '#7fb0ff', '#dc2626': '#f58a8a' };
+  function inkOf(color) {
+    if (document.documentElement.getAttribute('data-theme') === 'dark') return TEXT_INK_DARK[color] || color;
+    return TEXT_INK[color] || color;
+  }
+
+  // Chart colours come from the tokens (base.html), so the charts follow the theme. `CH` is read again when the theme changes (see the end of this script).
+  function chartTok() {
+    return { edge: themeVar('--surface'), tipBg: themeVar('--surface'), tipTitle: themeVar('--fg-0'), tipBody: themeVar('--fg-2'), tipBorder: themeVar('--border'),
+             grid: themeVar('--chart-grid'), tick: themeVar('--chart-tick'), label: themeVar('--chart-label'), pct: themeVar('--chart-pct') };
+  }
+  let CH = chartTok();
+  Chart.defaults.color = CH.tick;
 
   const totalDevices = devicePortData.length;
   const segmentDevices = {};
@@ -524,10 +640,10 @@
     // levels, no single level would ever outweigh "no known vulns" even when most devices have findings.
     const countOf = (...keys) => keys.reduce((n, k) => n + segmentDevices[DEVICE_TIERS.findIndex(t => t.key === k)].length, 0);
     const buckets = [
-      { count: countOf('critical', 'high'), msg: `พบอุปกรณ์ที่มีช่องโหว่ระดับ Critical/High จำนวน ${countOf('critical', 'high')} เครื่อง ควรแก้ไขโดยเร็ว` },
-      { count: countOf('medium', 'low'),    msg: `พบช่องโหว่ระดับ Medium/Low ในอุปกรณ์ ${countOf('medium', 'low')} เครื่อง` },
-      { count: countOf('clean'),            msg: 'อุปกรณ์ส่วนใหญ่ผ่านการสแกนหาช่องโหว่แล้วและไม่พบปัญหา' },
-      { count: countOf('unscanned'),        msg: 'อุปกรณ์ส่วนใหญ่ยังไม่ได้ทำการสแกนหาช่องโหว่ (Vulnerability Scan)' },
+      { count: countOf('critical', 'high'), msg: dtf('bannerCH', { n: countOf('critical', 'high') }) },
+      { count: countOf('medium', 'low'),    msg: dtf('bannerML', { n: countOf('medium', 'low') }) },
+      { count: countOf('clean'),            msg: DT.bannerClean },
+      { count: countOf('unscanned'),        msg: DT.bannerUnscanned },
     ];
     const majority = buckets.reduce((a, b) => (b.count > a.count ? b : a));
     if (majority.count > 0) {
@@ -543,14 +659,14 @@
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:background 0.15s;';
     row.dataset.segmentIdx = idx;
-    row.title = `${item.count} Device${item.count !== 1 ? 's' : ''}`;
+    row.title = dtn('nDevicesTip', item.count);
     row.innerHTML = `
     <span style="display:inline-block;width:12px;height:12px;background:${item.color};border-radius:50%;flex-shrink:0"></span>
-    <span style="flex:1;color:#555;white-space:nowrap">${item.label}</span>
-    <span style="font-weight:600;color:#222">${item.count}</span>
-    <span style="color:#888;min-width:38px;text-align:right">${pct}%</span>
+    <span style="flex:1;color:var(--dash-ink-3);white-space:nowrap">${item.label}</span>
+    <span style="font-weight:600;color:var(--dash-ink-1)">${item.count}</span>
+    <span style="color:var(--dash-ink-4);min-width:38px;text-align:right">${pct}%</span>
   `;
-    row.addEventListener('mouseenter', () => { row.style.background = '#f0f4ff'; });
+    row.addEventListener('mouseenter', () => { row.style.background = 'var(--row-hover)'; });
     row.addEventListener('mouseleave', () => { row.style.background = ''; });
     row.addEventListener('click', () => handleDonutSegmentClick(idx));
     legendEl.appendChild(row);
@@ -567,7 +683,7 @@
         backgroundColor: segmentColors,
         hoverBackgroundColor: segmentColors,
         borderWidth: 3,
-        borderColor: '#fff',
+        borderColor: CH.edge,
         hoverOffset: 14
       }]
     },
@@ -582,13 +698,13 @@
         tooltip: {
           callbacks: {
             label: function (ctx) {
-              return `${ctx.parsed} Device${ctx.parsed !== 1 ? 's' : ''}`;
+              return dtn('nDevicesTip', ctx.parsed);
             }
           },
-          backgroundColor: '#ffffff',
-          titleColor: '#0f172a',
-          bodyColor: '#334155',
-          borderColor: '#e2e8f0',
+          backgroundColor: CH.tipBg,
+          titleColor: CH.tipTitle,
+          bodyColor: CH.tipBody,
+          borderColor: CH.tipBorder,
           borderWidth: 1,
           cornerRadius: 10,
           padding: { top: 9, bottom: 9, left: 12, right: 14 },
@@ -613,12 +729,12 @@
   function deviceReasonText(d) {
     if (d.tier === 'critical' || d.tier === 'high' || d.tier === 'medium' || d.tier === 'low') {
       const cvss = (d.cvss_score != null) ? ` (CVSS ${d.cvss_score})` : '';
-      return `Worst CVE: ${d.severity || 'UNKNOWN'}${cvss}`;
+      return dtf('reasonWorst', { sev: sevName(d.severity || 'unknown'), cvss: cvss });
     }
     if (d.tier === 'clean') {
-      return `No CVEs found · ${d.count} port${d.count !== 1 ? 's' : ''}`;
+      return dtn('reasonClean', d.count);
     }
-    return `${d.count} port${d.count !== 1 ? 's' : ''} · not vulnerability-scanned`;
+    return dtn('reasonUnscanned', d.count);
   }
 
   // Shared clickable device row — used by both the donut filter panel and the stat-card modal.
@@ -629,13 +745,13 @@
     return `
     <div class="device-row"${href ? ` onclick="window.location.href='${href}'"` : ''} style="
       display:flex;align-items:center;gap:10px;
-      background:#f8f9fa;border-radius:8px;padding:9px 12px;
+      background:var(--row-bg);border-radius:8px;padding:9px 12px;
       border-left:3px solid ${d.color};
       cursor:${href ? 'pointer' : 'default'};
       font-size:.83rem;
     ">
-      <span style="font-weight:600;color:#333;font-family:monospace;">${tsEsc(d.ip)}</span>
-      <span style="color:#aaa;">|</span>
+      <span style="font-weight:600;color:var(--dash-ink-2);font-family:monospace;">${tsEsc(d.ip)}</span>
+      <span style="color:var(--dash-ink-5);">|</span>
       <span style="color:${inkOf(d.color)};font-weight:500;flex:1;">${tsEsc(deviceReasonText(d))}</span>
       ${href ? `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" class="device-row-chevron" style="flex-shrink:0;">
         <path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -661,13 +777,13 @@
     const titleEl = document.getElementById('donut-filter-title');
     const listEl = document.getElementById('donut-device-list');
 
-    titleEl.textContent = `${segmentLabels[segIdx]} (${segmentDevices[segIdx].length} เครื่อง)`;
+    titleEl.textContent = dtn('nDevicesLabel', segmentDevices[segIdx].length, { label: segmentLabels[segIdx] });
     titleEl.style.color = inkOf(segmentColors[segIdx]);
     listEl.innerHTML = '';
 
     const devices = segmentDevices[segIdx];
     if (devices.length === 0) {
-      listEl.innerHTML = '<span style="color:#aaa;font-size:.85rem">ไม่มีอุปกรณ์ในกลุ่มนี้</span>';
+      listEl.innerHTML = '<span style="color:var(--dash-ink-5);font-size:.85rem">' + DT.groupEmpty + '</span>';
     } else {
       devices.forEach((d, i) => {
         const chip = document.createElement('div');
@@ -731,8 +847,8 @@
   }
 
   const TS_REPEAT_BADGE = {
-    daily:  ['bg-info', 'text-dark', 'Daily'],
-    weekly: ['bg-warning', 'text-dark', 'Weekly'],
+    daily:  ['bg-info', 'text-dark', TS_TEXT.daily],
+    weekly: ['bg-warning', 'text-dark', TS_TEXT.weekly],
   };
 
   let tsActiveKey = 'complete';
@@ -745,7 +861,7 @@
       fig.className = 'ts-figure' + (cat.key === tsActiveKey ? ' active' : '');
       fig.style.setProperty('--ts-cat-color', cat.color);
       fig.style.setProperty('--ts-cat-ink', inkOf(cat.color));
-      fig.innerHTML = `<span class="n">${cat.count}</span><span class="l">${tsEsc(cat.label)}</span>`;
+      fig.innerHTML = `<span class="n">${cat.count}</span><span class="l">${tsEsc(catText(cat.key).label)}</span>`;
       fig.addEventListener('click', () => selectTaskCategory(cat.key));
       el.appendChild(fig);
     });
@@ -760,7 +876,7 @@
     const countEl = document.getElementById('ts-ring-count');
     countEl.textContent = cat.count;
     countEl.setAttribute('fill', inkOf(cat.color));
-    document.getElementById('ts-ring-of').textContent = `of ${TASK_RING_TOTAL}`;
+    document.getElementById('ts-ring-of').textContent = dtf('ofTotal', { n: TASK_RING_TOTAL });
   }
 
   function renderTaskTable(cat) {
@@ -770,23 +886,23 @@
     const isSchedule = cat.kind === 'schedule';
 
     theadRow.innerHTML = `
-      <th style="width:110px">Job</th>
-      <th>${isSchedule ? 'Repeat' : 'Type'}</th>
-      <th>Target</th>
-      <th style="text-align:right">${tsEsc(cat.timestamp_label)}</th>
+      <th style="width:110px">${tsEsc(TS_TEXT.job)}</th>
+      <th>${tsEsc(isSchedule ? TS_TEXT.repeat : TS_TEXT.type)}</th>
+      <th>${tsEsc(TS_TEXT.target)}</th>
+      <th style="text-align:right">${tsEsc(catText(cat.key).at)}</th>
     `;
 
     tbody.innerHTML = '';
     const shown = cat.rows.slice(0, 4);
     if (shown.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" style="padding:14px 0;color:#6B7280;">ไม่มีงานในหมวดนี้</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" style="padding:14px 0;color:var(--nt-text-muted);">${DT.taskNone}</td></tr>`;
     } else {
       shown.forEach((r) => {
         const tr = document.createElement('tr');
         tr.style.cursor = 'pointer';
         let typeCell;
         if (isSchedule) {
-          const [badgeBg, badgeText, badgeLabel] = TS_REPEAT_BADGE[r.repeat] || ['bg-primary', 'text-white', 'Monthly'];
+          const [badgeBg, badgeText, badgeLabel] = TS_REPEAT_BADGE[r.repeat] || ['bg-primary', 'text-white', TS_TEXT.monthly];
           typeCell = `<span class="badge ${badgeBg} ${badgeText}" style="font-size:.7rem;">${badgeLabel}</span>`;
         } else {
           typeCell = `<span class="type-cell"><span class="dot" style="background:${cat.color};"></span>${tsEsc(r.type_label)}</span>`;
@@ -795,7 +911,7 @@
           <td class="mono">#${tsEsc(r.seq)}</td>
           <td>${typeCell}</td>
           <td class="mono dim">${tsEsc(r.target)}</td>
-          <td class="mono dim" style="text-align:right">${tsEsc(isSchedule ? r.next_run : r.timestamp)}</td>
+          <td class="mono dim" style="text-align:right">${tsEsc(fmtStamp(isSchedule ? r.next_run : r.timestamp))}</td>
         `;
         tr.addEventListener('click', () => {
           window.location.href = isSchedule ? '/tasks' : `/scan/${r.id}`;
@@ -806,7 +922,7 @@
 
     const remaining = cat.rows.length - shown.length;
     footnote.innerHTML = remaining > 0
-      ? `<a href="${cat.view_all_url}">+${remaining} ${tsEsc(cat.view_all_label)} →</a>`
+      ? `<a href="${cat.view_all_url}">${tsEsc(catText(cat.key).more.replace('{n}', remaining))}</a>`
       : '';
   }
 
@@ -816,9 +932,9 @@
     renderTaskFigures();
     renderTaskRing(cat);
     const headingEl = document.getElementById('ts-section-heading');
-    headingEl.textContent = cat.label;
+    headingEl.textContent = catText(cat.key).label;
     headingEl.style.color = inkOf(cat.color);
-    document.getElementById('ts-section-sub').textContent = `${cat.thai} · ${cat.count} งาน`;
+    document.getElementById('ts-section-sub').textContent = dtn('taskSub', cat.count, { thai: catText(cat.key).long });
     renderTaskTable(cat);
   }
 
@@ -840,12 +956,12 @@
         const meta = chart.getDatasetMeta(0);
         const bar = meta.data[i];
         const pct = taskChartTotal > 0 ? Math.round(value / taskChartTotal * 100) : 0;
-        ctx.fillStyle = '#333';
+        ctx.fillStyle = CH.label;
         ctx.font = 'bold 13px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         ctx.fillText(`${value}`, bar.x, bar.y - 18);
-        ctx.fillStyle = '#888';
+        ctx.fillStyle = CH.pct;
         ctx.font = '11px sans-serif';
         ctx.fillText(`(${pct}%)`, bar.x, bar.y - 4);
       });
@@ -856,7 +972,7 @@
   const taskChart = new Chart(document.getElementById('taskStatusChart'), {
     type: 'bar',
     data: {
-      labels: TASK_CATEGORIES.map(c => c.label),
+      labels: TASK_CATEGORIES.map(c => catText(c.key).label),
       datasets: [{
         data: taskChartData,
         backgroundColor: taskChartColors,
@@ -877,12 +993,12 @@
       scales: {
         x: {
           grid: { display: false },
-          ticks: { font: { size: 11 } }
+          ticks: { color: CH.tick, font: { size: 11 } }
         },
         y: {
           beginAtZero: true,
-          grid: { color: '#f0f0f0' },
-          ticks: { stepSize: 1, precision: 0, font: { size: 10 } }
+          grid: { color: CH.grid },
+          ticks: { color: CH.tick, stepSize: 1, precision: 0, font: { size: 10 } }
         }
       },
       onClick: function (evt, elements) {
@@ -917,6 +1033,21 @@
       });
     }, 180);
   }
+
+  // The theme button (base.html) fires "clylar:theme" on `document`: the charts read their colours again and redraw, and the text that carries a tier colour is rebuilt.
+  document.addEventListener('clylar:theme', () => {
+    CH = chartTok();
+    Chart.defaults.color = CH.tick;
+    donutChart.data.datasets[0].borderColor = CH.edge;
+    Object.assign(donutChart.options.plugins.tooltip, { backgroundColor: CH.tipBg, titleColor: CH.tipTitle, bodyColor: CH.tipBody, borderColor: CH.tipBorder });
+    donutChart.update('none');
+    taskChart.options.scales.x.ticks.color = CH.tick;
+    taskChart.options.scales.y.ticks.color = CH.tick;
+    taskChart.options.scales.y.grid.color = CH.grid;
+    taskChart.update('none');
+    if (activeSegment !== null) { const s = activeSegment; activeSegment = null; handleDonutSegmentClick(s); }      // the filter panel's tier-coloured text
+    if (document.getElementById('task-detail-view').style.display === 'block') selectTaskCategory(tsActiveKey);
+  });
 
   function closeTaskDetail() {
     const chartView = document.getElementById('task-chart-view');
@@ -958,7 +1089,7 @@
        display:none;
        position:fixed;
        z-index:9001;
-       background:#fff;
+       background:var(--surface);
        border-radius:16px;
        box-shadow:0 24px 80px rgba(0,0,0,0.2);
        overflow:hidden;
@@ -969,12 +1100,12 @@
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;">
       <div>
         <div id="stat-modal-icon-badge" class="stat-icon-badge mb-3" style="width:48px;height:48px;border-radius:12px;"></div>
-        <h5 id="stat-modal-title" style="margin:0;font-weight:700;font-size:1.15rem;color:#0f172a;"></h5>
-        <p id="stat-modal-subtitle" style="margin:4px 0 0;color:#64748b;font-size:.83rem;"></p>
+        <h5 id="stat-modal-title" style="margin:0;font-weight:700;font-size:1.15rem;color:var(--fg-0);"></h5>
+        <p id="stat-modal-subtitle" style="margin:4px 0 0;color:var(--muted);font-size:.83rem;"></p>
       </div>
       <button id="stat-modal-close" onclick="closeStatModal()"
-        style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#94a3b8;padding:0;line-height:1;margin-left:16px;flex-shrink:0;"
-        aria-label="ปิด">✕</button>
+        style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--fg-6);padding:0;line-height:1;margin-left:16px;flex-shrink:0;"
+        aria-label="{{ t('common.close') }}">✕</button>
     </div>
     <div id="stat-modal-body"></div>
   </div>
@@ -984,32 +1115,168 @@
 <style>
   /* "Changes since the last scan" card: a row of small counts, a zero is muted so "nothing new" is visible at a glance */
   .chg-tiles { display: flex; flex-wrap: wrap; gap: 10px; }
-  .chg-tile { flex: 1 1 120px; min-width: 110px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; }
-  .chg-tile b { font-size: 1.5rem; line-height: 1.1; color: #0f172a; font-weight: 700; }
-  .chg-tile span { font-size: .74rem; color: #475569; margin-top: 2px; }
-  .chg-tile.is-zero b { color: #94a3b8; }
+  .chg-tile { flex: 1 1 120px; min-width: 110px; background: var(--sunken); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; }
+  .chg-tile b { font-size: 1.5rem; line-height: 1.1; color: var(--fg-0); font-weight: 700; }
+  .chg-tile span { font-size: .74rem; color: var(--text-2); margin-top: 2px; }
+  .chg-tile.is-zero b { color: var(--fg-6); }
   /* Stat card styling — Single focal point, clean neutral borders */
   .stat-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0 !important;
+    background: var(--surface);
+    border: 1px solid var(--border) !important;
     border-radius: 14px !important;
     transition: box-shadow 0.2s ease, border-color 0.2s ease;
     will-change: transform;
   }
 
   .stat-card:hover {
-    border-color: #cbd5e1 !important;
+    border-color: var(--border-strong) !important;
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
   }
 
   /* KPI cards: gold icon chips (devices, ports, tasks), red only for CVE. The pop-ups read these four values
      (buildModalContent), so a card and its pop-up always share their icon colours. */
+  /* ===== Dashboard tokens =====
+     The shared ones (surface, border, text ...) are in base.html. These are the dashboard's own, as a pair: light is exactly what the page always had, dark is palette C.
+     A card and its pop-up share their KPI icon colours: both read --kpi-gold, --kpi-gold-bg, --kpi-red and --kpi-red-bg (buildModalContent). */
   :root {
+    /* KPI cards and pop-ups */
     --kpi-gold: #e6a700;
     --kpi-gold-bg: #fff4d1;
     --kpi-red: #dc2626;
     --kpi-red-bg: #fee2e2;
+    /* Rows and hovers */
+    --row-bg: #f8f9fa;
+    --row-hover: #f0f4ff;
+    --chev: #b8c0cc;
+    --cve-bg: #f8f9fb;
+    --cve-hover: #eef2f7;
+    --scroll-thumb: #dee2e6;
+    --line-clear: #dee2e6;
+    --dw-hover: #eef1f5;
+    --dw-item-hover: #f4f6f9;
+    --check-on: #1e293b;
+    --fg-disabled: #b6bfca;
+    /* Chips */
+    --blue-tint: #eff6ff;
+    --blue-tint-2: #dbeafe;
+    --blue-line: #bfdbfe;
+    --blue-line-2: #c7d6f5;
+    --latest-bg: #e8f4fd;
+    --ip-chip-bg: #f2f4f7;
+    --ip-chip-hover: #e7ebf0;
+    --badge-ok-bg: #dcfce7;
+    --banner-line: #fde68a;
+    /* Lines */
+    --line-row: #f1f3f5;
+    --line-os: #f1f4f8;
+    --line-pp: #e6e9ef;
+    --line-pp-hover: #d3d9e2;
+    --gold-line-2: #f1d56e;
+    --line-cvehost: #e9edf3;
+    /* Top OS */
+    --os-track: #f1f3f5;
+    --hatch-a: #d5dce6;
+    --hatch-b: #eef1f5;
+    --hatch-line: #8796ad;
+    /* Text */
+    --green-ink: #16a34a;
+    --kev-ink: #7a5a12;
+    --orange: #ea580c;
+    --orange-ink: #ea580c;
+    --on-gold-2: #3f2d00;
+    --dash-ink-1: #222222;
+    --dash-ink-2: #333333;
+    --dash-ink-3: #555555;
+    --dash-ink-4: #888888;
+    --dash-ink-5: #aaaaaa;
+    /* Task Status */
+    --ts-ink: #12161c;
+    --ts-ink-2: #4b5563;
+    --ts-ink-3: #374151;
+    --ts-line: #e4e7ec;
+    --ts-line-2: #d8dbe0;
+    --ts-row-line: #eef0f2;
+    --ts-hover: rgba(0, 0, 0, 0.03);
+    --ts-track-ring: #e1e4e9;
+    /* Severity badges (data: the same in both themes; dark ink on the bright ones in dark) */
+    --sev-critical: #d43f3a;
+    --sev-high: #ee9336;
+    --sev-medium: #fdc431;
+    --sev-low: #3fae49;
+    --sev-info: #0dcaf0;
+    --sev-unknown: #6c757d;
+    --sev-critical-ink: #ffffff;
+    --sev-high-ink: #ffffff;
+    --sev-medium-ink: #212529;
+    --sev-low-ink: #ffffff;
+    --sev-info-ink: #212529;
+    --sev-unknown-ink: #ffffff;
   }
+  :root[data-theme="dark"] {
+    /* KPI cards and pop-ups */
+    --kpi-gold: #f7d16d;
+    --kpi-gold-bg: #564d30;
+    --kpi-red: #f19aa0;
+    --kpi-red-bg: #5a3033;
+    /* Rows and hovers */
+    --row-bg: #3d3e44;
+    --row-hover: #40465a;
+    --chev: #80828b;
+    --cve-bg: #3d3e44;
+    --cve-hover: #494a51;
+    --scroll-thumb: #54555d;
+    --line-clear: #54555d;
+    --dw-hover: #3d3e44;
+    --dw-item-hover: #3d3e44;
+    --check-on: #6b6c75;
+    --fg-disabled: #a0a2ab;
+    /* Chips */
+    --blue-tint: #2d3c56;
+    --blue-tint-2: #38496b;
+    --blue-line: #43587f;
+    --blue-line-2: #5b6a8f;
+    --latest-bg: #26334d;
+    --ip-chip-bg: #3d3e44;
+    --ip-chip-hover: #494a51;
+    --badge-ok-bg: #2f4636;
+    --banner-line: #6a634c;
+    /* Lines */
+    --line-row: #3f4046;
+    --line-os: #3f4046;
+    --line-pp: #46474e;
+    --line-pp-hover: #5b5c64;
+    --gold-line-2: #907c49;
+    --line-cvehost: #46474e;
+    /* Top OS */
+    --os-track: #3f4046;
+    --hatch-a: #54555d;
+    --hatch-b: #3f4046;
+    --hatch-line: #80828b;
+    /* Text */
+    --green-ink: #5fd48a;
+    --kev-ink: #e8c26a;
+    --orange-ink: #f89a68;
+    --dash-ink-1: #f3f3f5;
+    --dash-ink-2: #e6e7ea;
+    --dash-ink-3: #c0c2c9;
+    --dash-ink-4: #adafb7;
+    --dash-ink-5: #adafb7;
+    /* Task Status */
+    --ts-ink: #f3f3f5;
+    --ts-ink-2: #c0c2c9;
+    --ts-ink-3: #d2d3d8;
+    --ts-line: #46474e;
+    --ts-line-2: #54555d;
+    --ts-row-line: #3f4046;
+    --ts-hover: rgba(255, 255, 255, .05);
+    --ts-track-ring: #494a51;
+    /* Severity badges (data: the same in both themes; dark ink on the bright ones in dark) */
+    --sev-high-ink: #1f2024;
+    --sev-medium-ink: #1f2024;
+    --sev-low-ink: #1f2024;
+    --sev-info-ink: #1f2024;
+  }
+  .ts-ring-track { stroke: var(--ts-track-ring); }
   .kpi-gold { background: var(--kpi-gold-bg); color: var(--kpi-gold); }
   .kpi-red { background: var(--kpi-red-bg); color: var(--kpi-red); }
 
@@ -1033,7 +1300,7 @@
   .stat-card-label {
     font-size: 0.78rem;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--text);
     margin-bottom: 2px;
     display: block;
   }
@@ -1041,7 +1308,7 @@
   .stat-card-value {
     font-size: 1.9rem;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--fg-0);
     line-height: 1.1;
     white-space: nowrap;
   }
@@ -1050,7 +1317,7 @@
     margin-left: 0.45rem;
     font-size: 0.78rem;
     font-weight: 500;
-    color: #64748b;
+    color: var(--muted);
   }
 
   .stat-icon-badge {
@@ -1076,7 +1343,7 @@
     margin: 0;
     padding: 0;
     font-size: 0.68rem;
-    color: #64748b;
+    color: var(--muted);
   }
   .kpi-legend.is-side { display: none; margin-left: auto; flex-direction: column; gap: 2px; }
   .kpi-legend.is-foot { display: grid; grid-template-columns: auto auto; gap: 2px 14px; }
@@ -1088,7 +1355,7 @@
   }
   .kpi-legend li { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .kpi-legend i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-  .kpi-legend b { font-weight: 600; color: #0f172a; }
+  .kpi-legend b { font-weight: 600; color: var(--fg-0); }
 
   .stat-card-footer {
     display: flex;
@@ -1096,18 +1363,18 @@
     align-items: flex-end;
     gap: 0.6rem;
     font-size: 0.69rem;
-    color: #64748b;
+    color: var(--muted);
   }
   .kpi-caption { min-width: 0; }
-  .kpi-link { font-weight: 600; color: #1e293b; }
+  .kpi-link { font-weight: 600; color: var(--text); }
 
   /* "↑ 8%" over "จากสแกนก่อนหน้า". An increase in ports or CVEs is not good news, so up is amber, not green. */
   .kpi-trend { flex: none; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; text-align: right; }
   .kpi-trend b { font-size: 0.73rem; font-weight: 600; }
-  .kpi-trend small { font-size: 0.62rem; color: #94a3b8; }
-  .kpi-trend.is-up b { color: #b45309; }
-  .kpi-trend.is-down b { color: #16a34a; }
-  .kpi-trend.is-flat b { color: #94a3b8; }
+  .kpi-trend small { font-size: 0.62rem; color: var(--fg-6); }
+  .kpi-trend.is-up b { color: var(--amber-ink-3); }
+  .kpi-trend.is-down b { color: var(--green-ink); }
+  .kpi-trend.is-flat b { color: var(--fg-6); }
 
   /* a narrow card stacks the footer: the caption, then the trend on one line under it (after the base rules above, to win) */
   @container (max-width: 270px) {
@@ -1121,7 +1388,7 @@
   }
 
   #stat-modal-inner::-webkit-scrollbar-thumb {
-    background: #dee2e6;
+    background: var(--scroll-thumb);
     border-radius: 4px;
   }
 
@@ -1143,7 +1410,7 @@
   }
 
   .scan-row-clickable:hover td {
-    background: #f0f4ff !important;
+    background: var(--row-hover) !important;
   }
 
   /* Clickable device rows in the donut filter panel / stat-card modal */
@@ -1151,14 +1418,14 @@
     transition: background 0.15s ease;
   }
   .device-row:hover {
-    background: #f0f4ff !important;
+    background: var(--row-hover) !important;
   }
   .device-row-chevron {
-    color: #b8c0cc;
+    color: var(--chev);
     transition: color 0.15s ease;
   }
   .device-row:hover .device-row-chevron {
-    color: #0d6efd;
+    color: var(--blue);
   }
 
   .scan-row-toggle-icon {
@@ -1174,39 +1441,39 @@
 
   /* Severity badge colors */
   .sev-critical {
-    background: #d43f3a;
-    color: #fff;
+    background: var(--sev-critical);
+    color: var(--sev-critical-ink);
   }
 
   .sev-high {
-    background: #ee9336;
-    color: #fff;
+    background: var(--sev-high);
+    color: var(--sev-high-ink);
   }
 
   .sev-medium {
-    background: #fdc431;
-    color: #212529;
+    background: var(--sev-medium);
+    color: var(--sev-medium-ink);
   }
 
   .sev-low {
-    background: #3fae49;
-    color: #fff;
+    background: var(--sev-low);
+    color: var(--sev-low-ink);
   }
 
   .sev-info {
-    background: #0dcaf0;
-    color: #212529;
+    background: var(--sev-info);
+    color: var(--sev-info-ink);
   }
 
   .sev-unknown {
-    background: #6c757d;
-    color: #fff;
+    background: var(--sev-unknown);
+    color: var(--sev-unknown-ink);
   }
 
   /* Expandable rows in the CVE Found pop-up. The panel opens by animating grid rows from 0fr to 1fr, so it follows the
      text height. visibility keeps the collapsed panel's links away from the keyboard and screen readers. */
   .cve-item {
-    background: #f8f9fb;
+    background: var(--cve-bg);
     border-radius: 8px;
     font-size: .8rem;
   }
@@ -1227,15 +1494,15 @@
     transition: background 0.15s ease;
   }
 
-  .cve-toggle:hover { background: #eef2f7; }
-  .cve-toggle:focus-visible { outline: 2px solid #0d6efd; outline-offset: -2px; }
+  .cve-toggle:hover { background: var(--cve-hover); }
+  .cve-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
   .cve-item.open .cve-toggle { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 
-  .cve-chevron { flex-shrink: 0; color: #94a3b8; transition: transform 0.2s ease, color 0.15s ease; }
-  .cve-item.open .cve-chevron { transform: rotate(90deg); color: #475569; }
+  .cve-chevron { flex-shrink: 0; color: var(--fg-6); transition: transform 0.2s ease, color 0.15s ease; }
+  .cve-item.open .cve-chevron { transform: rotate(90deg); color: var(--text-2); }
 
-  .cve-id { font-family: monospace; font-weight: 600; color: #333; flex: 1; }
-  .cve-port { color: #aaa; font-size: .72rem; }
+  .cve-id { font-family: monospace; font-weight: 600; color: var(--dash-ink-2); flex: 1; }
+  .cve-port { color: var(--dash-ink-5); font-size: .72rem; }
 
   .cve-detail {
     display: grid;
@@ -1252,22 +1519,23 @@
 
   .cve-detail-inner { min-height: 0; overflow: hidden; }
   .cve-detail-body { padding: 2px 14px 12px 34px; }
-  .cve-label { font-size: .68rem; font-weight: 600; color: #94a3b8; margin-bottom: 3px; }
+  .cve-label { font-size: .68rem; font-weight: 600; color: var(--fg-6); margin-bottom: 3px; }
+  :root[data-theme="dark"] .cve-label { color: var(--dash-ink-4); }      /* the row behind it is lighter than the card, so the card's grey fell to 4.3:1 */
   .cve-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-bottom: 10px; }
-  .cve-fact-value { font-size: .8rem; font-weight: 600; color: #334155; }
-  .cve-muted { color: #94a3b8; font-weight: 500; }
+  .cve-fact-value { font-size: .8rem; font-weight: 600; color: var(--fg-2); }
+  .cve-muted { color: var(--fg-6); font-weight: 500; }
   /* why the app shows CRITICAL where NVD says HIGH: a quiet line inside the expanded row, (i) in front */
-  .cve-note { display: flex; align-items: flex-start; gap: .4rem; margin: -4px 0 10px; font-size: .74rem; line-height: 1.45; color: #64748b; }
-  .cve-note i { flex-shrink: 0; font-size: .95rem; line-height: 1.2; color: #94a3b8; }
+  .cve-note { display: flex; align-items: flex-start; gap: .4rem; margin: -4px 0 10px; font-size: .74rem; line-height: 1.45; color: var(--muted); }
+  .cve-note i { flex-shrink: 0; font-size: .95rem; line-height: 1.2; color: var(--fg-6); }
 
   /* The severity pills at the top of the CVE pop-up are the filter buttons; the line under them is a hint, then the filter status. */
   .cve-filter { border: 0; font-family: inherit; cursor: pointer; transition: opacity .15s ease, transform .15s ease, box-shadow .15s ease; }
-  .cve-filter:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(15, 23, 42, .16); }
-  .cve-filter:focus-visible { outline: 2px solid #64748b; outline-offset: 2px; }
-  .cve-status { display: flex; align-items: center; gap: 10px; min-height: 1.4rem; margin-bottom: 8px; font-size: .78rem; color: #94a3b8; }
-  .cve-status.is-on { color: #64748b; }
-  .cve-clear { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: #475569; text-decoration: underline; cursor: pointer; }
-  .cve-clear:hover { color: #0f172a; }
+  .cve-filter:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(var(--shadow-rgb), .16); }
+  .cve-filter:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .cve-status { display: flex; align-items: center; gap: 10px; min-height: 1.4rem; margin-bottom: 8px; font-size: .78rem; color: var(--fg-6); }
+  .cve-status.is-on { color: var(--muted); }
+  .cve-clear { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--text-2); text-decoration: underline; cursor: pointer; }
+  .cve-clear:hover { color: var(--fg-0); }
 
   /* Dashboard sections: the "ปรับแต่ง" menu, and the rows closing the gap when a section is hidden (from md up the sections of a row
      share its width equally, so one that is left alone takes the whole row) */
@@ -1275,49 +1543,49 @@
   .dw-btn { display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; font-size: .8rem; font-weight: 500; line-height: 1.5; white-space: nowrap;
             color: var(--nt-text); background: var(--nt-bg); border: 1px solid var(--nt-border); border-radius: 10px; cursor: pointer; }
   .dw-btn i { font-size: 15px; color: var(--nt-text-muted); }
-  .dw-btn:hover, .dw-btn.show { background: #eef1f5; }
-  .dw-btn:focus-visible { outline: 2px solid #cbd5e1; outline-offset: 2px; }
+  .dw-btn:hover, .dw-btn.show { background: var(--dw-hover); }
+  .dw-btn:focus-visible { outline: 2px solid var(--border-strong); outline-offset: 2px; }
   /* in a narrow top bar the page title needs the room: the button keeps only its icon (and the "hidden N" badge) */
   @media (max-width: 1100px) { .dw-label { display: none; } .dw-btn { gap: 6px; padding: 7px 10px; } }
-  .dw-count { margin-left: .15rem; padding: 0 7px; border-radius: 999px; background: #eef1f5; color: #475569; font-size: .68rem; font-weight: 600; line-height: 1.6; }
-  .dw-menu { min-width: 250px; padding: .6rem .5rem; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, .14); }
-  .dw-title { padding: .1rem .6rem .45rem; font-size: .72rem; font-weight: 600; color: #94a3b8; }
-  .dw-group { padding: .45rem .6rem .15rem; font-size: .68rem; font-weight: 700; letter-spacing: .02em; color: #64748b; }
-  .dw-item { display: flex; align-items: center; gap: .6rem; padding: .35rem .6rem; border-radius: 8px; font-size: .82rem; color: #1e293b; cursor: pointer; }
-  .dw-item:hover { background: #f4f6f9; }
+  .dw-count { margin-left: .15rem; padding: 0 7px; border-radius: 999px; background: var(--dw-hover); color: var(--text-2); font-size: .68rem; font-weight: 600; line-height: 1.6; }
+  .dw-menu { min-width: 250px; padding: .6rem .5rem; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(var(--shadow-rgb), .14); }
+  .dw-title { padding: .1rem .6rem .45rem; font-size: .72rem; font-weight: 600; color: var(--fg-6); }
+  .dw-group { padding: .45rem .6rem .15rem; font-size: .68rem; font-weight: 700; letter-spacing: .02em; color: var(--muted); }
+  .dw-item { display: flex; align-items: center; gap: .6rem; padding: .35rem .6rem; border-radius: 8px; font-size: .82rem; color: var(--text); cursor: pointer; }
+  .dw-item:hover { background: var(--dw-item-hover); }
   .dw-item input { margin: 0; flex: none; cursor: pointer; }
-  .dw-item input:checked { background-color: #1e293b; border-color: #1e293b; }
-  .dw-foot { margin-top: .35rem; padding: .5rem .6rem .1rem; border-top: 1px solid #eef1f5; }
-  .dw-reset { border: 0; background: none; padding: 0; font: inherit; font-size: .78rem; font-weight: 600; color: #475569; text-decoration: underline; cursor: pointer; }
-  .dw-reset:disabled { color: #b6bfca; text-decoration: none; cursor: default; }
+  .dw-item input:checked { background-color: var(--check-on); border-color: var(--check-on); }
+  .dw-foot { margin-top: .35rem; padding: .5rem .6rem .1rem; border-top: 1px solid var(--line-soft); }
+  .dw-reset { border: 0; background: none; padding: 0; font: inherit; font-size: .78rem; font-weight: 600; color: var(--text-2); text-decoration: underline; cursor: pointer; }
+  .dw-reset:disabled { color: var(--fg-disabled); text-decoration: none; cursor: default; }
   @media (min-width: 768px) { .dw-row > [data-widget] { flex: 1 1 0; width: auto; min-width: 0; } }
 
   /* Top Open Ports card: the devices that have the port, as the same soft blue chips as the Vulnerabilities page's device strip */
   .tp-scroll { overflow-x: auto; }                 /* a squeezed half-width card scrolls its table instead of spilling out of the card */
   .tp-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .tp-chip, .tp-more { font: inherit; font-size: .8rem; line-height: 1.5; border-radius: 999px; padding: 1px 10px; white-space: nowrap; text-decoration: none; }
-  .tp-chip { color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; max-width: 10rem; overflow: hidden; text-overflow: ellipsis; }   /* a very long address (IPv6, or odd text from an imported file) is cut with an ellipsis; its title has the whole thing */
-  .tp-chip:hover { background: #dbeafe; }
-  .tp-more { color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; cursor: pointer; }
-  .tp-more:hover { background: #e2e8f0; }
-  .tp-chip:focus-visible, .tp-more:focus-visible { outline: 2px solid #64748b; outline-offset: 2px; }
+  .tp-chip { color: var(--link); background: var(--blue-tint); border: 1px solid var(--blue-line); max-width: 10rem; overflow: hidden; text-overflow: ellipsis; }   /* a very long address (IPv6, or odd text from an imported file) is cut with an ellipsis; its title has the whole thing */
+  .tp-chip:hover { background: var(--blue-tint-2); }
+  .tp-more { color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); cursor: pointer; }
+  .tp-more:hover { background: var(--surface-3); }
+  .tp-chip:focus-visible, .tp-more:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
   /* Top OS card: one row per OS family. Every device is in exactly one row ("ไม่ทราบ" included), so the bar is its share of ALL devices.
      The unknown row is hatched, like "ประเมินไม่ได้" in the Vulnerabilities Overview: not knowing is not a colour of its own. */
   .os-list { list-style: none; margin: 0; padding: 0; }
-  .os-list li + li { border-top: 1px solid #f1f4f8; }
-  .os-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) 4.6rem; align-items: center; gap: .75rem; padding: 9px 0; font-size: .82rem; color: #0f172a; text-decoration: none; }
+  .os-list li + li { border-top: 1px solid var(--line-os); }
+  .os-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) 4.6rem; align-items: center; gap: .75rem; padding: 9px 0; font-size: .82rem; color: var(--fg-0); text-decoration: none; }
   .os-row:hover .os-name { text-decoration: underline; }
-  .os-row:focus-visible { outline: 2px solid #64748b; outline-offset: 2px; border-radius: 6px; }
+  .os-row:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
   .os-name { font-weight: 600; }
-  .os-track { height: 7px; border-radius: 4px; background: #f1f3f5; overflow: hidden; }
-  .os-track i { display: block; height: 100%; border-radius: 4px; background: var(--nt-gold, #f5c518); }
+  .os-track { height: 7px; border-radius: 4px; background: var(--os-track); overflow: hidden; }
+  .os-track i { display: block; height: 100%; border-radius: 4px; background: var(--nt-gold); }
   .os-count { text-align: right; white-space: nowrap; }
-  .os-row.is-unknown .os-name { color: #64748b; font-weight: 500; }
-  .os-row.is-unknown .os-track i { background: repeating-linear-gradient(135deg, #d5dce6 0 3px, #eef1f5 3px 6px); outline: 1px solid #8796ad; outline-offset: -1px; }
-  .os-note { margin-top: .6rem; font-size: .72rem; color: #64748b; }
+  .os-row.is-unknown .os-name { color: var(--muted); font-weight: 500; }
+  .os-row.is-unknown .os-track i { background: repeating-linear-gradient(135deg, var(--hatch-a) 0 3px, var(--hatch-b) 3px 6px); outline: 1px solid var(--hatch-line); outline-offset: -1px; }
+  .os-note { margin-top: .6rem; font-size: .72rem; color: var(--muted); }
   .os-mid { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .os-conf { font-size: .72rem; line-height: 1.3; color: #64748b; }
+  .os-conf { font-size: .72rem; line-height: 1.3; color: var(--muted); }
 
   /* Open Ports pop-up: a row per top port, a soft bar behind it as long as its device count is against the busiest port, and a
      click to list the devices that have it open. Rows slide in one after another, the bars grow, the badges pop. */
@@ -1329,38 +1597,38 @@
              background: linear-gradient(90deg, transparent, var(--pp-gold), transparent); box-shadow: 0 0 14px 3px rgba(253, 210, 58, .55);
              animation: ppScan calc(var(--n) * 80ms) calc(.3s - 80ms) linear both; }
   @keyframes ppScan { 0% { top: 0; opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
-  .pp-row { position: relative; overflow: hidden; background: #fff; border: 1px solid #e6e9ef; border-radius: 12px; opacity: 0;
+  .pp-row { position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--line-pp); border-radius: 12px; opacity: 0;
             transition: border-color .2s, box-shadow .2s;
             animation: ppRowIn .5s cubic-bezier(.2, .9, .3, 1) both; animation-delay: calc(.3s + var(--i) * 80ms); }
-  .pp-row:hover { border-color: #d3d9e2; }
-  .pp-row.on { border-color: #f1d56e; box-shadow: 0 2px 10px rgba(15, 23, 42, .05); }
+  .pp-row:hover { border-color: var(--line-pp-hover); }
+  .pp-row.on { border-color: var(--gold-line-2); box-shadow: 0 2px 10px rgba(var(--shadow-rgb), .05); }
   /* the count as a thin line along the bottom edge; it only shows when the ports differ (equal counts would be a full line on every row) */
   .pp-bar { position: absolute; left: 0; bottom: 0; height: 3px; width: var(--w); border-radius: 0 3px 3px 0; background: var(--pp-gold);
             transform-origin: left; transform: scaleX(0);
             animation: ppGrow .8s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(.5s + var(--i) * 80ms); }
   .pp-btn { all: unset; box-sizing: border-box; position: relative; display: flex; align-items: center; gap: 12px; width: 100%;
             padding: 12px 16px 12px 20px; cursor: pointer; font-size: .83rem; }
-  .pp-btn:focus-visible { outline: 2px solid #64748b; outline-offset: -2px; border-radius: 12px; }
-  .pp-rank { font-weight: 700; color: #475569; min-width: 22px; text-align: center; }
-  .pp-port { flex: 1; font-family: monospace; font-weight: 600; color: #333; }
-  .pp-badge { background: var(--pp-gold); color: #3f2d00; border-radius: 20px; padding: 2px 10px; font-size: .75rem; font-weight: 600;
+  .pp-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 12px; }
+  .pp-rank { font-weight: 700; color: var(--text-2); min-width: 22px; text-align: center; }
+  .pp-port { flex: 1; font-family: monospace; font-weight: 600; color: var(--dash-ink-2); }
+  .pp-badge { background: var(--pp-gold); color: var(--on-gold-2); border-radius: 20px; padding: 2px 10px; font-size: .75rem; font-weight: 600;
               animation: ppPop .45s cubic-bezier(.3, 1.6, .5, 1) both; animation-delay: calc(.5s + var(--i) * 80ms); }
   /* a CVE was found on this port: a calm orange dot that pulses a few times, then stays */
-  .pp-dot { position: relative; width: 9px; height: 9px; border-radius: 50%; background: #ea580c; flex: none; }
-  .pp-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: #ea580c; animation: ppPulse 1.6s ease-out 3; }
-  .pp-chev { width: 14px; height: 14px; flex: none; color: #94a3b8; transition: transform .3s; }
+  .pp-dot { position: relative; width: 9px; height: 9px; border-radius: 50%; background: var(--orange); flex: none; }
+  .pp-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--orange); animation: ppPulse 1.6s ease-out 3; }
+  .pp-chev { width: 14px; height: 14px; flex: none; color: var(--fg-6); transition: transform .3s; }
   .pp-row.on .pp-chev { transform: rotate(180deg); }
   .pp-detail { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s cubic-bezier(.2, .8, .2, 1); }
   .pp-row.on .pp-detail { grid-template-rows: 1fr; }
   .pp-detail > div { overflow: hidden; }
   .pp-ips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 16px 12px 20px; }
-  .pp-ips a { font-family: monospace; font-size: .76rem; padding: 3px 10px; border-radius: 8px; background: #f2f4f7; color: #334155;
+  .pp-ips a { font-family: monospace; font-size: .76rem; padding: 3px 10px; border-radius: 8px; background: var(--ip-chip-bg); color: var(--fg-2);
               text-decoration: none; opacity: 0; transform: translateX(-8px); transition: opacity .3s, transform .3s, background .15s; }
   .pp-row.on .pp-ips a { opacity: 1; transform: none; transition-delay: calc(.1s + var(--k) * 60ms), calc(.1s + var(--k) * 60ms), 0s; }
-  .pp-ips a:hover { background: #e7ebf0; color: #0f172a; }
-  .pp-cvecount { margin-left: 2px; font-family: inherit; font-size: .68rem; font-weight: 700; color: #ea580c; }
-  .pp-ips a:focus-visible { outline: 2px solid #64748b; outline-offset: 1px; }
-  .pp-note { flex-basis: 100%; margin: 2px 0 0; font-size: .76rem; color: #64748b; }
+  .pp-ips a:hover { background: var(--ip-chip-hover); color: var(--fg-0); }
+  .pp-cvecount { margin-left: 2px; font-family: inherit; font-size: .68rem; font-weight: 700; color: var(--orange-ink); }
+  .pp-ips a:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .pp-note { flex-basis: 100%; margin: 2px 0 0; font-size: .76rem; color: var(--muted); }
   @keyframes ppRowIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
   @keyframes ppGrow { to { transform: scaleX(1); } }
   @keyframes ppPop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -1372,7 +1640,7 @@
     .pp-bar { animation: none; transform: scaleX(1); }
     .pp-chev, .pp-detail, .pp-ips a, .pp-row { transition: none; }
   }
-  .cve-desc { font-size: .78rem; line-height: 1.5; color: #475569; margin-bottom: 10px; overflow-wrap: anywhere; }
+  .cve-desc { font-size: .78rem; line-height: 1.5; color: var(--text-2); margin-bottom: 10px; overflow-wrap: anywhere; }
 
   .cve-host {
     display: flex;
@@ -1380,16 +1648,16 @@
     gap: 8px;
     padding: 5px 8px;
     margin-bottom: 4px;
-    background: #fff;
-    border: 1px solid #e9edf3;
+    background: var(--surface);
+    border: 1px solid var(--line-cvehost);
     border-radius: 6px;
     font-size: .76rem;
     color: inherit;
     text-decoration: none;
   }
 
-  a.cve-host:hover { background: #f0f4ff; border-color: #c7d6f5; }
-  a.cve-host:hover .device-row-chevron { color: #0d6efd; }
+  a.cve-host:hover { background: var(--row-hover); border-color: var(--blue-line-2); }
+  a.cve-host:hover .device-row-chevron { color: var(--blue); }
 
   .cve-nvd {
     display: inline-flex;
@@ -1397,16 +1665,16 @@
     gap: 6px;
     margin-top: 6px;
     padding: 4px 10px;
-    background: #fff;
-    border: 1px solid #cbd5e1;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
     font-size: .75rem;
     font-weight: 600;
-    color: #0d6efd;
+    color: var(--blue);
     text-decoration: none;
   }
 
-  .cve-nvd:hover { background: #f0f4ff; }
+  .cve-nvd:hover { background: var(--row-hover); }
 
   @media (prefers-reduced-motion: reduce) {
     .cve-detail, .cve-chevron { transition: none; }
@@ -1415,7 +1683,7 @@
   /* ===== Task Status (ring + table) — compacted to fit a half-width card ===== */
   .ts-scope {
     font-family: 'IBM Plex Sans', sans-serif;
-    color: #12161C;
+    color: var(--ts-ink);
   }
   .ts-scope .ts-header {
     display: flex; justify-content: space-between; align-items: flex-start;
@@ -1423,20 +1691,20 @@
   }
   .ts-scope #ts-title {
     margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700;
-    font-size: 18px; letter-spacing: -0.01em; color: #12161C;
+    font-size: 18px; letter-spacing: -0.01em; color: var(--ts-ink);
   }
-  .ts-scope #ts-subtitle { margin: 2px 0 0; font-size: 12px; color: #4B5563; }
+  .ts-scope #ts-subtitle { margin: 2px 0 0; font-size: 12px; color: var(--ts-ink-2); }
   .ts-scope .ts-back-btn {
     display: flex; align-items: center; gap: 6px;
-    background: #fff; border: 1px solid #D8DBE0; color: #374151;
+    background: var(--surface); border: 1px solid var(--ts-line-2); color: var(--ts-ink-3);
     font: 500 12px 'IBM Plex Sans', sans-serif; padding: 5px 10px; border-radius: 8px;
     cursor: pointer; margin-bottom: 12px;
   }
-  .ts-scope .ts-back-btn:hover { background: #F7F8FA; }
+  .ts-scope .ts-back-btn:hover { background: var(--nt-bg); }
 
   .ts-scope .ts-stat-panel {
     display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    padding: 14px 16px; background: #F7F8FA; border: 1px solid #E4E7EC;
+    padding: 14px 16px; background: var(--nt-bg); border: 1px solid var(--ts-line);
     border-radius: 12px; margin-bottom: 14px;
   }
   #ts-ring-count { font-family: 'IBM Plex Mono', monospace; }
@@ -1446,33 +1714,33 @@
     padding: 3px 5px; margin: -3px -5px; border-radius: 6px;
     border-bottom: 2px solid transparent; transition: border-color .15s, background .15s;
   }
-  .ts-scope .ts-figure:hover { background: rgba(0,0,0,0.03); }
+  .ts-scope .ts-figure:hover { background: var(--ts-hover); }
   .ts-scope .ts-figure.active { border-bottom-color: var(--ts-cat-color, {{ GOOD_GREEN }}); }
-  .ts-scope .ts-figure .n { font-family: 'IBM Plex Mono', monospace; font-size: 19px; color: #12161C; }
-  .ts-scope .ts-figure.active .n { color: var(--ts-cat-ink, var(--ts-cat-color, #16a34a)); }
-  .ts-scope .ts-figure .l { font-size: 11px; color: #4B5563; }
+  .ts-scope .ts-figure .n { font-family: 'IBM Plex Mono', monospace; font-size: 19px; color: var(--ts-ink); }
+  .ts-scope .ts-figure.active .n { color: var(--ts-cat-ink, var(--ts-cat-color, var(--green-ink))); }
+  .ts-scope .ts-figure .l { font-size: 11px; color: var(--ts-ink-2); }
 
   .ts-scope .ts-section { display: flex; flex-direction: column; gap: 8px; }
   .ts-scope .ts-section-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .ts-scope .ts-section-title h2 {
     margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 14px;
   }
-  .ts-scope .ts-section-title span { font-size: 11.5px; color: #4B5563; }
+  .ts-scope .ts-section-title span { font-size: 11.5px; color: var(--ts-ink-2); }
 
   .ts-scope table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .ts-scope thead tr { border-bottom: 1px solid #E4E7EC; }
-  .ts-scope th { text-align: left; font-weight: 500; color: #6B7280; font-size: 10px; padding: 0 0 6px; white-space: nowrap; }
+  .ts-scope thead tr { border-bottom: 1px solid var(--ts-line); }
+  .ts-scope th { text-align: left; font-weight: 500; color: var(--nt-text-muted); font-size: 10px; padding: 0 0 6px; white-space: nowrap; }
   .ts-scope th:last-child { text-align: right; }
-  .ts-scope tbody tr { border-bottom: 1px solid #EEF0F2; transition: background .12s; }
-  .ts-scope tbody tr:hover { background: #F7F8FA; }
+  .ts-scope tbody tr { border-bottom: 1px solid var(--ts-row-line); transition: background .12s; }
+  .ts-scope tbody tr:hover { background: var(--nt-bg); }
   .ts-scope td { padding: 8px 0; white-space: nowrap; }
   .ts-scope .mono { font-family: 'IBM Plex Mono', monospace; }
-  .ts-scope .dim { color: #6B7280; }
+  .ts-scope .dim { color: var(--nt-text-muted); }
   .ts-scope .type-cell { display: inline-flex; align-items: center; gap: 6px; }
   .ts-scope .dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
   .ts-scope .ts-footnote { margin: 2px 0 0; font-size: 11.5px; min-height: 17px; }
-  .ts-scope .ts-footnote a { color: #6B7280; text-decoration: none; }
-  .ts-scope .ts-footnote a:hover { color: #12161C; text-decoration: underline; }
+  .ts-scope .ts-footnote a { color: var(--nt-text-muted); text-decoration: none; }
+  .ts-scope .ts-footnote a:hover { color: var(--ts-ink); text-decoration: underline; }
 
   /* Donut filter device list scroll */
   #donut-device-list {
@@ -1486,7 +1754,7 @@
   }
 
   #donut-device-list::-webkit-scrollbar-thumb {
-    background: #dee2e6;
+    background: var(--scroll-thumb);
     border-radius: 4px;
   }
 </style>
@@ -1495,16 +1763,16 @@
 <div class="row mb-5 dw-row">
 
   <!-- Latest Results (full width) -->
-  <div class="col-12" data-widget="latest-results" data-widget-label="Latest Scan Results" data-widget-group="กราฟและรายการ">
+  <div class="col-12" data-widget="latest-results" data-widget-label="{{ t('dash.card.latest') }}" data-widget-group="{{ t('dash.w.group_charts') }}">
     <div class="card shadow-sm border-0">
       <div class="card-header bg-white border-bottom d-flex align-items-center justify-content-between py-3 px-4">
         <div class="d-flex align-items-center gap-2">
-          <h5 class="mb-0">Latest Scan Results</h5>
-          <span class="badge rounded-pill" style="background:#e8f4fd;color:#0d6efd;font-size:.68rem;font-weight:500;letter-spacing:.2px;" title="Only devices found in the most recent scan job are shown here">Latest scan only</span>
+          <h5 class="mb-0">{{ t('dash.card.latest') }}</h5>
+          <span class="badge rounded-pill" style="background:var(--latest-bg);color:var(--blue);font-size:.68rem;font-weight:500;letter-spacing:.2px;" title="{{ t('dash.latest.only_tip') }}">{{ t('dash.latest.only') }}</span>
         </div>
         {% if history %}
         <a href="{{ url_for('scan_detail', scan_id=history[0].id) }}" class="btn btn-sm btn-outline-primary">
-          View Full Report →
+          {{ t('dash.latest.full') }}
         </a>
         {% endif %}
       </div>
@@ -1513,8 +1781,7 @@
       <div class="card-body border-bottom bg-white py-3 px-4">
         <div class="row align-items-center g-2">
           <div class="col-auto">
-            <span class="fw-bold text-dark">Scan Report: Job #{{ latest_owner_seq if latest_owner_seq is not none else
-              latest.id }}</span>
+            <span class="fw-bold text-dark">{{ t('dash.latest.report', n=(latest_owner_seq if latest_owner_seq is not none else latest.id)) }}</span>
           </div>
           {% if latest.scan_name %}
           <div class="col-auto">
@@ -1523,13 +1790,12 @@
           </div>
           {% endif %}
           <div class="col-auto ms-auto d-flex flex-wrap gap-4 text-muted small">
-            <span><strong class="text-dark">Target:</strong> {{ latest.target }}</span>
+            <span><strong class="text-dark">{{ t('dash.latest.target') }}</strong> {{ latest.target }}</span>
             <span>
-              <strong class="text-dark">Scan Profile:</strong>
+              <strong class="text-dark">{{ t('dash.latest.profile') }}</strong>
               <span class="badge bg-info text-dark ms-1">{{ latest.scan_type | scan_label }}</span>
             </span>
-            <span><strong class="text-dark">Timestamp:</strong> {{ latest.timestamp.strftime('%Y-%m-%d %H:%M:%S')
-              }}</span>
+            <span><strong class="text-dark">{{ t('dash.latest.time') }}</strong> {{ latest.timestamp | fdt('%Y-%m-%d %H:%M:%S') }}</span>
           </div>
         </div>
       </div>
@@ -1539,13 +1805,14 @@
           <table class="table align-middle" id="scan-results-table">
             <thead class="table-light">
               <tr>
-                            <th>IP Address</th>
-                            <th>MAC Address</th>
-                            <th>OS / Status</th>
-                            <th>Open Ports / Protocal / Service Version</th>
+                            <th>{{ t('dash.latest.th_ip') }}</th>
+                            <th>{{ t('dash.latest.th_mac') }}</th>
+                            <th>{{ t('dash.latest.th_os') }}</th>
+                            <th>{{ t('dash.latest.th_ports') }}</th>
               </tr>
             </thead>
                     <tbody>
+                        {% set host_word = {'up': t('dash.latest.host_up'), 'down': t('dash.latest.host_down'), 'Unknown': t('common.unknown')} %}
                         {% for item in scan_data %}
                         {% set loop_idx = loop.index %}
                         <tr>
@@ -1561,7 +1828,7 @@
                                     {{ mac_note_html(item.ip, '', '') }}
                                 {% endif %}
                             </td>
-                            <td>{{ item.status if item.status else item.os }}</td>
+                            <td>{% set os_text = item.status if item.status else item.os %}{{ host_word.get(os_text, os_text) }}</td>
                             <td>
                                 {% if item.ports %}
                                     <button class="btn btn-sm btn-outline-primary py-0 px-2"
@@ -1569,7 +1836,7 @@
                                             data-bs-toggle="collapse"
                                             data-bs-target="#ports-dash-{{ loop_idx }}"
                                             aria-expanded="false">
-                                        🔌 {{ item.ports | selectattr('state', 'equalto', 'open') | list | length }} ports
+                                        {% set open_n = item.ports | selectattr('state', 'equalto', 'open') | list | length %}{{ t('dash.latest.n_ports_one' if open_n == 1 else 'dash.latest.n_ports', n=open_n) }}
                                         <span class="ms-1" style="font-size:.7rem">▼</span>
                                     </button>
                                     <div class="collapse mt-2" id="ports-dash-{{ loop_idx }}">
@@ -1577,13 +1844,13 @@
                                             {% for port in item.ports %}
                                             <div class="d-flex align-items-start gap-2 mb-1">
                                                 <span class="badge bg-primary mt-1" style="min-width:80px;font-size:.72rem;">{{ port.port }}/{{ port.protocol | upper if port.protocol else port.name }}</span>
-                                                {% if port.state and port.state != 'open' %}<span class="badge bg-light text-muted border mt-1" style="font-size:.65rem;" title="พอร์ตนี้ไม่ได้เปิด (สถานะที่ nmap รายงาน)">{{ port.state }}</span>{% endif %}
+                                                {% if port.state and port.state != 'open' %}<span class="badge bg-light text-muted border mt-1" style="font-size:.65rem;" title="{{ t('dash.port_state_tip', state=port.state) }}">{% set stk = 'dash.state.' ~ port.state %}{{ t(stk) if t(stk) != stk else port.state }}</span>{% endif %}
                                                 {% if port.name %}<span class="badge bg-secondary mt-1" style="font-size:.65rem;">{{ port.name }}</span>{% endif %}
                                                 <span class="text-secondary small">
                                                     {% if port.version_info and port.version_info != 'Unknown Version' %}
                                                         {{ port.version_info }}
                                                     {% else %}
-                                                        <i class="text-muted">Unknown version</i>
+                                                        <i class="text-muted">{{ t('dash.latest.unknown_version') }}</i>
                                                     {% endif %}
                                                 </span>
                                             </div>
@@ -1619,6 +1886,8 @@
     total_cves_found: {{ total_cves_found }},
     total_tasks: {{ total_tasks }},
     task_completed: {{ task_completed }},
+    task_running: {{ task_running }},
+    task_cancelled: {{ task_cancelled }},
     task_wait: {{ task_wait }},
     task_failed: {{ task_failed }},
     device_port_data: {{ device_port_data | tojson }},
@@ -1682,7 +1951,8 @@
     // Populate content
     const content = buildModalContent(type);
     iconBadge.innerHTML = content.iconHtml || '';
-    iconBadge.style.background = content.iconBg || '#f1f5f9';
+    iconBadge.style.background = content.iconBg || 'var(--surface-2)';
+    delete title.dataset.portsRun;
     title.textContent = content.title;
     subtitle.textContent = content.subtitle;
     body.innerHTML = content.html;
@@ -1794,7 +2064,7 @@
 
   // The KPI cards' icon colours (CSS variables in the style block). A pop-up's icon uses the same ones as its card.
   const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const KPI = { gold: cssVar('--kpi-gold'), goldBg: cssVar('--kpi-gold-bg'), red: cssVar('--kpi-red'), redBg: cssVar('--kpi-red-bg') };
+  const KPI = { get gold() { return cssVar('--kpi-gold'); }, get goldBg() { return cssVar('--kpi-gold-bg'); }, get red() { return cssVar('--kpi-red'); }, get redBg() { return cssVar('--kpi-red-bg'); } };      // read when a pop-up opens, so they follow the theme
   let portsCountRun = 0;      // which opening of the Open Ports pop-up the title's count-up belongs to
 
   // ─── Build modal content per card type ───
@@ -1811,7 +2081,7 @@
         <div class="modal-item" style="margin-bottom:8px;margin-top:14px;">
           <div style="font-weight:600;font-size:.82rem;color:${inkOf(color)};margin-bottom:6px;display:flex;align-items:center;gap:6px;">
             <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block;"></span>
-            ${label} (${items.length} เครื่อง)
+            ${dtn('nDevicesLabel', items.length, { label: label })}
           </div>
           <div style="display:flex;flex-direction:column;gap:5px;">${rows}</div>
         </div>`;
@@ -1823,8 +2093,8 @@
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${KPI.gold}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
           </svg>`,
-        title: `อุปกรณ์ทั้งหมด — ${d.total_devices} เครื่อง`,
-        subtitle: 'แบ่งตามระดับความเสี่ยง (CVE Severity)',
+        title: dtn('devicesTitle', d.total_devices),
+        subtitle: DT.devicesSub,
         html: `
         <div style="display:flex;gap:12px;margin-bottom:8px;flex-wrap:wrap;" class="modal-item">
           ${DEVICE_TIERS.map((tier, i) => groups[i].length ? makeFilterPill(tier.color, tier.label, groups[i].length, tier.onFill, tier.key) : '').join('')}
@@ -1851,12 +2121,12 @@
               p.style.opacity = active.size && !on ? '0.4' : '1';        // while filtering, the groups that are off fade
             });
             statusEl.classList.toggle('is-on', active.size > 0);
-            statusEl.textContent = active.size ? `ตรงกับตัวกรอง ${n} จาก ${total} เครื่อง` : 'คลิกเพื่อกรองตามกลุ่ม';
+            statusEl.textContent = active.size ? dtf('filterMatchDev', { n: n, total: total }) : DT.filterHintGroup;
             if (active.size) {
               const clear = document.createElement('button');
               clear.type = 'button';
               clear.className = 'cve-clear';
-              clear.textContent = 'ล้างตัวกรอง';
+              clear.textContent = DT.filterClear;
               clear.addEventListener('click', () => { active.clear(); render(); });
               statusEl.append(clear);
             }
@@ -1885,19 +2155,19 @@
           // a CVE belongs to one device: its chip carries its own count, and the note names the devices (not the port as a whole)
           const ips = p.devices.map((dev, k) => `<a href="${scanHref(dev)}" style="--k:${k}">${tsEsc(dev.ip)}${dev.cve_count ? ` <span class="pp-cvecount">${dev.cve_count} CVE</span>` : ''}</a>`).join('');
           const withCve = p.devices.filter(dev => dev.cve_count);
-          const note = withCve.length ? `<p class="pp-note">พบ CVE บน ${withCve.map(dev => `${tsEsc(dev.ip)} (${dev.cve_count} รายการ)`).join(', ')}</p>` : '';
+          const note = withCve.length ? `<p class="pp-note">${dtf('portsCve', { list: withCve.map(dev => dtn('portsCveItem', dev.cve_count, { ip: tsEsc(dev.ip) })).join(', ') })}</p>` : '';
           return `<li class="pp-row" style="--i:${i};--w:${Math.round(p.count / max * 100)}%">
             ${showBars ? '<div class="pp-bar"></div>' : ''}
             <button type="button" class="pp-btn" aria-expanded="false" aria-controls="pp-detail-${i}">
               <span class="pp-rank">#${i + 1}</span>
               <span class="pp-port">${tsEsc(p.label)}</span>
-              ${withCve.length ? `<span class="pp-dot" title="พบ CVE ${p.cve_count} รายการ บน ${withCve.length} อุปกรณ์"></span>` : ''}
-              <span class="pp-badge">${p.count} อุปกรณ์</span>${chev}
+              ${withCve.length ? `<span class="pp-dot" title="${dtf('portsCveTitle', { n: p.cve_count, k: withCve.length })}"></span>` : ''}
+              <span class="pp-badge">${dtn('portsBadge', p.count)}</span>${chev}
             </button>
             <div class="pp-detail" id="pp-detail-${i}" inert><div><div class="pp-ips">${ips}${note}</div></div></div>
           </li>`;
         }).join('')
-        : '<li class="modal-item" style="color:#aaa;font-size:.85rem">ยังไม่มีข้อมูล Port</li>';
+        : '<li class="modal-item" style="color:var(--dash-ink-5);font-size:.85rem">' + DT.portsNone + '</li>';
 
       return {
         iconBg: KPI.goldBg,
@@ -1906,10 +2176,10 @@
             <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
             <line x1="8.6" y1="10.6" x2="15.4" y2="6.4"/><line x1="8.6" y1="13.4" x2="15.4" y2="17.6"/>
           </svg>`,
-        title: `Open Ports — ${d.total_open_ports} unique ports`,
-        subtitle: 'Top ports ที่พบมากที่สุดจากทุกการสแกน',
+        title: dtn('portsTitle', d.total_open_ports),
+        subtitle: DT.portsSub,
         html: `
-        <div class="modal-item" style="color:#888;font-size:.8rem;margin-bottom:10px;">Unique ports (ไม่นับซ้ำ) จากทุกการสแกน — คลิกแถวเพื่อดูอุปกรณ์</div>
+        <div class="modal-item" style="color:var(--dash-ink-4);font-size:.8rem;margin-bottom:10px;">${DT.portsNote}</div>
         <ul class="pp-list" style="--n:${Math.max(ports.length, 1)}">${ports.length ? '<li class="pp-scan" aria-hidden="true"></li>' : ''}${portRows}</ul>
       `,
         afterRender: body => {
@@ -1930,11 +2200,12 @@
           const total = d.total_open_ports;
           if (matchMedia('(prefers-reduced-motion: reduce)').matches || total < 2) return;
           const t0 = performance.now(), delay = 300, dur = 900;
-          titleEl.textContent = `Open Ports — 0 unique ports`;
+          titleEl.dataset.portsRun = String(run);
+          titleEl.textContent = dtn('portsTitle', 0);
           const frame = now => {
-            if (run !== portsCountRun || !titleEl.textContent.startsWith('Open Ports')) return;   // another pop-up took over
+            if (run !== portsCountRun || titleEl.dataset.portsRun !== String(run)) return;   // another pop-up took over
             const p = Math.min((now - t0 - delay) / dur, 1);
-            if (p >= 0) titleEl.textContent = `Open Ports — ${Math.round(total * (1 - Math.pow(1 - p, 3)))} unique ports`;
+            if (p >= 0) titleEl.textContent = dtn('portsTitle', Math.round(total * (1 - Math.pow(1 - p, 3))));
             if (p < 1) requestAnimationFrame(frame);
           };
           requestAnimationFrame(frame);
@@ -1960,7 +2231,7 @@
       const sevKey = c => String(c.severity || 'unknown').toLowerCase();
       const rowsFor = list => list.length > 0
         ? list.slice(0, CVE_LIMIT).map((c, i) => buildCveRow(c, i)).join('')
-        : '<div class="modal-item" style="color:#16a34a;font-size:.85rem;font-weight:500;">✓ ไม่พบ CVE ในการสแกนล่าสุด</div>';
+        : '<div class="modal-item" style="color:var(--green-ink);font-size:.85rem;font-weight:500;">' + DT.cveNone + '</div>';
 
       // The severity pills are also the filter: click one to show only that level (several can be on; none on = all).
       const summaryPills = Object.entries(counts).map(([sev, cnt]) =>
@@ -1969,7 +2240,7 @@
             sev === 'high' ? '#ee9336' :
               sev === 'medium' ? '#fdc431' :
                 sev === 'low' ? '#3fae49' : '#6c757d',
-          tsEsc(sev.charAt(0).toUpperCase() + sev.slice(1)),
+          tsEsc(sevName(sev)),
           cnt,
           '#fff',
           sev
@@ -1982,13 +2253,13 @@
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${KPI.red}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>`,
-        title: `CVE Found — ${d.total_cves_found} รายการ`,
-        subtitle: 'ช่องโหว่ที่ตรวจพบในการสแกนล่าสุด',
+        title: dtn('cveTitle', d.total_cves_found),
+        subtitle: DT.cveSub,
         html: `
             ${summaryPills ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;" class="modal-item">${summaryPills}</div>
             <div class="cve-status modal-item" aria-live="polite"></div>` : ''}
             <div class="cve-list" style="display:flex;flex-direction:column;gap:5px;"></div>
-            <div class="cve-limit" style="color:#aaa;font-size:.78rem;margin-top:8px;text-align:center"></div>
+            <div class="cve-limit" style="color:var(--dash-ink-5);font-size:.78rem;margin-top:8px;text-align:center"></div>
           `,
         // Runs once the pop-up body exists. The filter state lives here, so it starts clean every time the pop-up opens.
         afterRender: body => {
@@ -2001,7 +2272,7 @@
           const render = () => {
             const matching = active.size ? cveList.filter(c => active.has(sevKey(c))) : cveList;
             listEl.innerHTML = rowsFor(matching);
-            limitEl.textContent = matching.length > CVE_LIMIT ? `แสดง ${CVE_LIMIT} รายการแรก (ทั้งหมด ${matching.length} รายการ)` : '';
+            limitEl.textContent = matching.length > CVE_LIMIT ? dtf('cveLimit', { limit: CVE_LIMIT, n: matching.length }) : '';
             pills.forEach(p => {
               const on = active.has(p.dataset.sev);
               p.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -2009,12 +2280,12 @@
             });
             if (!statusEl) return;
             statusEl.classList.toggle('is-on', active.size > 0);
-            statusEl.textContent = active.size ? `ตรงกับตัวกรอง ${matching.length} จาก ${cveList.length} รายการ` : 'คลิกเพื่อกรองตามระดับความรุนแรง';
+            statusEl.textContent = active.size ? dtf('cveMatch', { n: matching.length, total: cveList.length }) : DT.cveHint;
             if (active.size) {
               const clear = document.createElement('button');
               clear.type = 'button';
               clear.className = 'cve-clear';
-              clear.textContent = 'ล้างตัวกรอง';
+              clear.textContent = DT.filterClear;
               clear.addEventListener('click', () => { active.clear(); render(); });
               statusEl.append(clear);
             }
@@ -2032,9 +2303,10 @@
 
     if (type === 'tasks') {
       const statusGroups = [
-        { label: 'Complete', labelTh: 'เสร็จสิ้น', count: d.task_completed, color: GOOD_GREEN },
-        { label: 'Wait Schedule', labelTh: 'รอตามกำหนด', count: d.task_wait, color: '#3b82f6' },
-        { label: 'Failed', labelTh: 'ล้มเหลว', count: d.task_failed, color: '#dc2626' },
+        { label: DT.statusDone, count: d.task_completed, color: GOOD_GREEN },
+        { label: DT.statusRunning, count: d.task_running, color: '#ffc107' },
+        { label: DT.statusCancelled, count: d.task_cancelled, color: '#64748b' },
+        { label: DT.statusFailed, count: d.task_failed, color: '#dc2626' },
       ];
 
       const bars = statusGroups.map(g => {
@@ -2043,19 +2315,26 @@
           <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:.83rem;align-items:center;">
             <span style="display:inline-flex;align-items:center;gap:6px;">
               <span style="width:7px;height:7px;border-radius:50%;background:${g.color};display:inline-block;"></span>
-              ${g.label} <span style="color:#94a3b8;font-size:.78rem">(${g.labelTh})</span>
+              ${g.label}
             </span>
-            <span style="font-weight:600;color:${inkOf(g.color)}">${g.count} งาน</span>
+            <span style="font-weight:600;color:${inkOf(g.color)}">${dtn('nJobs', g.count)}</span>
           </div>
-          <div style="height:8px;background:#f1f5f9;border-radius:8px;overflow:hidden;">
+          <div style="height:8px;background:var(--surface-2);border-radius:8px;overflow:hidden;">
             <div style="height:100%;width:0;background:${g.color};border-radius:8px;transition:width 0.5s cubic-bezier(0.34,1.2,0.64,1);will-change:width;"
                  data-target-width="${pct}%"
                  class="progress-bar-anim">
             </div>
           </div>
-          <div style="text-align:right;font-size:.72rem;color:#94a3b8;margin-top:2px">${pct}%</div>
+          <div style="text-align:right;font-size:.72rem;color:var(--fg-6);margin-top:2px">${pct}%</div>
         </div>`;
       }).join('');
+
+      const schedNote = d.task_wait > 0
+        ? `<div class="modal-item" style="margin-top:12px;font-size:.8rem;color:var(--fg-6);display:flex;justify-content:space-between;align-items:center;">
+             <span>${tsEsc(dtf('tasksSched', { n: d.task_wait }))}</span>
+             <a href="/tasks" style="font-weight:600;text-decoration:none;">→</a>
+           </div>`
+        : '';
 
       return {
         iconBg: KPI.goldBg,
@@ -2063,26 +2342,28 @@
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${KPI.gold}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
           </svg>`,
-        title: `Total Task — ${d.total_tasks} งาน`,
-        subtitle: 'สรุปสถานะงานทั้งหมด',
+        title: dtn('tasksTitle', d.total_tasks),
+        subtitle: DT.tasksSub,
         html: `
-          <div style="display:flex;gap:12px;margin-bottom:16px;" class="modal-item">
-            ${makePill(GOOD_GREEN, 'Complete', d.task_completed, '#fff')}
-            ${makePill('#3b82f6', 'Wait', d.task_wait)}
-            ${makePill('#dc2626', 'Failed', d.task_failed, '#fff')}
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;" class="modal-item">
+            ${makePill(GOOD_GREEN, DT.legDone, d.task_completed, '#fff')}
+            ${d.task_running ? makePill('#ffc107', DT.legRunning, d.task_running) : ''}
+            ${d.task_cancelled ? makePill('#64748b', DT.legCancelled, d.task_cancelled, '#fff') : ''}
+            ${makePill('#dc2626', DT.legFailed, d.task_failed, '#fff')}
           </div>
           ${bars}
+          ${schedNote}
         `
       };
     }
 
     return {
-      iconBg: '#f1f5f9',
+      iconBg: 'var(--surface-2)',
       iconHtml: `
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
         </svg>`,
-      title: 'รายละเอียด',
+      title: DT.detailsTitle,
       subtitle: '',
       html: ''
     };
@@ -2099,10 +2380,10 @@
     const cvss = (c.cvss === null || c.cvss === undefined || c.cvss === '') ? NaN : Number(c.cvss);
     const cvssHtml = Number.isFinite(cvss)
       ? `<span class="badge ${tsEsc(sevClass)}" style="font-size:.78rem;">${cvss.toFixed(1)}</span>`
-      : '<span class="cve-fact-value cve-muted">ไม่มีข้อมูล</span>';
+      : '<span class="cve-fact-value cve-muted">' + DT.cveNoData + '</span>';
     const cweHtml = c.cwe
       ? `<span class="cve-fact-value">${tsEsc(c.cwe)}</span>`
-      : '<span class="cve-fact-value cve-muted">ไม่ระบุ</span>';
+      : '<span class="cve-fact-value cve-muted">' + DT.cveUnspecified + '</span>';
 
     // a label the app raised from NVD's HIGH to CRITICAL: the reason is a line inside the panel, with an (i) in front of it
     // (the header row stays clean, so the severity badges line up down the list)
@@ -2112,27 +2393,27 @@
 
     // on CISA's Known Exploited list (as NVD said when the scan looked it up); a line in the panel, not a mark in the header row
     const kevLine = c.kev
-      ? `<div class="cve-note" style="color:#7a5a12;"><i class="ti ti-alert-triangle" aria-hidden="true"></i><span>CISA ระบุว่ามีการโจมตีใช้ช่องโหว่นี้จริง</span></div>`
+      ? `<div class="cve-note" style="color:var(--kev-ink);"><i class="ti ti-alert-triangle" aria-hidden="true"></i><span>${DT.kevLine}</span></div>`
       : '';
 
     const desc = String(c.description || '').trim();
     const descHtml = desc
       ? tsEsc(desc) + (desc.length >= 300 ? '…' : '')   // the scanner keeps at most 300 characters of it
-      : '<span class="cve-muted">ไม่มีคำอธิบายในข้อมูลที่บันทึกไว้</span>';
+      : '<span class="cve-muted">' + DT.cveNoDesc + '</span>';
 
     const hostRows = (c.hosts || []).map(h => {
-      const where = [(h.port !== '' && h.port != null) ? `Port ${tsEsc(h.port)}${h.protocol && h.protocol !== 'tcp' ? '/' + tsEsc(String(h.protocol).toUpperCase()) : ''}` : '', h.service ? tsEsc(h.service) : ''].filter(Boolean).join(' · ');
-      const inner = `<span style="font-family:monospace;font-weight:600;color:#334155;">${tsEsc(h.ip)}</span>
-        <span style="color:#94a3b8;font-size:.72rem;flex:1;">${where}</span>`;
+      const where = [(h.port !== '' && h.port != null) ? dtf('portLabel', { p: tsEsc(h.port) + (h.protocol && h.protocol !== 'tcp' ? '/' + tsEsc(String(h.protocol).toUpperCase()) : '') }) : '', h.service ? tsEsc(h.service) : ''].filter(Boolean).join(' · ');
+      const inner = `<span style="font-family:monospace;font-weight:600;color:var(--fg-2);">${tsEsc(h.ip)}</span>
+        <span style="color:var(--fg-6);font-size:.72rem;flex:1;">${where}</span>`;
       return h.ip
-        ? `<a class="cve-host" href="/devices/${encodeURIComponent(h.ip)}" title="ดูรายละเอียดอุปกรณ์นี้">${inner}${chevron}</a>`
+        ? `<a class="cve-host" href="/devices/${encodeURIComponent(h.ip)}" title="${DT.hostTitle}">${inner}${chevron}</a>`
         : `<div class="cve-host">${inner}</div>`;
     }).join('');
-    const moreHosts = c.more_hosts > 0 ? `<div class="cve-muted" style="font-size:.72rem;margin-top:2px;">และอีก ${Number(c.more_hosts)} เครื่อง</div>` : '';
+    const moreHosts = c.more_hosts > 0 ? `<div class="cve-muted" style="font-size:.72rem;margin-top:2px;">${dtf('moreHosts', { n: Number(c.more_hosts) })}</div>` : '';
 
     // only a well-formed ID becomes a link to NVD
     const nvd = /^CVE-\d{4}-\d{4,}$/.test(c.id)
-      ? `<a class="cve-nvd" href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(c.id)}" target="_blank" rel="noopener noreferrer">ดูข้อมูลบน NVD
+      ? `<a class="cve-nvd" href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(c.id)}" target="_blank" rel="noopener noreferrer">${DT.viewNvd}
            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M9 3h4v4M13 3L7.5 8.5M6 4H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
          </a>`
       : '';
@@ -2141,21 +2422,22 @@
         <button type="button" class="cve-toggle" aria-expanded="false" aria-controls="${panelId}">
           <svg class="cve-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span class="cve-id">${tsEsc(c.id)}</span>
-          ${c.port ? `<span class="cve-port">Port ${tsEsc(c.port)}${c.protocol && c.protocol !== 'tcp' ? '/' + tsEsc(String(c.protocol).toUpperCase()) : ''}</span>` : ''}
-          <span class="badge ${tsEsc(sevClass)}" style="font-size:.7rem;text-transform:uppercase">${tsEsc(c.severity || 'unknown')}</span>
+          ${c.ip ? `<span class="cve-port" style="font-family:monospace;">${tsEsc(c.ip)}</span>` : ''}
+          ${c.port ? `<span class="cve-port">${dtf('portLabel', { p: tsEsc(c.port) + (c.protocol && c.protocol !== 'tcp' ? '/' + tsEsc(String(c.protocol).toUpperCase()) : '') })}</span>` : ''}
+          <span class="badge ${tsEsc(sevClass)}" style="font-size:.7rem;">${tsEsc(sevName(c.severity || 'unknown'))}</span>
         </button>
         <div class="cve-detail" id="${panelId}">
           <div class="cve-detail-inner">
             <div class="cve-detail-body">
               <div class="cve-facts">
-                <div>${label('คะแนน CVSS')}${cvssHtml}</div>
-                <div>${label('ประเภทช่องโหว่')}${cweHtml}</div>
+                <div>${label(DT.lblCvss)}${cvssHtml}</div>
+                <div>${label(DT.lblWeak)}${cweHtml}</div>
               </div>
               ${noteLine}
               ${kevLine}
-              ${label('คำอธิบาย')}
+              ${label(DT.lblDesc)}
               <div class="cve-desc">${descHtml}</div>
-              ${hostRows ? `${label('อุปกรณ์ที่พบ')}<div>${hostRows}</div>${moreHosts}` : ''}
+              ${hostRows ? `${label(DT.lblHosts)}<div>${hostRows}</div>${moreHosts}` : ''}
               ${nvd}
             </div>
           </div>
@@ -2163,30 +2445,55 @@
       </div>`;
   }
 
+  // A pill is white text on its colour in the light theme (the owner's choice). On the dark theme the bright fills (yellow, orange, green, lime) cannot carry white
+  // text (1.6 to 2.9:1), so there the text turns dark when that is what reaches 4.5:1 (same hue, no shadow, no fade).
+  function pillLum(hex) {
+    let h = String(hex).trim().replace(/^#/, '');
+    if (/^[0-9a-f]{3}$/i.test(h)) h = h.replace(/./g, ch => ch + ch);
+    const m = /^([0-9a-f]{6})$/i.exec(h);
+    if (!m) return null;
+    const c = [0, 2, 4].map(i => parseInt(m[1].substr(i, 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  function pillStyle(bg, want) {
+    let ink = want, dark = false;
+    if (document.documentElement.getAttribute('data-theme') === 'dark') {
+      const lb = pillLum(bg), lw = pillLum(want);
+      if (lb !== null && lw !== null) {
+        const cr = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        const DARK_INK = '#1b1c20', ld = pillLum(DARK_INK);
+        if (cr(lw, lb) < 4.5 && cr(ld, lb) > cr(lw, lb)) { ink = DARK_INK; dark = true; }
+      }
+    }
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    return { ink: ink, shadow: dark ? 'none' : '0 1px 2px rgba(0,0,0,.3)', fade: isDark ? '1' : '0.85' };
+  }
   function makePill(bg, label, count, textColor = '#fff') {
+    const ps = pillStyle(bg, textColor);
     return `<div style="
-    background:${bg};color:${textColor};text-shadow:0 1px 2px rgba(0,0,0,.3);
+    background:${bg};color:${ps.ink};text-shadow:${ps.shadow};
     padding:6px 14px;border-radius:20px;
     font-size:.8rem;font-weight:600;
     display:flex;flex-direction:column;align-items:center;
     min-width:60px;
   ">
     <span style="font-size:1.1rem;font-weight:700;">${count}</span>
-    <span style="font-size:.7rem;opacity:0.85">${label}</span>
+    <span style="font-size:.7rem;opacity:${ps.fade}">${label}</span>
   </div>`;
   }
 
   // A severity pill that is also a button (the filter in the CVE pop-up). Same look as makePill.
   function makeFilterPill(bg, label, count, textColor, sev) {
-    return `<button type="button" class="cve-filter" data-sev="${tsEsc(sev)}" aria-pressed="false" title="คลิกเพื่อกรองเฉพาะ ${label}" style="
-    background:${bg};color:${textColor};text-shadow:0 1px 2px rgba(0,0,0,.3);
+    const ps = pillStyle(bg, textColor);
+    return `<button type="button" class="cve-filter" data-sev="${tsEsc(sev)}" aria-pressed="false" title="${dtf('pillTitle', { label: label })}" style="
+    background:${bg};color:${ps.ink};text-shadow:${ps.shadow};
     padding:6px 14px;border-radius:20px;
     font-size:.8rem;font-weight:600;
     display:flex;flex-direction:column;align-items:center;
     min-width:60px;
   ">
     <span style="font-size:1.1rem;font-weight:700;">${count}</span>
-    <span style="font-size:.7rem;opacity:0.85">${label}</span>
+    <span style="font-size:.7rem;opacity:${ps.fade}">${label}</span>
   </button>`;
   }
 
@@ -2273,7 +2580,7 @@
       var n = state.hidden.filter(function (id) { return present.indexOf(id) >= 0; }).length;
       Object.keys(boxes).forEach(function (id) { boxes[id].checked = state.hidden.indexOf(id) < 0; });
       count.hidden = !n;
-      count.textContent = n ? 'ซ่อน ' + n : '';
+      count.textContent = n ? DT.dwHidden.replace('{n}', n) : '';
       reset.disabled = !n;
       empty.hidden = n < present.length;
       // A chart that was hidden when the page loaded (or when it was drawn) measured 0 x 0: have every visible one measure again.

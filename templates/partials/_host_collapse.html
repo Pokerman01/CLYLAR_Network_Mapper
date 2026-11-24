@@ -47,16 +47,28 @@
     .hm-dot-high { background: #ee9336; }
     .hm-dot-medium { background: #fdc431; }
     .hm-dot-low { background: #3fae49; }
+    :root[data-theme="dark"] .host-group ~ .host-group { border-top-color: var(--border-strong); }
+    :root[data-theme="dark"] .table .host-more-cell { background: var(--surface); border-top-color: var(--border); }
+    :root[data-theme="dark"] .host-more-btn { background: var(--surface-2); border-color: var(--border-strong); color: var(--link); }
+    :root[data-theme="dark"] .host-more-btn:hover { background: var(--surface-3); border-color: var(--border-strong); color: var(--link-hover); }
+    :root[data-theme="dark"] .host-more-btn:active { background: var(--surface-4); }
+    :root[data-theme="dark"] .host-more-btn:focus-visible { outline-color: var(--focus); }
+    :root[data-theme="dark"] .host-more-info { border-left-color: var(--border-strong); color: var(--muted); }
+    :root[data-theme="dark"] .hm-dot-closed { background: var(--fg-6); }
 </style>
 <script>
+    const HOST_MORE_TXT = {
+        less: {{ t('scan.p.less_ports') | tojson }},
+        pre: {{ t('scan.p.more_ports_pre') | tojson }},
+        post: {{ t('scan.p.more_ports_post') | tojson }},
+        one: {{ t('scan.p.more_ports_one') | tojson }}
+    };
     function toggleHostRows(btn) {
         const group = document.getElementById(btn.getAttribute('aria-controls'));
         if (!group) return;
         const expanded = group.classList.toggle('is-expanded');
         btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        // the bar says how many ports are still hidden ("แสดงอีก N พอร์ต"); open, it offers to fold them away again
-        btn.querySelector('.host-more-label').textContent = expanded ? 'แสดงน้อยลง' : 'แสดงอีก ' + btn.dataset.hidden + ' พอร์ต';
-        // Collapsing from the bottom of a long list leaves the host far above the viewport; bring it (and the bar just below it) back.
+        btn.querySelector('.host-more-label').textContent = expanded ? HOST_MORE_TXT.less : btn.dataset.hidden === '1' ? HOST_MORE_TXT.one : HOST_MORE_TXT.pre + btn.dataset.hidden + HOST_MORE_TXT.post;
         if (!expanded) group.scrollIntoView({ block: 'nearest' });
     }
 </script>

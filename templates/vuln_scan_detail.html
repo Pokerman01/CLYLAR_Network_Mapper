@@ -4,11 +4,15 @@
 
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <script src="{{ url_for('static', filename='js/subnet-topology.js') }}"></script>
+<script src="{{ url_for('static', filename='js/topology-big.js') }}"></script>
+<script src="{{ url_for('static', filename='js/topology-glyphs.js') }}"></script>
+<script src="{{ url_for('static', filename='js/topology-popups.js') }}"></script>
+{% include 'partials/_big_diagram_texts.html' %}
 
 <div class="mb-4 d-flex gap-2 align-items-center flex-wrap">
     <a href="{{ url_for('tasks_page') }}"
        class="btn btn-outline-secondary btn-sm">
-        &larr; Back to Tasks
+        &larr; {{ t('scan.back_tasks') }}
     </a>
 
     <!-- Export Dropdown Button -->
@@ -19,7 +23,7 @@
                     <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
                     <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
                 </svg>
-                Export
+                {{ t('scan.export') }}
             </button>
             <ul class="dropdown-menu dropdown-menu-end export-dropdown shadow-sm border-0 p-2">
                 <li>
@@ -30,8 +34,8 @@
                             </svg>
                         </span>
                         <span class="export-label">
-                            <span class="export-name">Export as CSV</span>
-                            <span class="export-desc">ข้อมูลตาราง เปิดด้วย Excel</span>
+                            <span class="export-name">{{ t('scan.export_csv') }}</span>
+                            <span class="export-desc">{{ t('scan.export_csv_desc') }}</span>
                         </span>
                     </button>
                 </li>
@@ -45,7 +49,7 @@
                             </svg>
                         </span>
                         <span class="export-label">
-                            <span class="export-name">Export as PDF</span>
+                            <span class="export-name">{{ t('scan.export_pdf') }}</span>
                             <span class="export-desc"></span>
                         </span>
                     </button>
@@ -60,32 +64,44 @@
     <div class="modal-dialog modal-dialog-centered" style="max-width:420px">
         <div class="modal-content border-0 shadow-lg" style="border-radius:16px;overflow:hidden">
             <div class="export-modal-header" id="exportModalHeader">
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"
                         style="position:absolute;top:16px;right:16px;opacity:0.8"></button>
                 <div class="export-modal-icon" id="exportModalIcon"></div>
                 <h5 class="export-modal-title" id="exportModalTitle"></h5>
                 <p class="export-modal-sub" id="exportModalSub"></p>
             </div>
             <div class="modal-body px-4 py-3">
-                <label class="form-label fw-semibold mb-1" style="font-size:.85rem;color:#475569">
-                    ชื่อไฟล์
+                <label class="form-label fw-semibold mb-1 export-fn-label" style="font-size:.85rem;color:#475569">
+                    {{ t('scan.export_filename') }}
                 </label>
                 <div class="input-group">
                     <input type="text" id="exportFilename" class="form-control export-filename-input"
-                           placeholder="กรอกชื่อไฟล์..." autocomplete="off">
+                           placeholder="{{ t('scan.export_filename_ph') }}" autocomplete="off">
                     <span class="input-group-text export-ext-badge" id="exportExtBadge"></span>
                 </div>
-                <div class="mt-1" style="font-size:.75rem;color:#94a3b8">
-                    ชื่อไฟล์ที่จะดาวน์โหลด: <span id="exportFilenamePreview" class="fw-semibold text-dark"></span>
+                <div class="mt-1 export-preview-hint" style="font-size:.75rem;color:#94a3b8">
+                    {{ t('scan.export_preview') }} <span id="exportFilenamePreview" class="fw-semibold text-dark"></span>
+                </div>
+            </div>
+            <div class="px-4 pb-2" id="exportOrient" hidden>
+                <div class="fw-semibold mb-1 export-fn-label" style="font-size:.85rem;color:#475569">{{ t('scan.export_orientation') }}</div>
+                <div class="btn-group w-100" role="group" aria-label="{{ t('scan.export_orientation') }}">
+                    <input type="radio" class="btn-check" name="exportOrientation" id="exportOrientP" value="portrait" autocomplete="off" checked>
+                    <label class="btn btn-outline-secondary btn-sm" for="exportOrientP">{{ t('scan.export_portrait') }}</label>
+                    <input type="radio" class="btn-check" name="exportOrientation" id="exportOrientL" value="landscape" autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="exportOrientL">{{ t('scan.export_landscape') }}</label>
                 </div>
             </div>
             <div class="px-4 pb-4 pt-1">
-                <button class="btn w-100 export-confirm-btn" id="exportConfirmBtn" onclick="doExport()">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="me-1" viewBox="0 0 16 16">
+                <div id="exportModalError" class="alert alert-danger py-2 px-3 small mb-2" role="alert" hidden></div>
+                <div id="exportModalStatus" class="visually-hidden" role="status" aria-live="polite"></div>
+                <button type="button" class="btn w-100 export-confirm-btn" id="exportConfirmBtn" onclick="doExport()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="me-1 export-btn-ic" viewBox="0 0 16 16" aria-hidden="true">
                         <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
                         <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
                     </svg>
-                    ดาวน์โหลด
+                    <span class="spinner-border spinner-border-sm me-1 export-btn-spin" hidden aria-hidden="true"></span>
+                    <span id="exportConfirmLabel">{{ t('scan.export_download') }}</span>
                 </button>
             </div>
         </div>
@@ -190,6 +206,8 @@
 /* ── Network Diagram Zoom Controls ── */
 .network-zoom-controls {
     position: absolute;
+        display: flex;
+        gap: 8px;
     top: 14px;
     right: 14px;
     z-index: 5;
@@ -218,13 +236,91 @@
 </style>
 
 <script>
+const SCAN_T = {
+    exportCsv: {{ t('scan.export_csv') | tojson }},
+    exportPdf: {{ t('scan.export_pdf') | tojson }},
+    exportCsvSub: {{ t('scan.export_csv_sub') | tojson }},
+    exportDownload: {{ t('scan.export_download') | tojson }},
+    exportBuildingPdf: {{ t('scan.export_building_pdf') | tojson }},
+    exportBuildingCsv: {{ t('scan.export_building_csv') | tojson }},
+    exportFailedPdf: {{ t('scan.export_failed_pdf') | tojson }},
+    exportFailedCsv: {{ t('scan.export_failed_csv') | tojson }},
+    nodeTip: {{ t('scan.node_tip', ip='{ip}') | tojson }},
+    popRole: {{ t('scan.pop.role') | tojson }},
+    popGwRole: {{ t('scan.pop.gw_role') | tojson }},
+    popIp: {{ t('scan.pop.ip') | tojson }},
+    popDetection: {{ t('scan.pop.detection') | tojson }},
+    popDefaultRoute: {{ t('scan.pop.default_route') | tojson }},
+    popStatus: {{ t('scan.pop.status') | tojson }},
+    popGwStatus: {{ t('scan.pop.gw_status') | tojson }},
+    popName: {{ t('scan.pop.name') | tojson }},
+    popIpv6Na: {{ t('scan.pop.ipv6_na') | tojson }},
+    popUnknown: {{ t('common.unknown') | tojson }},
+    popPorts: {{ t('scan.pop.ports') | tojson }},
+    popPortsOpen: {{ t('scan.pop.ports_open', n='{n}') | tojson }},
+    popNoPorts: {{ t('scan.pop.no_ports') | tojson }},
+    stateUnknown: {{ t('device.state.unknown') | tojson }},
+    states: {
+        'open': {{ t('device.state.open') | tojson }},
+        'closed': {{ t('device.state.closed') | tojson }},
+        'filtered': {{ t('device.state.filtered') | tojson }},
+        'unfiltered': {{ t('device.state.unfiltered') | tojson }},
+        'open|filtered': {{ t('device.state.open|filtered') | tojson }},
+        'closed|filtered': {{ t('device.state.closed|filtered') | tojson }}
+    }
+};
+// Port states in the node pop-up: the page's language, nmap's own word as the tooltip when it differs (same rule as the Network Topology page).
+// A state the table does not know is shown as nmap wrote it. Every value from a scan goes through popEsc.
+const popEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const popState = p => {
+    const raw = String(p.state || '');
+    if (!raw) return popEsc(SCAN_T.stateUnknown);
+    const word = Object.prototype.hasOwnProperty.call(SCAN_T.states, raw) ? SCAN_T.states[raw] : raw;
+    return word === raw ? popEsc(raw) : '<span title="' + popEsc(raw) + '">' + popEsc(word) + '</span>';
+};
 let _exportType = 'csv';
 let _exportModal = null;
+let _exportBusy = false;
 const _csvUrl = "{{ url_for('export_csv', scan_id=job.id) }}";
 const _pdfUrl = "{{ url_for('export_pdf', scan_id=job.id) }}";
+const _orientKey = 'clylar.report.orientation.{{ current_user.id }}';
+function _orientGet() {
+    try { return localStorage.getItem(_orientKey) === 'landscape' ? 'landscape' : 'portrait'; } catch (e) { return 'portrait'; }
+}
+function _orientSet(v) { try { localStorage.setItem(_orientKey, v); } catch (e) { } }
 const _defaultName = "scan_{{ job.id }}_{{ job.target | replace('.', '_') | replace('/', '_') }}";
 
+function _setExportBusy(on) {
+    _exportBusy = on;
+    const btn = document.getElementById('exportConfirmBtn');
+    const ic = btn.querySelector('.export-btn-ic');
+    const sp = btn.querySelector('.export-btn-spin');
+    const lbl = document.getElementById('exportConfirmLabel');
+    const st = document.getElementById('exportModalStatus');
+    const closeBtn = document.querySelector('#exportModal .btn-close');
+    btn.disabled = on;
+    btn.setAttribute('aria-busy', on ? 'true' : 'false');
+    if (ic) ic.hidden = on;
+    if (sp) sp.hidden = !on;
+    const busyText = _exportType === 'csv' ? SCAN_T.exportBuildingCsv : SCAN_T.exportBuildingPdf;
+    if (lbl) lbl.textContent = on ? busyText : SCAN_T.exportDownload;
+    if (st) st.textContent = on ? busyText : '';
+    document.getElementById('exportFilename').disabled = on;
+    document.getElementById('exportOrientP').disabled = on;
+    document.getElementById('exportOrientL').disabled = on;
+    if (closeBtn) closeBtn.disabled = on;
+}
+
+function _extractDownloadName(resp, fallback) {
+    const cd = resp.headers.get('Content-Disposition') || '';
+    let m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    if (m) { try { return decodeURIComponent(m[1]); } catch (e) {} }
+    m = /filename="?([^";]+)"?/i.exec(cd);
+    return m ? m[1] : fallback;
+}
+
 function openExportModal(type) {
+    if (_exportBusy) return;
     _exportType = type;
     const isCsv = type === 'csv';
 
@@ -234,10 +330,8 @@ function openExportModal(type) {
         ? 'linear-gradient(135deg,#166534,#16a34a)'
         : 'linear-gradient(135deg,#991b1b,#dc2626)';
     icon.textContent = isCsv ? '📊' : '📄';
-    document.getElementById('exportModalTitle').textContent = isCsv ? 'Export as CSV' : 'Export as PDF';
-    document.getElementById('exportModalSub').textContent   = isCsv
-        ? 'ข้อมูลตาราง เปิดด้วย Excel หรือ Google Sheets'
-        : ' ';
+    document.getElementById('exportModalTitle').textContent = isCsv ? SCAN_T.exportCsv : SCAN_T.exportPdf;
+    document.getElementById('exportModalSub').textContent   = isCsv ? SCAN_T.exportCsvSub : ' ';
 
     document.getElementById('exportExtBadge').textContent = isCsv ? '.csv' : '.pdf';
     const btn = document.getElementById('exportConfirmBtn');
@@ -245,9 +339,16 @@ function openExportModal(type) {
         ? 'linear-gradient(135deg,#166534,#16a34a)'
         : 'linear-gradient(135deg,#991b1b,#dc2626)';
 
+    const errBox = document.getElementById('exportModalError');
+    if (errBox) { errBox.hidden = true; errBox.textContent = ''; }
+    _setExportBusy(false);
+
     const input = document.getElementById('exportFilename');
     input.value = _defaultName;
     updatePreview();
+    // the page orientation is a PDF choice only; it is remembered (the same key as the Reports page)
+    document.getElementById('exportOrient').hidden = isCsv;
+    document.getElementById(_orientGet() === 'landscape' ? 'exportOrientL' : 'exportOrientP').checked = true;
 
     if (!_exportModal) _exportModal = new bootstrap.Modal(document.getElementById('exportModal'));
     _exportModal.show();
@@ -260,48 +361,81 @@ function updatePreview() {
     document.getElementById('exportFilenamePreview').textContent = name + ext;
 }
 
-function doExport() {
+async function doExport() {
+    if (_exportBusy) return;
+    const isCsv = _exportType === 'csv';
     const name = document.getElementById('exportFilename').value.trim() || _defaultName;
-    const url  = (_exportType === 'csv' ? _csvUrl : _pdfUrl) + '?filename=' + encodeURIComponent(name);
-    window.location.href = url;
-    _exportModal.hide();
+    let url  = (isCsv ? _csvUrl : _pdfUrl) + '?filename=' + encodeURIComponent(name);
+    if (!isCsv) {
+        const o = document.getElementById('exportOrientL').checked ? 'landscape' : 'portrait';
+        _orientSet(o);
+        url += '&orientation=' + o;
+    }
+    const errBox = document.getElementById('exportModalError');
+    if (errBox) { errBox.hidden = true; errBox.textContent = ''; }
+    _setExportBusy(true);
+    try {
+        const r = await fetch(url, { credentials: 'same-origin' });
+        const ct = (r.headers.get('Content-Type') || '').toLowerCase();
+        if (!r.ok || (!isCsv && !ct.includes('pdf'))) throw new Error('HTTP ' + r.status);
+        const blob = await r.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objUrl;
+        link.download = _extractDownloadName(r, name + (isCsv ? '.csv' : '.pdf'));
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(objUrl), 10000);
+        _setExportBusy(false);
+        if (_exportModal) _exportModal.hide();
+    } catch (err) {
+        _setExportBusy(false);
+        if (errBox) {
+            errBox.textContent = isCsv ? SCAN_T.exportFailedCsv : SCAN_T.exportFailedPdf;
+            errBox.hidden = false;
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('exportFilename').addEventListener('input', updatePreview);
     document.getElementById('exportFilename').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') doExport();
+        if (e.key === 'Enter') { e.preventDefault(); doExport(); }
+    });
+    document.getElementById('exportModal').addEventListener('hide.bs.modal', function(e) {
+        if (_exportBusy) e.preventDefault();
     });
 });
 </script>
 
 
 <!-- Scan Info Card -->
-<div class="card shadow-sm border-0 mb-4">
+<div class="card shadow-sm border-0 mb-4 scan-info-card">
     <div class="card-header bg-dark text-white">
-        <h5 class="mb-0">Scan Report: Job #{{ owner_seq }}</h5>
+        <h5 class="mb-0">{{ t('scan.report_title', n=owner_seq) }}</h5>
     </div>
     <div class="card-body bg-white">
         <div class="row">
             <div class="col-md-4">
-                <strong>Target:</strong> {{ job.target }}
+                <strong>{{ t('scan.target') }}</strong> {{ job.target }}
                 {% if target_scan_count > 1 %}
-                <span class="badge ms-1" style="font-size:.7rem;background:#EAF3DE;color:#3B6D11;border:0.5px solid #C0DD97;" title="สแกนครั้งที่ {{ scan_seq }} จากทั้งหมด {{ target_scan_count }} ครั้ง">count: {{ scan_seq }}/{{ target_scan_count }}</span>
+                <span class="badge ms-1 scan-count-badge" style="font-size:.7rem;background:#EAF3DE;color:#3B6D11;border:0.5px solid #C0DD97;" title="{{ t('scan.count_tip', seq=scan_seq, total=target_scan_count) }}">{{ t('scan.count_badge', seq=scan_seq, total=target_scan_count) }}</span>
                 {% endif %}
             </div>
             <div class="col-md-4">
-                <strong>Scan Profile:</strong>
+                <strong>{{ t('scan.profile') }}</strong>
                 <span class="badge bg-info text-dark">{{ job.scan_type | scan_label }}</span>
                 {% if job.timing is not none or job.version_intensity is not none %}
-                <span class="badge" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;font-weight:500;"
-                      title="ค่า Timing/Version Intensity ที่ใช้จริงตอนสแกนนี้">
-                    {% if job.timing is not none %}T{{ job.timing }}{% endif %}{% if job.timing is not none and job.version_intensity is not none %} · {% endif %}{% if job.version_intensity is not none %}Intensity {{ job.version_intensity }}{% endif %}
+                <span class="badge scan-ti-badge" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;font-weight:500;"
+                      title="{{ t('scan.ti_tip') }}">
+                    {% if job.timing is not none %}T{{ job.timing }}{% endif %}{% if job.timing is not none and job.version_intensity is not none %} · {% endif %}{% if job.version_intensity is not none %}{{ t('scan.intensity', n=job.version_intensity) }}{% endif %}
                 </span>
                 {% endif %}
             </div>
             <div class="col-md-4">
-                <strong>Timestamp:</strong>
-                {{ job.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+                <strong>{{ t('scan.timestamp') }}</strong>
+                {{ job.timestamp | fdt('%Y-%m-%d %H:%M:%S') }}
             </div>
         </div>
     </div>
@@ -313,27 +447,22 @@ document.addEventListener('DOMContentLoaded', function() {
 {# one device (?host=): a three-node diagram adds nothing and pushes the table below the fold #}
 {% set show_diagram = scan_data and not focus_ip %}
 {% if show_diagram %}
-<div class="card shadow-sm border-0 mb-4">
+<div class="card shadow-sm border-0 mb-4 scan-diagram-card">
     <div class="card-header bg-dark text-white d-flex align-items-center justify-content-between">
-        <h6 class="mb-0">Network Diagram</h6>
-        <div class="d-flex align-items-center gap-2 ms-auto me-3">
-            <label for="subnetPrefix" class="mb-0 text-white-50 d-none" style="font-size:.75rem;white-space:nowrap;">แยกตาม Subnet</label>
-            <select id="subnetPrefix" class="form-select form-select-sm" style="width:auto;min-width:150px;font-size:.78rem;" onchange="changeSubnetPrefix(this.value)">
-                <option value="0">ไม่แยก Subnet</option><option value="24" selected>แยกตาม Subnet/24</option>
-            </select>
-        </div>
+        <h6 class="mb-0">{{ t('scan.diagram_title') }}</h6>
+        <div class="d-flex align-items-center gap-2 ms-auto me-3" id="bigd-control"></div>
         <div id="network-legend" class="d-flex gap-2 align-items-center flex-wrap">
             <span style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:3px 10px 3px 7px;">
                 <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#2ecc71"/></svg>
-                <span style="font-size:.75rem;color:#e2e8f0;font-weight:500;">&lt; 3 Port</span>
+                <span style="font-size:.75rem;color:#e2e8f0;font-weight:500;">{{ t('scan.legend_lt3') }}</span>
             </span>
             <span style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:3px 10px 3px 7px;">
                 <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#f1c40f"/></svg>
-                <span style="font-size:.75rem;color:#e2e8f0;font-weight:500;">3–6 Port</span>
+                <span style="font-size:.75rem;color:#e2e8f0;font-weight:500;">{{ t('scan.legend_3_6') }}</span>
             </span>
             <span style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:3px 10px 3px 7px;">
                 <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill="#e74c3c"/></svg>
-                <span style="font-size:.75rem;color:#e2e8f0;font-weight:500;">&gt; 6 Port</span>
+                <span style="font-size:.75rem;color:#e2e8f0;font-weight:500;">{{ t('scan.legend_gt6') }}</span>
             </span>
 
         </div>
@@ -343,14 +472,21 @@ document.addEventListener('DOMContentLoaded', function() {
     <div style="position:relative;">
         <!-- Zoom Controls -->
         <div class="network-zoom-controls">
-            <button type="button" class="network-zoom-btn" onclick="resetZoom()" title="Reset Zoom">
+            <button type="button" class="network-zoom-btn" onclick="resetZoom()" title="{{ t('scan.reset_zoom') }}">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M15 3h6v6"></path>
                     <path d="M9 21H3v-6"></path>
                     <path d="M21 3l-7 7"></path>
                     <path d="M3 21l7-7"></path>
                 </svg>
-                Reset Zoom
+                {{ t('scan.reset_zoom') }}
+            </button>
+            <button type="button" class="network-zoom-btn" onclick="resetPositions()" title="{{ t('topo.reset_pos_title') }}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                    <path d="M3 4v5h5"></path>
+                </svg>
+                {{ t('topo.reset_pos') }}
             </button>
         </div>
 
@@ -362,13 +498,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     background:rgba(0,0,0,0.55);color:#adb5bd;
                     padding:5px 14px;border-radius:20px;font-size:.75rem;
                     pointer-events:none;white-space:nowrap;">
-            🖱️ คลิกที่ node อุปกรณ์ในกราฟด้านบนเพื่อดูรายละเอียด
+            🖱️ {{ t('scan.diagram_hint') }}
         </div>
 
         <!-- floating popup ตอนคลิก node — card style with tabs -->
-        <div id="node-popup"
+        <div id="node-popup" aria-hidden="true"
              style="display:none;position:absolute;z-index:10;
-                    background:#fff;
+                    background:#fff;color:#0f172a;
                     border-radius:14px;
                     min-width:300px;max-width:380px;
                     box-shadow:0 8px 32px rgba(0,0,0,0.22);
@@ -379,9 +515,9 @@ document.addEventListener('DOMContentLoaded', function() {
                  style="background:#1e2a3a;padding:12px 14px 10px;
                         display:flex;align-items:center;gap:10px;
                         border-bottom:1px solid #2d3f55;">
-                <div style="background:#2d4a6b;border-radius:8px;padding:6px 8px;font-size:1.3rem;line-height:1;">🖥️</div>
+                <div style="background:#2d4a6b;border-radius:8px;padding:4px 6px;line-height:1;display:flex;align-items:center;justify-content:center;color:#ffffff;"></div>
                 <span id="popup-ip" style="font-weight:700;font-size:.95rem;font-family:monospace;color:#ffffff;"></span>
-                <button onclick="closePopup()"
+                <button onclick="closePopup(this)"
                         style="margin-left:auto;background:#e74c3c;border:none;
                                width:28px;height:28px;border-radius:8px;
                                color:#fff;font-size:1rem;cursor:pointer;
@@ -390,16 +526,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
             <!-- Tabs -->
             <div style="display:flex;border-bottom:1px solid #e0e0e0;">
-                <button type="button" id="tab-detail" onclick="switchVulnPopupTab('detail')"
-                        style="flex:1;padding:9px 0;border:none;background:#e8e8e8;
+                <button type="button" id="tab-detail" onclick="switchVulnPopupTab('detail', this)"
+                        style="flex:1;padding:9px 0;border:none;background:#e8e8e8;color:#0f172a;
                                font-weight:600;font-size:.82rem;cursor:pointer;
                                border-right:1px solid #e0e0e0;">
-                    Detail
+                    {{ t('scan.tab_detail') }}
                 </button>
-                <button type="button" id="tab-port" onclick="switchVulnPopupTab('port')"
-                        style="flex:1;padding:9px 0;border:none;background:#fff;
+                <button type="button" id="tab-port" onclick="switchVulnPopupTab('port', this)"
+                        style="flex:1;padding:9px 0;border:none;background:#fff;color:#0f172a;
                                font-weight:600;font-size:.82rem;cursor:pointer;">
-                    Port
+                    {{ t('scan.tab_port') }}
                 </button>
             </div>
 
@@ -415,10 +551,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 <table style="width:100%;border-collapse:collapse;font-size:.78rem;">
                     <thead>
                         <tr style="border-bottom:1px solid #e0e0e0;">
-                            <th style="padding:7px 12px;text-align:left;color:#555;font-weight:600;">Port</th>
-                            <th style="padding:7px 8px;text-align:left;color:#555;font-weight:600;">State</th>
-                            <th style="padding:7px 8px;text-align:left;color:#555;font-weight:600;">Service</th>
-                            <th style="padding:7px 8px;text-align:left;color:#555;font-weight:600;">Version</th>
+                            <th style="padding:7px 12px;text-align:left;color:#555;font-weight:600;">{{ t('scan.col.port') }}</th>
+                            <th style="padding:7px 8px;text-align:left;color:#555;font-weight:600;">{{ t('scan.col.state') }}</th>
+                            <th style="padding:7px 8px;text-align:left;color:#555;font-weight:600;">{{ t('scan.col.service') }}</th>
+                            <th style="padding:7px 8px;text-align:left;color:#555;font-weight:600;">{{ t('scan.col.version') }}</th>
                         </tr>
                     </thead>
                     <tbody id="port-tbody"></tbody>
@@ -427,7 +563,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <!-- drag to resize diagram height -->
-        <div id="network-resize-handle" title="ลากเพื่อปรับความสูง"
+        <div id="network-resize-handle" title="{{ t('scan.resize_tip') }}"
              onmouseenter="this.firstElementChild.style.background='#94a3b8'"
              onmouseleave="this.firstElementChild.style.background='#ced4da'"
              style="height:10px;cursor:ns-resize;background:#f8f9fa;border-top:1px solid #e9ecef;
@@ -455,8 +591,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 </svg>
             </div>
             <div>
-                <p class="stat-label-v2">Hosts</p>
-                <p class="stat-value-v2">{{ scan_data | length }}</p>
+                <p class="stat-label-v2">{{ t('scan.stat_hosts') }}</p>
+                <p class="stat-value-v2">{{ host_count }}</p>
             </div>
         </div>
     </div>
@@ -468,7 +604,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </svg>
             </div>
             <div>
-                <p class="stat-label-v2">Open Ports</p>
+                <p class="stat-label-v2">{{ t('scan.stat_open_ports') }}</p>
                 <p class="stat-value-v2">{{ ns.total_ports }}</p>
             </div>
         </div>
@@ -481,11 +617,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 </svg>
             </div>
             <div>
-                <p class="stat-label-v2">CVE Found</p>
+                <p class="stat-label-v2">{{ t('vulnscan.stat_cve_found') }}</p>
                 <p class="stat-value-v2">{{ ns.total_cves }}</p>
                 {% if ns.total_cves %}
-                <div class="stat-sev-row" aria-label="CVE by severity">
-                    {% for sev, n in cve_severity_counts(scan_data) %}<span class="stat-sev stat-sev-{{ sev | lower }}{% if not n %} is-zero{% endif %}">{{ sev | title }} <b>{{ n }}</b></span>{% endfor %}
+                <div class="stat-sev-row" aria-label="{{ t('vulnscan.cve_by_sev') }}">
+                    {% for sev, n in cve_severity_counts(scan_data) %}<span class="stat-sev stat-sev-{{ sev | lower }}{% if not n %} is-zero{% endif %}">{{ sev | sev_label }} <b>{{ n }}</b></span>{% endfor %}
                 </div>
                 {% endif %}
             </div>
@@ -667,15 +803,15 @@ document.addEventListener('DOMContentLoaded', function() {
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
         </svg>
-        Scan Result
-        <span class="sd-tab-badge">{{ scan_data | length }}</span>
+        {{ t('vulnscan.tab_result') }}
+        <span class="sd-tab-badge">{{ host_count }}</span>
     </button>
     <button class="sd-tab-btn cve-tab {% if cve_list %}has-cves{% else %}disabled{% endif %}" id="sdTab-cve" onclick="sdSwitchTab('cve')"
             {% if not cve_list %}style="opacity:.55;cursor:default;"{% endif %}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
         </svg>
-        CVE / Vulnerability
+        {{ t('vulnscan.tab_cve') }}
         <span class="sd-tab-badge">{{ cve_list | length }}</span>
     </button>
 </div>
@@ -686,14 +822,14 @@ document.addEventListener('DOMContentLoaded', function() {
         <table class="table table-hover mb-0 align-top" data-resizable>
             <thead class="table-light table-head-strong">
                 <tr>
-                    <th>IP Address</th>
-                    <th>MAC Address</th>
-                    <th>OS / Status</th>
-                    <th>Port</th>
-                    <th>Protocol</th>
-                    <th>State</th>
-                    <th>Service</th>
-                    <th>Version / CVE</th>
+                    <th>{{ t('scan.col.ip') }}</th>
+                    <th>{{ t('scan.col.mac') }}</th>
+                    <th>{{ t('scan.col.os_status') }}</th>
+                    <th>{{ t('scan.col.port') }}</th>
+                    <th>{{ t('scan.col.protocol') }}</th>
+                    <th>{{ t('scan.col.state') }}</th>
+                    <th>{{ t('scan.col.service') }}</th>
+                    <th>{{ t('vulnscan.col.version_cve') }}</th>
                 </tr>
             </thead>
             {% set preview_rows = 3 %}{# port rows shown per host before the "show more" arrow #}
@@ -704,7 +840,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         {% for port in item.ports %}
                         <tr class="host-port-row{% if loop.index > preview_rows %} host-row-extra{% endif %}">
                             {% if loop.first %}
-                            <td class="fw-bold" rowspan="{{ n_ports }}"><a class="ip-link" href="{{ url_for('device_detail', ip=item.ip) }}" title="ดูรายละเอียดอุปกรณ์">{{ item.ip }}</a></td>
+                            <td class="fw-bold" rowspan="{{ n_ports }}"><a class="ip-link" href="{{ url_for('device_detail', ip=item.ip) }}" title="{{ t('scan.view_device_tip') }}">{{ item.ip }}</a></td>
                             <td rowspan="{{ n_ports }}">
                                 {% if item.mac and item.mac != 'Unknown' %}
                                     {{ item.mac }}
@@ -718,13 +854,13 @@ document.addEventListener('DOMContentLoaded', function() {
                             {% endif %}
                             <td>{{ port.port }}</td>
                             <td>{{ port.protocol | lower if port.protocol else 'tcp' }}</td>
-                            <td>{{ port.state | default('unknown', true) }}{% if port.reason and port.state != 'open' %}<br><small class="text-muted" title="{{ port.reason }}">{{ port_reason_label(port.reason) }}</small>{% endif %}</td>
+                            <td><span style="white-space:nowrap">{% set _st = port.state or 'unknown' %}{% set _sv = t('device.state.' ~ _st) %}{% if _sv.startswith('device.state.') or _sv == _st %}{{ _st }}{% else %}<span title="{{ _st }}">{{ _sv }}</span>{% endif %}</span>{% if port.reason and port.state != 'open' %}<br><small class="text-muted" title="{{ port.reason }}">{{ port_reason_label(port.reason) }}</small>{% endif %}</td>
                             <td>{% if port.name %}{{ port.name }}{% else %}—{% endif %}</td>
                             <td class="text-secondary">
                                 {% if port.version_info and port.version_info != 'Unknown Version' %}
                                     {{ port.version_info }}
                                 {% else %}
-                                    <i class="text-muted">Version unknown</i>
+                                    <i class="text-muted">{{ t('scan.version_unknown') }}</i>
                                 {% endif %}
                                 {% if port.cves %}
                                 <div class="d-flex flex-column gap-1 mt-1">
@@ -735,13 +871,13 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <div class="d-flex align-items-center gap-1 flex-wrap">
                                       <a href="https://nvd.nist.gov/vuln/detail/{{ cve.cve_id }}" target="_blank"
                                          class="text-decoration-none d-inline-block" title="{{ cve.description }}">
-                                        <span class="zmp-cve-badge" style="background:{{ sev_bg }};color:{{ sev_color }};border:1px solid {{ sev_color }}40;">
+                                        <span class="zmp-cve-badge zmp-sev-{{ sev | lower }}" style="background:{{ sev_bg }};color:{{ sev_color }};border:1px solid {{ sev_color }}40;">
                                           {{ cve.cve_id }}{% if cve.cvss_score %} · <b>{{ cve.cvss_score }}</b>{% endif %}
                                         </span>
                                       </a>
                                       {% if cve.cwe_name %}
                                       {% set cw = cwe_info(cve) %}
-                                      <span title="{{ (cw.label ~ (' - ' ~ cw.note if cw.note else '')) if cw else cve.cwe_name }}" style="font-size:.65rem;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:4px;padding:1px 5px;white-space:nowrap;font-weight:500;cursor:help;">
+                                      <span class="sd-cwe-tag" title="{{ (cw.label ~ (' - ' ~ cw.note if cw.note else '')) if cw else cve.cwe_name }}" style="font-size:.65rem;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:4px;padding:1px 5px;white-space:nowrap;font-weight:500;cursor:help;">
                                         {{ cve.cwe_name }}
                                       </span>
                                       {% endif %}
@@ -763,7 +899,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 {% else %}
                 <tbody class="host-group">
                     <tr>
-                        <td class="fw-bold"><a class="ip-link" href="{{ url_for('device_detail', ip=item.ip) }}" title="ดูรายละเอียดอุปกรณ์">{{ item.ip }}</a></td>
+                        <td class="fw-bold"><a class="ip-link" href="{{ url_for('device_detail', ip=item.ip) }}" title="{{ t('scan.view_device_tip') }}">{{ item.ip }}</a></td>
                         <td>
                             {% if item.mac and item.mac != 'Unknown' %}{{ item.mac }}
                             {% if item.mac_vendor %}<br><small class="text-muted">{{ item.mac_vendor }}</small>{% endif %}
@@ -771,7 +907,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             {% else %}{{ mac_note_html(item.ip, '', '') }}{% endif %}
                         </td>
                         <td>{{ item.status if item.status else item.os }}</td>
-                        <td colspan="5"><span class="text-muted small">{% if item.timed_out %}หมดเวลาต่อเครื่อง (45 นาที) ไม่ทราบพอร์ต{% else %}No ports open{% endif %}</span></td>
+                        <td colspan="5"><span class="text-muted small">{% if item.timed_out %}{{ t('scan.host_timeout') }}{% else %}{{ t('scan.no_open_ports') }}{% endif %}</span></td>
                     </tr>
                 </tbody>
                 {% endif %}
@@ -779,7 +915,7 @@ document.addEventListener('DOMContentLoaded', function() {
             {% if not scan_data %}
             <tbody>
                 <tr>
-                    <td colspan="8" class="text-center text-muted p-4">No data found or scan failed.</td>
+                    <td colspan="8" class="text-center text-muted p-4">{{ t('scan.no_data') }}</td>
                 </tr>
             </tbody>
             {% endif %}
@@ -795,12 +931,12 @@ document.addEventListener('DOMContentLoaded', function() {
             <thead class="table-light table-head-strong">
                 <tr>
                     <th style="width:12%">IP</th>
-                    <th style="width:8%">Port</th>
-                    <th style="width:9%">Service</th>
-                    <th style="width:15%">CVE ID</th>
-                    <th style="width:8%">CVSS</th>
-                    <th style="width:11%">Severity</th>
-                    <th>Description</th>
+                    <th style="width:8%">{{ t('scan.col.port') }}</th>
+                    <th style="width:9%">{{ t('scan.col.service') }}</th>
+                    <th style="width:15%">{{ t('vulnscan.col.cve_id') }}</th>
+                    <th style="width:8%">{{ t('vulnscan.col.cvss') }}</th>
+                    <th style="width:11%">{{ t('vulnscan.col.severity') }}</th>
+                    <th>{{ t('vulnscan.col.description') }}</th>
                 </tr>
             </thead>
             <tbody>
@@ -819,32 +955,32 @@ document.addEventListener('DOMContentLoaded', function() {
                     'LOW':      '#dcfce7',
                 }.get(sev, '#f1f5f9') %}
                 <tr>
-                    <td class="fw-bold font-monospace small"><a class="ip-link" href="{{ url_for('device_detail', ip=entry.ip) }}" title="ดูรายละเอียดอุปกรณ์">{{ entry.ip }}</a></td>
+                    <td class="fw-bold font-monospace small"><a class="ip-link" href="{{ url_for('device_detail', ip=entry.ip) }}" title="{{ t('scan.view_device_tip') }}">{{ entry.ip }}</a></td>
                     <td class="font-monospace small">{{ entry.port }}</td>
                     <td class="small">{{ entry.service or '?' }}</td>
                     <td>
                         <a href="https://nvd.nist.gov/vuln/detail/{{ entry.cve.cve_id }}"
-                           target="_blank" class="font-monospace fw-semibold text-decoration-none d-inline-flex align-items-center gap-1 small"
+                           target="_blank" class="font-monospace fw-semibold text-decoration-none d-inline-flex align-items-center gap-1 small sd-cve-link"
                            style="color:#1d4ed8;">
                             {{ entry.cve.cve_id }}
                             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5"/><path fill-rule="evenodd" d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0z"/></svg>
                         </a>
-                        {% if entry.cve.kev %}<div class="mt-1"><span title="CISA ระบุว่ามีการโจมตีใช้ช่องโหว่นี้จริง (รายการ Known Exploited Vulnerabilities){% if entry.cve.kev_added %} · เพิ่มเมื่อ {{ entry.cve.kev_added }}{% endif %}" style="font-size:.68rem;font-weight:600;padding:1px 8px;border-radius:999px;background:#fdf3d7;color:#7a5a12;border:1px solid #f0d58c;">ถูกโจมตีจริง</span></div>{% endif %}
+                        {% if entry.cve.kev %}<div class="mt-1"><span class="sd-kev-badge" title="{{ t('vulnscan.kev_tip') }}{% if entry.cve.kev_added %}{{ t('vulnscan.kev_added', date=(entry.cve.kev_added | ui_year)) }}{% endif %}" style="font-size:.68rem;font-weight:600;padding:1px 8px;border-radius:999px;background:#fdf3d7;color:#7a5a12;border:1px solid #f0d58c;">{{ t('vulnscan.kev_badge') }}</span></div>{% endif %}
                         {% if entry.cve.cwe_name %}
                         {% set cw = cwe_info(entry.cve) %}
                         <div class="mt-1">
-                          <span title="{{ (cw.label ~ (' - ' ~ cw.note if cw.note else '')) if cw else entry.cve.cwe_name }}" style="font-size:.68rem;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:4px;padding:1px 6px;font-weight:500;display:inline-block;cursor:help;">
+                          <span class="sd-cwe-tag" title="{{ (cw.label ~ (' - ' ~ cw.note if cw.note else '')) if cw else entry.cve.cwe_name }}" style="font-size:.68rem;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:4px;padding:1px 6px;font-weight:500;display:inline-block;cursor:help;">
                             {{ entry.cve.cwe_name }}
                           </span>
                         </div>
                         {% endif %}
                     </td>
-                    <td class="fw-bold small" style="color:{{ sev_color }};font-family:monospace;">
+                    <td class="fw-bold small sd-cvss-{{ sev | lower }}" style="color:{{ sev_color }};font-family:monospace;">
                         {{ entry.cve.cvss_score if entry.cve.cvss_score else '—' }}
                     </td>
                     <td>
-                        <span class="sev-badge" style="background:{{ sev_bg }};color:{{ sev_color }};">
-                            {{ sev }}
+                        <span class="sev-badge zmp-sev-{{ sev | lower }}" style="background:{{ sev_bg }};color:{{ sev_color }};">
+                            {{ sev | sev_label }}
                         </span>{% if severity_adjusted(entry.cve) %}{% set note = severity_note(entry.cve.cvss_score) %}<span class="sev-note" tabindex="0" role="img" aria-label="{{ note }}" title="{{ note }}"><i class="ti ti-info-circle" aria-hidden="true"></i></span>{% endif %}
                     </td>
                     <td class="small text-secondary" style="max-width:320px;">{{ entry.cve.description or '—' }}</td>
@@ -855,8 +991,8 @@ document.addEventListener('DOMContentLoaded', function() {
     {% else %}
     <div class="sd-cve-empty">
         <div class="sd-cve-empty-icon">✅</div>
-        <strong>No CVEs Found</strong>
-        <p>ไม่พบช่องโหว่ CVE จากการสแกนครั้งนี้</p>
+        <strong>{{ t('vulnscan.empty_title') }}</strong>
+        <p>{{ t('vulnscan.empty_sub') }}</p>
     </div>
     {% endif %}
     </div>
@@ -871,6 +1007,13 @@ function sdSwitchTab(tab) {
 }
 </script>
 
+
+<style>
+/* Node pop-up values: break anywhere (IPv6, MAC) as before. Thai has no spaces, so there it only breaks where the line is full,
+   at a word boundary when it can (break-all cut Thai words in the middle). English / light mode are unchanged. */
+.popup-val { word-break: break-all; }
+html[lang="th"] .popup-val { word-break: normal; overflow-wrap: anywhere; }
+</style>
 
 <style>
 .port-chip {
@@ -896,6 +1039,58 @@ function sdSwitchTab(tab) {
 .pnum { font-size:.82rem; }
 .psvc { color:#6c757d; }
 .pver { color:#adb5bd; font-size:.63rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px; }
+
+/* ===== DARK THEME (light mode never reads this) =====
+   The diagram canvas (#network-canvas, #node-popup, #network-resize-handle) stays LIGHT inside its card, per owner's decision. */
+:root[data-theme="dark"] .btn-export-main { background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong); box-shadow: none; }
+:root[data-theme="dark"] .btn-export-main:hover, :root[data-theme="dark"] .btn-export-main:focus, :root[data-theme="dark"] .btn-export-main.show { background: var(--surface-4); color: var(--text); box-shadow: none; }
+:root[data-theme="dark"] .export-dropdown { background: var(--surface-2); border: 1px solid var(--border) !important; }
+:root[data-theme="dark"] .export-option:hover { background: var(--surface-3) !important; }
+:root[data-theme="dark"] .export-option:active { background: var(--surface-4) !important; }
+:root[data-theme="dark"] .export-name { color: var(--text); }
+:root[data-theme="dark"] .export-desc, :root[data-theme="dark"] .export-preview-hint, :root[data-theme="dark"] .export-fn-label { color: var(--muted) !important; }
+:root[data-theme="dark"] .csv-icon { background: #263d31; color: #86efac; }
+:root[data-theme="dark"] .pdf-icon { background: #462b2d; color: #f19aa0; }
+:root[data-theme="dark"] .export-ext-badge { background: var(--surface-3); color: var(--text-2); border-color: var(--border-strong); }
+:root[data-theme="dark"] .export-filename-input:focus { border-color: var(--border-strong); }
+
+:root[data-theme="dark"] .scan-info-card .card-header, :root[data-theme="dark"] .scan-diagram-card .card-header { background: var(--surface-3) !important; color: var(--text) !important; border-bottom: 1px solid var(--border-strong); }
+:root[data-theme="dark"] .scan-info-card .card-body { background: var(--surface) !important; color: var(--text-2); }
+:root[data-theme="dark"] .scan-info-card .scan-count-badge { background: #263d31 !important; color: #86efac !important; border-color: #365947 !important; }
+:root[data-theme="dark"] .scan-info-card .scan-ti-badge { background: var(--surface-2) !important; color: var(--text-2) !important; border-color: var(--border) !important; }
+
+:root[data-theme="dark"] .stat-card-v2 { background: var(--surface); border-color: var(--border); }
+:root[data-theme="dark"] .stat-label-v2 { color: var(--muted); }
+:root[data-theme="dark"] .stat-value-v2 { color: var(--text); }
+:root[data-theme="dark"] .stat-sev { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
+
+:root[data-theme="dark"] .sd-tab-nav { background: var(--surface); border-color: var(--border); }
+:root[data-theme="dark"] .sd-tab-btn { background: var(--surface-2); color: var(--muted); border-right-color: var(--border); }
+:root[data-theme="dark"] .sd-tab-btn.active { background: var(--surface); color: var(--text); }
+:root[data-theme="dark"] .sd-tab-btn.active::after { background: var(--text); }
+:root[data-theme="dark"] .sd-tab-btn .sd-tab-badge { background: var(--surface-3); color: var(--text-2); }
+:root[data-theme="dark"] .sd-tab-btn.active .sd-tab-badge { background: var(--surface-4); color: var(--text); }
+:root[data-theme="dark"] .sd-tab-btn.cve-tab.has-cves .sd-tab-badge,
+:root[data-theme="dark"] .sd-tab-btn.active.cve-tab.has-cves .sd-tab-badge { background: var(--info-bg); color: var(--link); }
+:root[data-theme="dark"] .sd-tab-btn.active.cve-tab.has-cves::after { background: var(--link); }
+
+:root[data-theme="dark"] .sd-cwe-tag { background: var(--surface-2) !important; color: var(--text-2) !important; border-color: var(--border) !important; }
+:root[data-theme="dark"] .sd-cve-link { color: var(--link) !important; }
+:root[data-theme="dark"] .sd-kev-badge { background: var(--nt-gold-bg) !important; color: var(--gold-ink) !important; border-color: var(--warn-line) !important; }
+:root[data-theme="dark"] .zmp-sev-critical { background: #462b2d !important; color: #f59fa6 !important; border-color: #7a4045 !important; }
+:root[data-theme="dark"] .zmp-sev-high { background: #473222 !important; color: #f6b37f !important; border-color: #784e2e !important; }
+:root[data-theme="dark"] .zmp-sev-medium { background: var(--nt-gold-bg) !important; color: var(--gold-ink) !important; border-color: var(--warn-line) !important; }
+:root[data-theme="dark"] .zmp-sev-low { background: #263d31 !important; color: #86efac !important; border-color: #365947 !important; }
+:root[data-theme="dark"] .sd-cvss-critical { color: #f59fa6 !important; }
+:root[data-theme="dark"] .sd-cvss-high { color: #f6b37f !important; }
+:root[data-theme="dark"] .sd-cvss-medium { color: var(--gold-ink) !important; }
+:root[data-theme="dark"] .sd-cvss-low { color: #86efac !important; }
+:root[data-theme="dark"] .sd-cve-empty p { color: var(--muted); }
+:root[data-theme="dark"] .sd-cve-empty strong { color: #86efac; }
+:root[data-theme="dark"] .sd-cve-empty-icon { background: #263d31; }
+:root[data-theme="dark"] .port-chip { background: var(--surface-2); border-color: var(--border); }
+:root[data-theme="dark"] .psvc { color: var(--muted); }
+:root[data-theme="dark"] .pver { color: var(--fg-6); }
 </style>
 
 <script>
@@ -1085,21 +1280,6 @@ function osIconKey(osStr) {
     return 'unknown';
 }
 
-// Emoji fallback for popup header icon
-function osEmoji(osStr) {
-    if (!osStr) return '🖥️';
-    const s = osStr.toLowerCase();
-    if (s.includes('windows')) return '🪟';
-    if (s.includes('android')) return '🤖';
-    if (s.includes('linux')||s.includes('ubuntu')||s.includes('debian')||s.includes('centos')||s.includes('fedora')||s.includes('kali')) return '🐧';
-    if (s.includes('mac')||s.includes('darwin')) return '🍎';
-    if (s.includes('cisco')||s.includes('router')||s.includes('switch')) return '📡';
-    if (s.includes('android')) return '🤖';
-    if (s.includes('ios')||s.includes('iphone')) return '📱';
-    if (s.includes('printer')) return '🖨️';
-    if (s.includes('camera')) return '📷';
-    return '🖥️';
-}
 
 // Popup header colour per OS
 function osHeaderColor(osStr) {
@@ -1123,18 +1303,27 @@ function portDotColor(portCount) {
 
 // ── Build graph data ───────────────────────────────────────────────────────
 const nodesData = [], edgesData = [];
-const subnetPrefix = Number(sessionStorage.getItem('scanSubnetPrefix') || 24);
-document.getElementById('subnetPrefix').value = String(subnetPrefix);
+// big-network helpers (static/js/topology-big.js): Group by /24 | /16 | None, collapsed subnets, the + / - badge
+const BIG = SubnetTopologyBig.create({ hosts: SCAN_DATA, container: document.getElementById('network-canvas') });
+const subnetPrefix = BIG.prefix;
+BIG.mountControl(document.getElementById('bigd-control'));
 
 // The Internet is a symbol for "upstream", not a scanned device: it never claims a router.
+const SCAN_PUBLIC_IP = {{ (scan_public_ip or '') | tojson }};
+let SHOW_PUBLIC_IP = false;
+try { SHOW_PUBLIC_IP = !!(JSON.parse(localStorage.getItem({{ ('clylar.topology.display.' ~ current_user.id) | tojson }}) || '{}') || {}).publicIp; } catch (e) {}
+const INET_LABEL = {{ t('topo.js.internet_label') | tojson }};
+const INET_TITLE = {{ t('topo.js.internet_title') | tojson }};
+const INET_PUB_SCAN = {{ t('topo.js.internet_pub_scan') | tojson }};
+const SHOWN_PUB_IP = SHOW_PUBLIC_IP ? SCAN_PUBLIC_IP : '';
 nodesData.push({
     id: 0,
-    label: 'Internet',
+    label: SHOWN_PUB_IP ? (INET_LABEL + '\n' + SHOWN_PUB_IP) : INET_LABEL,
     image: CORE_NETWORK_ICON,
     shape: 'image',
     size: 40,
     font: { color: '#1a6db5', size: 12, face: 'monospace', bold: true, vadjust: 6, multi: 'html' },
-    title: 'Internet / upstream network (a symbol, not a scanned device)',
+    title: SHOWN_PUB_IP ? (INET_TITLE + '\n' + INET_PUB_SCAN.replace('{ip}', SHOWN_PUB_IP)) : INET_TITLE,
     shadow: { enabled: true, color: 'rgba(31,111,235,0.3)', size: 14 },
     fixed: true, x: 0, y: -330,
     _device: null,
@@ -1145,6 +1334,7 @@ nodesData.push({
 // evidence) and the links. The only host that loses its own node is one that is itself the router.
 SCAN_DATA.forEach((device, i) => {
 
+    if (BIG.hidden(device.ip)) return;      // inside a collapsed subnet: drawn as the subnet's bubble
     const nodeId = i + 1;
     const iconKey = osIconKey(device.os || device.status);
     // "open" = the state is exactly open (a filtered port is behind a firewall); the whole list, with states, is in the Port tab
@@ -1178,7 +1368,7 @@ SCAN_DATA.forEach((device, i) => {
                 mod: 'bold'
             }
         },
-        title: `คลิกเพื่อดูรายละเอียด: ${device.ip}${device.mac_vendor ? ' (' + device.mac_vendor + ')' : ''}`,
+        title: SCAN_T.nodeTip.replace('{ip}', device.ip) + (device.mac_vendor ? ' (' + device.mac_vendor + ')' : ''),
         shadow: { enabled: true, color: '#00000018', size: 8 },
         _device: device,
         _portCnt: portCnt,
@@ -1189,8 +1379,11 @@ SCAN_DATA.forEach((device, i) => {
 
 const currentSubnets = SubnetTopology.apply(nodesData, edgesData, SCAN_DATA, subnetPrefix, {
     gatewayIcon: ICON_URI['gateway'],
+    ...BIG.engineConfig(),
     gatewayForGroup: (hosts, subnet) => SubnetTopology.detectGateway(hosts, typeof SYSTEM_GATEWAY !== 'undefined' ? SYSTEM_GATEWAY : null, subnet)
 });
+
+BIG.style(nodesData);
 
 const container = document.getElementById('network-canvas');
 const network = new vis.Network(
@@ -1200,6 +1393,8 @@ const network = new vis.Network(
 );
 SubnetTopology.attachRegions(network, () => currentSubnets);
 if (subnetPrefix) setTimeout(() => SubnetTopology.fit(network, false), 0);
+BIG.attach(network, nodesData, currentSubnets);
+BIG.afterBuild(network, currentSubnets, nodesData);
 
 network.on('hoverNode', () => { container.style.cursor = 'pointer'; });
 network.on('blurNode',  () => { container.style.cursor = 'default'; });
@@ -1219,6 +1414,11 @@ function resetZoom() {
     if (typeof network !== 'undefined' && network) {
         SubnetTopology.fit(network, true);
     }
+}
+
+// Puts every node back where the layout first drew it (after dragging); the zoom and pan stay as they are
+function resetPositions() {
+    if (typeof network !== 'undefined' && network && network.__resetLayout) network.__resetLayout();
 }
 
 // Drag the handle below the diagram to resize it vertically
@@ -1251,160 +1451,105 @@ function resetZoom() {
     });
 })();
 
-function changeSubnetPrefix(value) {
-    sessionStorage.setItem('scanSubnetPrefix', String(parseInt(value, 10) || 0));
-    window.location.reload();
-}
 
-const popup = document.getElementById('node-popup');
+// several cards at once (static/js/topology-popups.js): #node-popup is only the template
+const POP = ReportPopups.create({ template: document.getElementById('node-popup'), container, network, isHub: BIG.isHub, onClose: () => network.unselectAll() });
 const hint  = document.getElementById('diagram-hint');
 
-// Make the node-detail popup draggable by its header
-(function enablePopupDrag() {
-    const header = document.getElementById('popup-header');
-    if (!popup || !header) return;
-    header.style.cursor = 'move';
-    let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
 
-    header.addEventListener('mousedown', function (e) {
-        if (e.target.closest('button')) return; // don't drag when clicking the close button
-        dragging = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        startLeft = parseFloat(popup.style.left) || 0;
-        startTop = parseFloat(popup.style.top) || 0;
-        document.body.style.userSelect = 'none';
-        e.preventDefault();
-    });
+function closePopup(btn) { POP.close(btn); }
 
-    document.addEventListener('mousemove', function (e) {
-        if (!dragging) return;
-        const parent = popup.offsetParent;
-        const maxLeft = parent ? parent.clientWidth - popup.offsetWidth : Infinity;
-        const maxTop = parent ? parent.clientHeight - popup.offsetHeight : Infinity;
-        let left = startLeft + (e.clientX - startX);
-        let top = startTop + (e.clientY - startY);
-        left = Math.max(0, Math.min(left, maxLeft));
-        top = Math.max(0, Math.min(top, maxTop));
-        popup.style.left = left + 'px';
-        popup.style.top = top + 'px';
-    });
-
-    document.addEventListener('mouseup', function () {
-        if (dragging) {
-            dragging = false;
-            document.body.style.userSelect = '';
-        }
-    });
-})();
-
-function closePopup() {
-    popup.style.display = 'none';
-    network.unselectAll();
-}
-
-function switchVulnPopupTab(tab) {
-    const isDetail = tab === 'detail';
-    document.getElementById('panel-detail').style.display = isDetail ? 'block' : 'none';
-    document.getElementById('panel-port').style.display   = isDetail ? 'none'  : 'block';
-    document.getElementById('tab-detail').style.background = isDetail ? '#e8e8e8' : '#fff';
-    document.getElementById('tab-port').style.background   = isDetail ? '#fff' : '#e8e8e8';
-}
+function switchVulnPopupTab(tab, btn) { POP.tab(tab, btn); }
 
 network.on('click', function(params) {
-    if (!params.nodes.length) { closePopup(); return; }
+    if (BIG.click(params)) return;      // the + / - badge of a subnet
+    if (!params.nodes.length) return;      // a click on empty canvas leaves the cards open
 
     const nodeId = params.nodes[0];
     const node   = nodesData.find(n => n.id === nodeId);
-    if (!node) { closePopup(); return; }
+    if (!node) return;
 
     const dev = node._device;
+    if (POP.has(nodeId)) { POP.raise(nodeId); return; }      // already open: bring it to the front
+    if (!node._isGateway && !dev) return;
+    const card = POP.open(nodeId, params.pointer.DOM);
+    const P = id => card.q(id);
     if (node._isGateway) {
-        const header = document.getElementById('popup-header');
+        const header = P('popup-header');
         header.style.background   = '#1a6db5';
         header.style.borderBottom = '1px solid #1a6db5';
-        header.querySelector('div').textContent = '🌐';
+        header.querySelector('div').innerHTML = TopoGlyphs.GLYPHS.globe;      // a fixed line glyph, not an emoji
         header.querySelector('div').style.background = 'rgba(255,255,255,0.18)';
-        document.getElementById('popup-ip').style.color = '#ffffff';
-        document.getElementById('popup-ip').textContent = node._gwIp || 'Gateway';
+        header.querySelector('div').style.color = '#ffffff';
+        P('popup-ip').style.color = '#ffffff';
+        P('popup-ip').textContent = node._gwIp || SCAN_T.popUnknown;
         header.querySelector('button').style.background = 'rgba(0,0,0,0.25)';
         header.querySelector('button').style.color = '#ffffff';
 
         const detailRows = [
-            ['Role:',      'Default Gateway / Router'],
-            ['IP Address:',node._gwIp || 'Unknown'],
-            ['Detection:', node._gwReason || 'Default Route'],
-            ['Status:',    'Gateway / Network Infrastructure'],
+            [SCAN_T.popRole, SCAN_T.popGwRole],
+            [SCAN_T.popIp, node._gwIp || SCAN_T.popUnknown],
+            [SCAN_T.popDetection, node._gwReason || SCAN_T.popDefaultRoute],
+            [SCAN_T.popStatus, SCAN_T.popGwStatus],
         ];
-        document.getElementById('detail-tbody').innerHTML = detailRows.map(([label, value]) => `
+        P('detail-tbody').innerHTML = detailRows.map(([label, value]) => `
             <tr>
                 <td style="padding:5px 0;color:#777;white-space:nowrap;width:40%;">${label}</td>
-                <td style="padding:5px 0;font-family:monospace;word-break:break-all;">${value}</td>
+                <td class="popup-val" style="padding:5px 0;font-family:monospace;">${popEsc(value)}</td>
             </tr>`).join('');
 
-        const portTbody = document.getElementById('port-tbody');
+        const portTbody = P('port-tbody');
         const gatewayPorts = (dev && dev.ports) ? [...dev.ports].sort((a, b) => a.port - b.port) : [];
         portTbody.innerHTML = gatewayPorts.length ? gatewayPorts.map(p => {
             const proto = (p.protocol || 'tcp').toLowerCase();
             const ver = (p.version_info && p.version_info !== 'Unknown Version') ? p.version_info : '—';
             return `<tr style="border-bottom:1px solid #f0f0f0;">
                 <td style="padding:6px 12px;font-family:monospace;font-weight:600;">${p.port}/${proto}</td>
-                <td style="padding:6px 8px;"><span style="color:${p.state === 'open' ? '#198754' : '#6c757d'};font-weight:600;">${p.state || 'unknown'}</span></td>
-                <td style="padding:6px 8px;">${p.name || '?'}</td>
-                <td style="padding:6px 8px;color:#555;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${ver}">${ver}</td>
+                <td style="padding:6px 8px;"><span style="color:${p.state === 'open' ? '#198754' : '#6c757d'};font-weight:600;">${popState(p)}</span></td>
+                <td style="padding:6px 8px;">${popEsc(p.name || '?')}</td>
+                <td style="padding:6px 8px;color:#555;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${popEsc(ver)}">${popEsc(ver)}</td>
             </tr>`;
-        }).join('') : '<tr><td colspan="4" style="padding:12px;text-align:center;color:#888;">No open ports</td></tr>';
+        }).join('') : `<tr><td colspan="4" style="padding:12px;text-align:center;color:#888;">${SCAN_T.popNoPorts}</td></tr>`;
 
-        switchVulnPopupTab('detail');
-        const domPos = params.pointer.DOM;
-        let left = domPos.x + 16;
-        let top  = domPos.y - 10;
-        if (left + 390 > container.offsetWidth)  left = domPos.x - 390;
-        if (left < 4) left = 4;
-        if (top  < 4) top  = 4;
-        if (top  + 340 > container.offsetHeight) top = container.offsetHeight - 350;
-        popup.style.left    = left + 'px';
-        popup.style.top     = top  + 'px';
-        popup.style.display = 'block';
+        POP.tab('detail', card);
         hint.style.display  = 'none';
         return;
     }
 
-    if (!dev) { closePopup(); return; }
-
     const osStr  = dev.os || dev.status || '';
-    const icon   = nodeId === 0 ? '🌐' : osEmoji(osStr);
+    const icon   = nodeId === 0 ? TopoGlyphs.GLYPHS.globe : TopoGlyphs.osGlyph(osStr);
     const hc     = nodeId === 0 ? { bg: '#1a6db5', fg: '#ffffff' } : osHeaderColor(osStr);
 
     // ── Popup header: OS-specific colour + icon ──
-    const header = document.getElementById('popup-header');
+    const header = P('popup-header');
     header.style.background   = hc.bg;
     header.style.borderBottom = '1px solid ' + hc.bg;
-    header.querySelector('div').textContent = icon;
+    header.querySelector('div').innerHTML = icon;      // icon is one of TopoGlyphs' fixed line glyphs
     header.querySelector('div').style.background = 'rgba(255,255,255,0.18)';
-    document.getElementById('popup-ip').style.color = hc.fg;
-    document.getElementById('popup-ip').textContent = dev.ip;
+    header.querySelector('div').style.color = hc.fg;
+    P('popup-ip').style.color = hc.fg;
+    P('popup-ip').textContent = dev.ip;
     header.querySelector('button').style.background = 'rgba(0,0,0,0.25)';
     header.querySelector('button').style.color = hc.fg;
 
     // ── Detail tab ──
     const detailRows = [
-        ['Name:',   dev.hostname || dev.ip],
-        ...(nodeId === 0 ? [['Role:', 'Default Gateway / Router (' + (node._gwReason || '') + ')']] : []),
+        [SCAN_T.popName, dev.hostname || dev.ip],
+        ...(nodeId === 0 ? [[SCAN_T.popRole, SCAN_T.popGwRole + ' (' + (node._gwReason || '') + ')']] : []),
         ['IPv4:',   dev.ip],
-        ['IPv6:',   dev.ipv6 || 'Not Available'],
-        ['MAC:',    (dev.mac && dev.mac !== 'Unknown') ? dev.mac : 'Unknown'],
-        ['OS:',     (osStr && osStr !== 'up') ? osStr : 'Unknown'],     // a discovery scan only says "up"
-        ['Ports:',  node._portCnt + ' open'],
+        ['IPv6:',   dev.ipv6 || SCAN_T.popIpv6Na],
+        ['MAC:',    (dev.mac && dev.mac !== 'Unknown') ? dev.mac : SCAN_T.popUnknown],
+        ['OS:',     (osStr && osStr !== 'up') ? osStr : SCAN_T.popUnknown],     // a discovery scan only says "up"
+        [SCAN_T.popPorts, SCAN_T.popPortsOpen.replace('{n}', node._portCnt)],
     ];
-    document.getElementById('detail-tbody').innerHTML = detailRows.map(([label, value]) => `
+    P('detail-tbody').innerHTML = detailRows.map(([label, value]) => `
         <tr>
             <td style="padding:5px 0;color:#777;white-space:nowrap;width:40%;">${label}</td>
-            <td style="padding:5px 0;font-family:monospace;word-break:break-all;">${value}</td>
+            <td class="popup-val" style="padding:5px 0;font-family:monospace;">${popEsc(value)}</td>
         </tr>`).join('');
 
     // ── Port tab ──
-    const portTbody = document.getElementById('port-tbody');
+    const portTbody = P('port-tbody');
     if (dev.ports && dev.ports.length) {
         const sortedPorts = [...dev.ports].sort((a, b) => a.port - b.port);
         portTbody.innerHTML = sortedPorts.map(p => {
@@ -1412,33 +1557,20 @@ network.on('click', function(params) {
             const ver   = (p.version_info && p.version_info !== 'Unknown Version') ? p.version_info : '—';
             return `<tr style="border-bottom:1px solid #f0f0f0;">
                 <td style="padding:6px 12px;font-family:monospace;font-weight:600;">${p.port}/${proto}</td>
-                <td style="padding:6px 8px;"><span style="color:${p.state === 'open' ? '#198754' : '#6c757d'};font-weight:600;">${p.state || 'unknown'}</span></td>
-                <td style="padding:6px 8px;">${p.name || '?'}</td>
-                <td style="padding:6px 8px;color:#555;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${ver}">${ver}</td>
+                <td style="padding:6px 8px;"><span style="color:${p.state === 'open' ? '#198754' : '#6c757d'};font-weight:600;">${popState(p)}</span></td>
+                <td style="padding:6px 8px;">${popEsc(p.name || '?')}</td>
+                <td style="padding:6px 8px;color:#555;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${popEsc(ver)}">${popEsc(ver)}</td>
             </tr>`;
         }).join('');
     } else {
-        portTbody.innerHTML = `<tr><td colspan="4" style="padding:12px;text-align:center;color:#aaa;">ไม่พบ open ports</td></tr>`;
+        portTbody.innerHTML = `<tr><td colspan="4" style="padding:12px;text-align:center;color:#aaa;">${SCAN_T.popNoPorts}</td></tr>`;
     }
 
-    switchVulnPopupTab('detail');
+    POP.tab('detail', card);
 
-    // ── Position popup ──
-    const domPos = params.pointer.DOM;
-    let left = domPos.x + 16;
-    let top  = domPos.y - 10;
-    if (left + 390 > container.offsetWidth)  left = domPos.x - 390;
-    if (left < 4) left = 4;
-    if (top < 4)  top  = 4;
-    if (top + 340 > container.offsetHeight)  top = container.offsetHeight - 350;
-
-    popup.style.left    = left + 'px';
-    popup.style.top     = top  + 'px';
-    popup.style.display = 'block';
     hint.style.display  = 'none';
 });
 
-network.on('deselectNode', closePopup);
 {% endif %}
 </script>
 

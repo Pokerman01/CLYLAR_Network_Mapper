@@ -1,0 +1,19 @@
+{
+  "voice.subtitle": "Speak a command or ask about the network",
+  "assistant.subtitle": "Ask questions, start scans, open pages",
+  "voice.context": "Page: Voice (voice commands)",
+  "assistant.context": "Page: Assistant (full-page chat)",
+
+  "voice.js.press": "Press to Speak",
+  "voice.js.working": "Working Out the Command",
+  "voice.js.lang_auto": "Auto",
+  "voice.js.lang_th": "Thai",
+  "voice.js.lang_en": "English",
+  "voice.js.lang_aria": "Speaking language: {l} (press to choose)",
+  "voice.js.lang_menu": "Speaking Language",
+  "voice.js.note_whisper": "Whisper is not running, so the browser's speech engine is used. It sends the audio to the browser vendor, needs the internet, and reads IP addresses less accurately.",
+  "voice.js.note_pinned": "The browser's speech engine is selected in Settings. It sends the audio to the browser vendor, needs the internet, and reads IP addresses less accurately.",
+  "voice.js.note_link": "Turn on Whisper in Settings",
+  "voice.js.close_tip": "Cancel and clear the screen (Esc)",
+  "voice.js.stop_tip": "Cancel listening (Esc)"
+}

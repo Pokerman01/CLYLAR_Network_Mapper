@@ -619,32 +619,60 @@ def fill_hostnames(results, max_workers=8, per_host_timeout=2.5, use_dns=True):
     return results
 
 
-def mac_note(ip, mac='', vendor=''):
+_MAC_NOTES = {
+    'private': (
+        ('MAC ส่วนตัว', 'Private MAC'),
+        ('MAC ที่ซอฟต์แวร์กำหนดเอง (เช่น ฟีเจอร์ความเป็นส่วนตัวของโทรศัพท์ หรืออะแดปเตอร์เสมือน) จึงไม่มีชื่อผู้ผลิต',
+         "A MAC address assigned by software (for example a phone's privacy feature or a virtual adapter), so it has no vendor name"),
+    ),
+    'loopback': (
+        ('เครื่องนี้ (ลูปแบ็ก)', 'This PC (loopback)'),
+        ('ที่อยู่ลูปแบ็กของเครื่องนี้ ไม่มีที่อยู่ MAC',
+         'The loopback address of this computer, which has no MAC address'),
+    ),
+    'this_pc': (
+        ('เครื่องนี้', 'This PC'),
+        ('เป็นการ์ดเครือข่ายของเครื่องที่รันโปรแกรมนี้ แต่ไม่พบ MAC',
+         'A network adapter of the computer running this program, but no MAC was found'),
+    ),
+    'not_returned': (
+        ('ไม่มีข้อมูลส่งกลับ', 'Not returned'),
+        ('อยู่ในเครือข่ายเดียวกัน แต่ nmap ไม่ส่ง MAC กลับมา ลองรันด้วยสิทธิ์ผู้ดูแลระบบ (Administrator) และติดตั้ง Npcap',
+         'On the same network, but nmap did not return a MAC. Try running as Administrator and install Npcap'),
+    ),
+    'other_subnet': (
+        ('ต่างเครือข่ายย่อย', 'Other subnet'),
+        ('อยู่คนละเครือข่าย (หรือเครือข่ายเสมือน) จึงอ่าน MAC ผ่าน ARP ไม่ได้',
+         'On a different (or virtual) network, so the MAC cannot be read through ARP'),
+    ),
+}
+
+
+def mac_note(ip, mac='', vendor='', lang='th'):
     """Short reason for a missing / unresolvable MAC: {'label','tip'} or None when nothing needs explaining."""
+    idx = 1 if lang == 'en' else 0
+    pick = lambda key: {'label': _MAC_NOTES[key][0][idx], 'tip': _MAC_NOTES[key][1][idx]}
     mac12 = _normalize_mac(mac)
     if mac12:
         if not vendor and _is_randomized_mac(mac12):
-            return {'label': 'Private MAC',
-                    'tip': 'MAC ที่ซอฟต์แวร์กำหนดเอง (เช่น ฟีเจอร์ความเป็นส่วนตัวของมือถือ หรือ virtual adapter) จึงไม่มีชื่อผู้ผลิต'}
+            return pick('private')
         return None
     ip = (ip or '').strip()
     if is_loopback_ip(ip):
-        return {'label': 'This PC (loopback)', 'tip': 'ที่อยู่ loopback ของเครื่องนี้ ไม่มี MAC address'}
+        return pick('loopback')
     adapters = get_local_adapters()
     if any(a['ip'] == ip for a in adapters):
-        return {'label': 'This PC', 'tip': 'เป็นการ์ดเครือข่ายของเครื่องที่รันโปรแกรมนี้ แต่ไม่พบ MAC'}
+        return pick('this_pc')
     try:
         addr = ipaddress.ip_address(ip)
         for a in adapters:
             if a.get('prefix') is None:
                 continue
             if addr in ipaddress.ip_network(f"{a['ip']}/{a['prefix']}", strict=False):
-                return {'label': 'Not returned',
-                        'tip': 'อยู่ในเครือข่ายเดียวกัน แต่ nmap ไม่ส่ง MAC กลับมา — ลองรันด้วยสิทธิ์ Administrator และติดตั้ง Npcap'}
+                return pick('not_returned')
     except ValueError:
         pass
-    return {'label': 'Other subnet',
-            'tip': 'อยู่คนละเครือข่าย (หรือเครือข่ายเสมือน) จึงอ่าน MAC ผ่าน ARP ไม่ได้'}
+    return pick('other_subnet')
 
 
 # ---------------------------------------------------------------------------
@@ -674,18 +702,19 @@ def get_scan_capabilities(max_age=300):
             npcap = True
         warnings = []
         if not nmap_found:
-            warnings.append({'text': 'ไม่พบ nmap ใน PATH — ไม่สามารถสแกนได้', 'tip': ''})
+            warnings.append({'code': 'no_nmap', 'text': 'ไม่พบ nmap ใน PATH — ไม่สามารถสแกนได้', 'tip': ''})
         if not is_admin:
             admin_tip = (
                 'การสแกนจะทำงานได้อย่างสมบูรณ์เมื่อรันโปรแกรมด้วยสิทธิ์ผู้ดูแลระบบ Administrator หรือ root เท่านั้น '
                 'หากไม่มีสิทธิ์ดังกล่าว ผลการตรวจสอบระบบปฏิบัติการและที่อยู่ MAC ของอุปกรณ์อาจไม่ครบถ้วน'
             )
             warnings.append({
+                'code': 'not_admin',
                 'text': 'โปรแกรมไม่ได้รันด้วยสิทธิ์ Administrator/root — ตรวจ OS และอ่าน MAC ของอุปกรณ์ไม่ได้ครบ',
                 'tip': admin_tip,
             })
         if not npcap:
-            warnings.append({'text': 'ไม่พบ Npcap — nmap จะใช้ ping แทน ARP ทำให้พลาดอุปกรณ์ที่บล็อก ping', 'tip': ''})
+            warnings.append({'code': 'no_npcap', 'text': 'ไม่พบ Npcap — nmap จะใช้ ping แทน ARP ทำให้พลาดอุปกรณ์ที่บล็อก ping', 'tip': ''})
         data = {'is_admin': is_admin, 'npcap': npcap, 'nmap': nmap_found, 'warnings': warnings}
     except Exception:
         data = {'is_admin': True, 'npcap': True, 'nmap': True, 'warnings': []}
@@ -1261,16 +1290,67 @@ def guess_device_type(ip, vendor='', os_name='', open_ports=(), gateway_ip=None,
     return result(top_key, '; '.join(why[top_key]), confidence)
 
 
-def is_valid_target(target):
-    if not target:
+def _is_valid_ipv4_octet_expr(seg):
+    """One dot-separated octet of an IPv4 address or Nmap octet range/list (e.g. '1', '1-50', '1,5,10-20')."""
+    if not seg:
         return False
-    tokens = target.split()
-    for token in tokens:
-        if token.startswith('-'):
-            return False
-        if not re.fullmatch(r'[a-zA-Z0-9.:/,\-]+', token):
-            return False
+    for part in seg.split(','):
+        if '-' in part:
+            m = re.fullmatch(r'(\d{1,3})-(\d{1,3})', part)
+            if not m:
+                return False
+            lo, hi = int(m.group(1)), int(m.group(2))
+            if not (0 <= lo <= hi <= 255):
+                return False
+        else:
+            if not re.fullmatch(r'\d{1,3}', part):
+                return False
+            if int(part) > 255:
+                return False
     return True
+
+
+def _is_valid_target_token(token):
+    if not token or len(token) > 253 or token.startswith('-'):
+        return False
+    if not re.fullmatch(r'[a-zA-Z0-9.:/,\-]+', token):
+        return False
+    if '/' in token:
+        if token.count('/') != 1:
+            return False
+        try:
+            ipaddress.ip_network(token, strict=False)
+            return True
+        except ValueError:
+            return False
+    if ':' in token:
+        try:
+            ipaddress.ip_address(token)
+            return True
+        except ValueError:
+            return False
+    # IPv4 address or Nmap IPv4 octet range/list (e.g. 192.168.1.1, 192.168.1.1-50, 10.0.0.1,5)
+    if re.fullmatch(r'[0-9.,\-]+', token):
+        octets = token.split('.')
+        return len(octets) == 4 and all(_is_valid_ipv4_octet_expr(o) for o in octets)
+    # Hostname (must not contain commas, must have valid DNS labels with at least one letter)
+    if ',' in token or token.startswith('.') or token.endswith('.'):
+        return False
+    labels = token.split('.')
+    if not any(re.search(r'[a-zA-Z]', lbl) for lbl in labels):
+        return False
+    if len(labels) > 1 and labels[-1].isdigit():
+        return False
+    return all(re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?', lbl) for lbl in labels)
+
+
+def is_valid_target(target):
+    if not target or not isinstance(target, str):
+        return False
+    tokens = target.strip().split()
+    if not tokens:
+        return False
+    return all(_is_valid_target_token(tok) for tok in tokens)
 
 
 def get_outbound_local_ip():
@@ -1440,6 +1520,68 @@ def get_system_default_gateway(max_age=0):
         _GW_CACHE['data'] = gw
         _GW_CACHE['ts'] = time.time()
     return gw
+
+
+_PUBLIC_IP_CACHE = {'ts': 0.0, 'ip': None, 'ok': False, 'lock': threading.Lock()}
+_PUBLIC_IP_ENDPOINTS = (
+    ('json', 'https://api.ipify.org?format=json'),
+    ('trace', 'https://1.1.1.1/cdn-cgi/trace'),
+)
+
+
+def _valid_public_ip(value):
+    """Return canonical public IP string if value is a valid globally routable IP address, else None."""
+    s = str(value or '').strip()
+    if not s or len(s) > 45:
+        return None
+    try:
+        addr = ipaddress.ip_address(s)
+    except ValueError:
+        return None
+    if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast or addr.is_reserved or addr.is_unspecified:
+        return None
+    return str(addr)
+
+
+def _fetch_public_ip(timeout=2.5):
+    """Query a lightweight public IP echo service with a short timeout; returns canonical IP string or None."""
+    import requests as _req
+    for kind, url in _PUBLIC_IP_ENDPOINTS:
+        try:
+            r = _req.get(url, timeout=timeout, headers={'User-Agent': 'CLYLAR-Scanner'})
+            if not r.ok:
+                continue
+            cand = None
+            if kind == 'json':
+                cand = (r.json() or {}).get('ip')
+            else:
+                for line in (r.text or '').splitlines():
+                    if line.startswith('ip='):
+                        cand = line.split('=', 1)[1].strip()
+                        break
+            ip = _valid_public_ip(cand)
+            if ip:
+                return ip
+        except Exception:
+            continue
+    return None
+
+
+def get_public_ip(max_age=600, timeout=2.5):
+    """Detect this machine's outbound public (WAN) IP address with caching and short timeout.
+    Never raises; returns None when offline or unreachable. Failed lookups cache briefly (60s)
+    so offline environments do not repeatedly wait for network timeouts."""
+    now = time.time()
+    with _PUBLIC_IP_CACHE['lock']:
+        ttl = max_age if _PUBLIC_IP_CACHE['ok'] else min(max_age, 60)
+        if max_age and _PUBLIC_IP_CACHE['ts'] and (now - _PUBLIC_IP_CACHE['ts']) < ttl:
+            return _PUBLIC_IP_CACHE['ip']
+    ip = _fetch_public_ip(timeout=timeout)
+    with _PUBLIC_IP_CACHE['lock']:
+        _PUBLIC_IP_CACHE['ip'] = ip
+        _PUBLIC_IP_CACHE['ok'] = ip is not None
+        _PUBLIC_IP_CACHE['ts'] = time.time()
+    return ip
 
 
 def clamp_scan_knobs(timing=None, version_intensity=None, scan_type=None):
@@ -2829,10 +2971,12 @@ def severity_adjusted(cve):
     return effective_severity(cve) != _stored_severity(cve)
 
 
-def severity_note(score):
-    """Thai tooltip for a label that effective_severity() raised from NVD's HIGH to CRITICAL."""
+def severity_note(score, lang='th'):
+    """Tooltip for a label that effective_severity() raised from NVD's HIGH to CRITICAL."""
     n = cvss_number(score)
     shown = f'{n:.1f}' if n is not None else ''
+    if lang == 'en':
+        return f'NVD gives High (CVSS v2 has no Critical level), but the score {shown} is in the Critical range (9.0–10.0).'
     return f'NVD ให้ระดับ High (CVSS v2 ไม่มีระดับ Critical) แต่คะแนน {shown} อยู่ในช่วง Critical (9.0–10.0)'
 
 
@@ -2963,97 +3107,408 @@ def nvd_detail(cve_item, metric=None, description=''):
     return d
 
 
-def lookup_cves_nvd_status(product, version, max_results=5):
-    """Query the NVD API for CVEs matching a product/version string. Returns (cves, status):
-    'ok'         the answer came and was read; `cves` may be empty (NVD knows no CVE for that text)
+_NVD_GENERIC_WORDS = frozenset({
+    'server', 'service', 'services', 'daemon', 'httpd', 'ftpd', 'sshd', 'smtpd',
+    'microsoft', 'windows', 'linux', 'gnu', 'the', 'inc', 'corp', 'software',
+    'project', 'open', 'source', 'edition', 'standard', 'enterprise', 'pro',
+    'community', 'rpc', 'netbios', 'ssn', 'http', 'https', 'tcp', 'udp', 'ssl', 'tls',
+})
+
+_NVD_PRODUCT_ALIASES = {
+    'apache': ('http_server', 'apache'),
+    'iis': ('iis', 'internet_information_services', 'internet_information_server'),
+    'openssh': ('openssh',),
+    'vsftpd': ('vsftpd',),
+    'proftpd': ('proftpd',),
+    'nginx': ('nginx',),
+    'mysql': ('mysql',),
+    'mariadb': ('mariadb',),
+    'postgresql': ('postgresql',),
+    'samba': ('samba',),
+    'openssl': ('openssl',),
+    'bind': ('bind',),
+    'postfix': ('postfix',),
+    'exim': ('exim',),
+    'dovecot': ('dovecot',),
+    'tomcat': ('tomcat',),
+    'php': ('php',),
+    'redis': ('redis',),
+    'mongodb': ('mongodb',),
+    'dropbear': ('dropbear_ssh', 'dropbear'),
+    'lighttpd': ('lighttpd',),
+    'squid': ('squid',),
+    'memcached': ('memcached',),
+    'filezilla': ('filezilla_server', 'filezilla'),
+}
+
+_LEGACY_WINDOWS_CPES = frozenset({
+    'windows_nt', 'windows_95', 'windows_98', 'windows_me', 'windows_2000',
+    'windows_xp', 'windows_server_2003', 'windows_vista', 'windows_7',
+    'windows_server_2008', 'windows_8', 'windows_8.1', 'windows_server_2012',
+    'windows_rt', 'windows_rt_8.1',
+})
+
+
+def _extract_version_token(version):
+    """Extract the leading version token containing a digit (e.g. '2.4.49', '8.2p1', '1.1.1k'), or '' if none."""
+    s = str(version or '').strip()
+    if not s:
+        return ''
+    m = re.search(r'(\d+(?:\.\d+)*(?:[a-zA-Z]\d*)?)', s)
+    return m.group(1) if m else ''
+
+
+def _version_tuple(v):
+    """Parse a version string into a comparable tuple so '2.4.9' < '2.4.49' and '8.2p1' < '8.2p2'."""
+    s = _extract_version_token(v)
+    if not s:
+        return ()
+    chunks = []
+    for part in re.split(r'[.\-_]+', s):
+        if not part:
+            continue
+        for tok in re.findall(r'\d+|[a-zA-Z]+', part):
+            if tok.isdigit():
+                chunks.append((0, int(tok)))
+            else:
+                chunks.append((1, tok.lower()))
+    while len(chunks) > 1 and chunks[-1] == (0, 0):
+        chunks.pop()
+    return tuple(chunks)
+
+
+def _nmap_cpe_to_23(cpe):
+    """Convert an Nmap CPE string (CPE 2.2 or 2.3, possibly space-separated) into a versioned CPE 2.3 string and
+    `(part, vendor, product, version)`. Returns `(None, None)` if there is no CPE with an actual version."""
+    raw_list = cpe if isinstance(cpe, (list, tuple)) else str(cpe or '').split()
+    best = None
+    for raw in raw_list:
+        s = str(raw or '').strip()
+        if not s:
+            continue
+        if s.startswith('cpe:2.3:'):
+            parts = re.split(r'(?<!\\):', s)
+            if len(parts) < 6 or parts[2] not in ('a', 'o', 'h'):
+                continue
+            part, vendor, prod, ver = parts[2], parts[3], parts[4], parts[5]
+            upd = parts[6] if len(parts) > 6 and parts[6] not in ('', '*', '-') else ''
+        elif s.startswith('cpe:/'):
+            parts = s[5:].split(':')
+            if len(parts) < 4 or parts[0] not in ('a', 'o', 'h'):
+                continue
+            part, vendor, prod, ver = parts[0], parts[1], parts[2], parts[3]
+            upd = parts[4] if len(parts) > 4 and parts[4] not in ('', '*', '-') else ''
+        else:
+            continue
+        if not vendor or not prod or ver in ('', '*', '-') or not re.search(r'\d', ver):
+            continue
+        full_ver = f"{ver}{upd}" if upd and not ver.endswith(upd) else ver
+        cpe23 = f"cpe:2.3:{part}:{vendor}:{prod}:{ver}:{upd or '*'}:*:*:*:*:*:*"
+        cand = (cpe23, (part, vendor.lower(), prod.lower(), full_ver))
+        if part == 'a':
+            return cand
+        if best is None:
+            best = cand
+    return best or (None, None)
+
+
+def _cpe_match_version(match):
+    """Extract (part, vendor, product, exact_version) from an NVD cpeMatch dict (combining CPE update token like 'p1')."""
+    criteria = str(match.get('criteria') or '')
+    parts = re.split(r'(?<!\\):', criteria)
+    if len(parts) < 6 or parts[0] != 'cpe' or parts[1] != '2.3' or parts[2] not in ('a', 'o', 'h'):
+        return None
+    clean = lambda x: re.sub(r'\\(.)', r'\1', x).lower()
+    part, vendor, prod, ver = parts[2], clean(parts[3]), clean(parts[4]), '' if parts[5] in ('*', '-') else clean(parts[5])
+    upd = '' if len(parts) <= 6 or parts[6] in ('', '*', '-') else clean(parts[6])
+    if ver and upd and re.fullmatch(r'[a-z]\d+|\d+[a-z]', upd):
+        ver = f"{ver}{upd}"
+    return part, vendor, prod, ver
+
+
+def _version_matches_cpe(detected_ver, match):
+    """Return True if `detected_ver` falls inside the version or version range specified by an NVD `cpeMatch` entry."""
+    dv = _version_tuple(detected_ver)
+    if not dv:
+        return False
+    cpe = _cpe_match_version(match)
+    if not cpe:
+        return False
+    si = match.get('versionStartIncluding') or ''
+    se = match.get('versionStartExcluding') or ''
+    ei = match.get('versionEndIncluding') or ''
+    ee = match.get('versionEndExcluding') or ''
+    if si or se or ei or ee:
+        if si and _version_tuple(si) and dv < _version_tuple(si):
+            return False
+        if se and _version_tuple(se) and dv <= _version_tuple(se):
+            return False
+        if ei and _version_tuple(ei) and dv > _version_tuple(ei):
+            return False
+        if ee and _version_tuple(ee) and dv >= _version_tuple(ee):
+            return False
+        return True
+    cpe_ver = cpe[3]
+    if cpe_ver:
+        cv = _version_tuple(cpe_ver)
+        return bool(cv) and dv == cv
+    return True
+
+
+def _product_matches_cpe(product, cpe_vendor, cpe_product, nmap_cpe_parts=None):
+    """Check whether an NVD CPE vendor/product refers to the detected service product."""
+    v_low = (cpe_vendor or '').lower()
+    p_low = (cpe_product or '').lower()
+    if nmap_cpe_parts and p_low == nmap_cpe_parts[2]:
+        return True
+    prod_low = (product or '').lower()
+    prod_tokens = [t for t in re.findall(r'[a-z0-9]+', prod_low) if len(t) >= 2]
+    for alias_key, cpe_names in _NVD_PRODUCT_ALIASES.items():
+        if alias_key in prod_tokens and p_low in cpe_names:
+            return True
+    meaningful = [t for t in prod_tokens if len(t) >= 3 and t not in _NVD_GENERIC_WORDS]
+    cpe_tokens = set(re.findall(r'[a-z0-9]+', p_low))
+    if any(t in cpe_tokens for t in meaningful):
+        return True
+    if meaningful and any(t == v_low for t in meaningful) and any(t in cpe_tokens for t in prod_tokens):
+        return True
+    return False
+
+
+def _os_compatible_with_cve(host_os, cve_item):
+    """Reject CVEs whose vulnerable CPEs exclusively target an OS incompatible with `host_os`
+    (for example, Windows NT/2000/XP/2003 CVEs on a Windows 10/11 host, or Linux-kernel CVEs on Windows)."""
+    os_low = str(host_os or '').lower()
+    if not os_low or os_low in ('unknown', 'up', 'down'):
+        return True
+    vuln_cpes = []
+    for cfg in cve_item.get('configurations') or []:
+        for node in (cfg.get('nodes') or []) if isinstance(cfg, dict) else []:
+            for match in (node.get('cpeMatch') or []) if isinstance(node, dict) else []:
+                if isinstance(match, dict) and match.get('vulnerable') is True:
+                    c = _cpe_match_version(match)
+                    if c:
+                        vuln_cpes.append(c)
+    if not vuln_cpes:
+        return True
+
+    is_win_modern = bool(re.search(r'windows\s*(10|11|server\s*20(16|19|22|25))', os_low))
+    is_win_any = 'windows' in os_low
+    is_linux = any(w in os_low for w in ('linux', 'ubuntu', 'debian', 'centos', 'fedora', 'red hat', 'openwrt', 'alpine')) and not is_win_any
+
+    if all(c[0] == 'o' for c in vuln_cpes):
+        if is_win_modern:
+            prods = {c[2] for c in vuln_cpes}
+            if prods and prods.issubset(_LEGACY_WINDOWS_CPES):
+                return False
+        if is_linux and all(c[1] == 'microsoft' and c[2].startswith('windows') for c in vuln_cpes):
+            return False
+        if is_win_any and all(c[2] == 'linux_kernel' for c in vuln_cpes):
+            return False
+    return True
+
+
+def _cve_matches_service(cve_item, product, version, nmap_cpe_parts=None, host_os='', from_cpe_query=False):
+    """Validate that an NVD CVE record actually applies to the detected `(product, version, host_os)`."""
+    if str(cve_item.get('vulnStatus') or '').strip().lower() == 'rejected':
+        return False
+    if not _os_compatible_with_cve(host_os, cve_item):
+        return False
+
+    vuln_matches = []
+    for cfg in cve_item.get('configurations') or []:
+        for node in (cfg.get('nodes') or []) if isinstance(cfg, dict) else []:
+            for match in (node.get('cpeMatch') or []) if isinstance(node, dict) else []:
+                if isinstance(match, dict) and match.get('vulnerable') is True:
+                    vuln_matches.append(match)
+
+    # Minimal/unanalyzed CVEs without configurations pass through only if queried with a real version (keeps mock tests working)
+    if not vuln_matches:
+        return True
+    if from_cpe_query:
+        return True
+
+    for match in vuln_matches:
+        cpe = _cpe_match_version(match)
+        if not cpe:
+            continue
+        _part, vendor, prod, _ver = cpe
+        if _product_matches_cpe(product, vendor, prod, nmap_cpe_parts) and _version_matches_cpe(version, match):
+            return True
+    return False
+
+
+def _parse_nvd_cve(cve_item):
+    """Build our stored CVE dict from one NVD API `cve` object."""
+    cve_id = cve_item.get('id', '')
+    descs = cve_item.get('descriptions', [])
+    description = next((d['value'] for d in descs if d.get('lang') == 'en'), '')
+
+    metrics = cve_item.get('metrics', {})
+    cvss_score = None
+    severity = 'UNKNOWN'
+    chosen = None
+    for key in ('cvssMetricV31', 'cvssMetricV30', 'cvssMetricV2'):
+        if key in metrics and metrics[key]:
+            m = metrics[key][0]
+            cvss_data = m.get('cvssData', {})
+            cvss_score = cvss_data.get('baseScore')
+            severity = m.get('baseSeverity', cvss_data.get('baseSeverity', 'UNKNOWN'))
+            chosen = (key, m)
+            break
+
+    cwe_id = cwe_name = None
+    for w in cve_item.get('weaknesses', []):
+        for desc in w.get('description', []):
+            value = desc.get('value', '')
+            if value in CWE_SHORT_NAMES:
+                cwe_id, cwe_name = value, CWE_SHORT_NAMES[value]
+                break
+            elif value.startswith('CWE-'):
+                cwe_id, cwe_name = value, value
+                break
+        if cwe_name:
+            break
+
+    entry = {
+        'cve_id': cve_id,
+        'description': description[:300] if description else '',
+        'cvss_score': cvss_score,
+        'severity': severity.upper() if severity else 'UNKNOWN',
+        'cwe_name': cwe_name or '',
+        'cwe_id': cwe_id or '',
+        'kev': bool(cve_item.get('cisaExploitAdd')),
+    }
+    if entry['kev']:
+        entry['kev_added'] = str(cve_item.get('cisaExploitAdd'))[:10]
+    try:
+        entry['detail'] = nvd_detail(cve_item, chosen, description)
+    except Exception:
+        pass
+    return entry
+
+
+# ---- The NVD API key (2026-11-23: it used to be hardcoded here, which published it with the source) ----
+# Where it comes from, in this order: the provider the web app installs (the key a superadmin typed on the Settings page, kept in
+# instance/nvd_key), then NVD_API_KEY in the environment (.env). No key is fine: NVD answers keyless requests too, but allows only
+# 5 per 30 seconds against 50 with a key, so without one the lookups are paced (NVD_KEYLESS_GAP) instead of being refused.
+NVD_KEY_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')      # NVD keys are UUIDs
+NVD_KEYLESS_GAP = 6.5            # seconds between two requests without a key (the limit is 5 per rolling 30 s, so 6 s would be the edge)
+_nvd_key_provider = None
+_nvd_pace_lock = threading.Lock()
+_nvd_last_request = [0.0]
+
+
+def set_nvd_key_provider(fn):
+    """The web app gives the scanner a function that returns the key typed on the Settings page ('' when there is none). Pure code keeps no Flask import."""
+    global _nvd_key_provider
+    _nvd_key_provider = fn
+
+
+def get_nvd_key():
+    """The NVD API key to use right now, or '' for none. A value that is not shaped like a key is ignored, never sent."""
+    key = ''
+    if _nvd_key_provider is not None:
+        try:
+            key = (_nvd_key_provider() or '').strip()
+        except Exception:
+            key = ''
+    if not NVD_KEY_RE.fullmatch(key):
+        key = (os.environ.get('NVD_API_KEY') or '').strip()
+    return key if NVD_KEY_RE.fullmatch(key) else ''
+
+
+def _nvd_wait_turn(has_key):
+    """Without a key, wait until NVD_KEYLESS_GAP seconds have passed since the last request (any thread). The wait goes in short slices, so a Cancel
+    or the time limit still stops the scan within half a second (check_scan_control raises ScanStopped)."""
+    if has_key:
+        return
+    while True:
+        with _nvd_pace_lock:
+            now = time.monotonic()
+            wait = _nvd_last_request[0] + NVD_KEYLESS_GAP - now
+            if wait <= 0:
+                _nvd_last_request[0] = now
+                return
+        check_scan_control()
+        time.sleep(min(wait, 0.5))
+
+
+def lookup_cves_nvd_status(product, version, max_results=5, cpe='', host_os=''):
+    """Query the NVD API for CVEs matching a product/version (preferring exact versioned CPE when Nmap provides one,
+    and validating NVD's affected version ranges & OS compatibility). Returns (cves, status):
+    'ok'         the answer came and was read; `cves` may be empty (NVD knows no CVE for that product/version)
     'failed'     the lookup did not work (network, rate limit, an unreadable answer): the empty list says NOTHING about the service
-    'no_product' nmap named no product, so there was nothing to search and no request was made
-    "Nothing found" and "could not look" used to look the same, so a failed lookup showed up as a clean service."""
+    'no_product' nmap could not determine a product AND version (e.g. generic 'Microsoft Windows RPC' with no version), so no request was made"""
+    import urllib.error
     import urllib.request
     import urllib.parse
 
-    NVD_API_KEY = "b92e0f90-6616-404b-a76e-14e29597d524"
+    nvd_key = get_nvd_key()
 
-    if not product or product.strip() == '':
+    clean_product = (product or '').strip()
+    nmap_cpe23, nmap_cpe_parts = _nmap_cpe_to_23(cpe)
+    clean_version = _extract_version_token(version) or (nmap_cpe_parts[3] if nmap_cpe_parts else '')
+
+    # Without a product name AND an actual version (or versioned CPE), a bare keyword query returns ancient unrelated CVEs (e.g. Windows 2000/2003 RPC).
+    if not clean_product or not clean_version:
         return [], 'no_product'
 
-    keyword = f"{product} {version}".strip()
-    params = urllib.parse.urlencode({
-        'keywordSearch': keyword,
-        'resultsPerPage': max_results,
-    })
-    url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?{params}"
+    fetch_limit = min(40, max(int(max_results or 5) * 4, 20))
 
-    try:
-        req = urllib.request.Request(url, headers={
-            'apiKey': NVD_API_KEY,
-            'User-Agent': 'NetworkScanner/1.0'
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
+    def _query(params_dict):
+        url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?{urllib.parse.urlencode(params_dict)}"
+        headers = {'User-Agent': 'NetworkScanner/1.0'}
+        if nvd_key:
+            headers['apiKey'] = nvd_key
+        _nvd_wait_turn(bool(nvd_key))          # outside the try: a stopped scan must not be turned into a "failed" lookup
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read().decode()), 'ok'
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None, 'not_found'
+            return None, 'failed'
+        except Exception:
+            return None, 'failed'
 
-        cves = []
-        for vuln in data.get('vulnerabilities', []):
-            cve_item = vuln.get('cve', {})
-            cve_id = cve_item.get('id', '')
-            # Description (English preferred)
-            descs = cve_item.get('descriptions', [])
-            description = next((d['value'] for d in descs if d.get('lang') == 'en'), '')
+    def _collect(data, from_cpe_query=False):
+        matched = []
+        seen_ids = set()
+        for vuln in (data or {}).get('vulnerabilities', []):
+            cve_item = vuln.get('cve', {}) if isinstance(vuln, dict) else {}
+            cid = cve_item.get('id', '')
+            if not cid or cid in seen_ids:
+                continue
+            if not _cve_matches_service(cve_item, clean_product, clean_version, nmap_cpe_parts, host_os, from_cpe_query=from_cpe_query):
+                continue
+            seen_ids.add(cid)
+            matched.append(_parse_nvd_cve(cve_item))
+        # Prefer highest CVSS severity/score, then newest CVE ID
+        matched.sort(key=lambda c: (
+            -(cvss_number(c.get('cvss_score')) if cvss_number(c.get('cvss_score')) is not None else -1),
+            c.get('cve_id', ''),
+        ))
+        return matched[:max_results]
 
-            # CVSS score and severity (try v31, then v30, then v2)
-            metrics = cve_item.get('metrics', {})
-            cvss_score = None
-            severity = 'UNKNOWN'
-            chosen = None
-            for key in ('cvssMetricV31', 'cvssMetricV30', 'cvssMetricV2'):
-                if key in metrics and metrics[key]:
-                    m = metrics[key][0]
-                    cvss_data = m.get('cvssData', {})
-                    cvss_score = cvss_data.get('baseScore')
-                    severity = m.get('baseSeverity', cvss_data.get('baseSeverity', 'UNKNOWN'))
-                    chosen = (key, m)
-                    break
+    if nmap_cpe23:
+        data, st = _query({'cpeName': nmap_cpe23, 'resultsPerPage': fetch_limit})
+        if st == 'failed':
+            return [], 'failed'
+        if st == 'ok' and (data or {}).get('vulnerabilities'):
+            return _collect(data, from_cpe_query=True), 'ok'
 
-            # CWE name from weaknesses (ชื่อหมวดหมู่ช่องโหว่)
-            cwe_id = cwe_name = None
-            for w in cve_item.get('weaknesses', []):
-                for desc in w.get('description', []):
-                    value = desc.get('value', '')
-                    if value in CWE_SHORT_NAMES:
-                        cwe_id, cwe_name = value, CWE_SHORT_NAMES[value]
-                        break
-                    elif value.startswith('CWE-'):
-                        cwe_id, cwe_name = value, value  # fallback: show CWE ID itself
-                        break
-                if cwe_name:
-                    break
-
-            entry = {
-                'cve_id': cve_id,
-                'description': description[:300] if description else '',
-                'cvss_score': cvss_score,
-                'severity': severity.upper() if severity else 'UNKNOWN',
-                'cwe_name': cwe_name or '',
-                'cwe_id': cwe_id or '',
-                # CISA's Known Exploited Vulnerabilities catalog, as NVD reports it (`cisaExploitAdd` = the date CISA listed it). NVD's
-                # answer is the whole truth at lookup time, so False is stored too; a record from before this field has no `kev` key.
-                'kev': bool(cve_item.get('cisaExploitAdd')),
-            }
-            if entry['kev']:
-                entry['kev_added'] = str(cve_item.get('cisaExploitAdd'))[:10]
-            try:
-                entry['detail'] = nvd_detail(cve_item, chosen, description)
-            except Exception:
-                pass                                    # the extra facts are a bonus: if NVD shaped something oddly the CVE still keeps everything it had before
-            cves.append(entry)
-        return cves, 'ok'
-    except Exception:
+    keyword = f"{clean_product} {clean_version}".strip()
+    data, st = _query({'keywordSearch': keyword, 'resultsPerPage': fetch_limit})
+    if st != 'ok':
         return [], 'failed'
+    return _collect(data, from_cpe_query=False), 'ok'
 
 
-def lookup_cves_nvd(product, version, max_results=5):
+def lookup_cves_nvd(product, version, max_results=5, cpe='', host_os=''):
     """The CVEs only (lookup_cves_nvd_status() also says whether the lookup worked)."""
-    return lookup_cves_nvd_status(product, version, max_results)[0]
+    return lookup_cves_nvd_status(product, version, max_results, cpe=cpe, host_os=host_os)[0]
 
 
 def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=False, info=None, all_ports=False, no_dns=False, host_probes=False, gentle=False, udp=False):
@@ -3124,6 +3579,12 @@ def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=Fals
             if nm[host].state() != 'up':
                 continue
 
+            os_info = 'Unknown'
+            os_accuracy = None
+            if nm[host].get('osmatch'):
+                os_info = nm[host]['osmatch'][0]['name']
+                os_accuracy = os_match_accuracy(nm[host]['osmatch'][0].get('accuracy'))
+
             ports = []
             items = [(proto, port, nm[host][proto][port]) for proto in nm[host].all_protocols() for port in nm[host][proto].keys()]
             items += [('udp', port, d) for port, d in udp_ports.get(host, [])]
@@ -3132,17 +3593,18 @@ def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=Fals
                     product = port_data.get('product', '')
                     version = port_data.get('version', '')
                     extrainfo = port_data.get('extrainfo', '')
+                    cpe = port_data.get('cpe', '')
                     full_version = f"{product} {version} {extrainfo}".strip() or "Unknown Version"
 
                     # Only reachable services can be matched to CVEs. Keep
                     # other Nmap states in the report without CVE lookups.
                     check_scan_control()      # a cancel or the time limit also stops the NVD lookups that follow nmap
                     if port_data.get('state') == 'open':
-                        memo_key = (product, version)
+                        memo_key = (product, version, str(cpe), os_info)
                         if memo_key in nvd_memo:
                             cves, cve_status = nvd_memo[memo_key]
                         else:
-                            cves, cve_status = lookup_cves_nvd_status(product, version)
+                            cves, cve_status = lookup_cves_nvd_status(product, version, cpe=cpe, host_os=os_info)
                             if cve_status in ('ok', 'no_product'):
                                 nvd_memo[memo_key] = (cves, cve_status)
                     else:
@@ -3163,12 +3625,6 @@ def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=Fals
                     if cve_status:      # 'ok' | 'failed' | 'no_product'; only open ports are looked up. Scans from before this field have none (= not recorded)
                         entry['cve_status'] = cve_status
                     ports.append(entry)
-
-            os_info = 'Unknown'
-            os_accuracy = None
-            if nm[host].get('osmatch'):
-                os_info = nm[host]['osmatch'][0]['name']
-                os_accuracy = os_match_accuracy(nm[host]['osmatch'][0].get('accuracy'))
 
             mac_address = nm[host]['addresses'].get('mac', 'Unknown')
             mac_vendor = nm[host].get('vendor', {}).get(mac_address, '') or lookup_mac_vendor(mac_address)

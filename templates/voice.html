@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 
-{% block page_title %}<div class="topbar-page-title">เสียง</div>{% endblock %}
-{% block page_subtitle %}<div class="topbar-page-subtitle">พูดคำสั่งหรือถามข้อมูลเกี่ยวกับเครือข่าย</div>{% endblock %}
-{% block page_context %}"หน้า: เสียง (คำสั่งเสียง)"{% endblock %}
+{% block page_title %}<div class="topbar-page-title">{{ t('nav.voice') }}</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">{{ t('voice.subtitle') }}</div>{% endblock %}
+{% block page_context %}{{ t('voice.context') | tojson }}{% endblock %}
 
 {% block content %}
 {# The Voice page, option B of docs/design-options/voice-orb (a ring of rounded bars around one big microphone). It is NOT a second voice engine: the markup is the shared
@@ -12,7 +12,8 @@
 <style>
 body:has(.vp-ws) .main-content { padding: 20px 28px 24px; }
 .vp-ws { position: relative; min-height: 560px; }
-#vp-root { --ink: #363a42; --muted: #5b6779; --cream: #fff4d1; --gold: #e6a700; --edge: #f0d58c;
+:root:not([data-theme="dark"]) #vp-root { --ink: #363a42; --muted: #5b6779; --cream: #fff4d1; --gold: #e6a700; --edge: #f0d58c; }      /* the light values; dark takes the page tokens below (a variable cannot be redefined from itself) */
+#vp-root {
   position: relative; height: 100%; min-height: 560px; overflow: hidden; isolation: isolate; container-type: inline-size;
   display: flex; flex-direction: column; align-items: stretch; padding: 14px 22px 20px;
   border-radius: 24px; border: 1px solid #efe9d6; background: radial-gradient(64% 50% at 50% 42%, rgba(255,241,196,.7), rgba(255,255,255,0) 70%), #fffefb; }
@@ -36,6 +37,7 @@ body:has(.vp-ws) .main-content { padding: 20px 28px 24px; }
 #vp-root .vp-menu button[aria-checked="true"] { color: var(--ink); font-weight: 600; }
 #vp-root .vp-menu button[aria-checked="true"] i { visibility: visible; }
 #vp-root .vp-lang i { font-size: 14px; color: #64748b; }
+#vp-root .vp-lang .vp-lang-pre { font-weight: 500; opacity: .82; }
 #vp-root .vp-sep { opacity: .7; padding: 0 2px; }
 #vp-root .vp-eng.off::before { content: ""; width: 9px; height: 9px; border: 2px solid #b45309; border-radius: 50%; box-sizing: border-box; display: inline-block; margin-right: 6px; vertical-align: -1px; }
 
@@ -146,6 +148,40 @@ body:has(.vp-ws) .main-content { padding: 20px 28px 24px; }
 
 @media (max-width: 1000px) { body:has(.vp-ws) .main-content { padding: 14px 12px 24px; } #vp-root .vp-row { gap: 12px; } }
 @media (prefers-reduced-motion: reduce) { #vp-root *, #vp-root *::before, #vp-root *::after { animation: none !important; transition: none !important; } }
+
+/* ===== DARK THEME (light mode never reads this) =====
+   The panel becomes a calm dark surface: no white card, no glow halo, the disc a soft gold-on-dark chip. The ring canvas keeps its own colours (gold bars read well on dark). */
+:root[data-theme="dark"] #vp-root { --ink: var(--text); --cream: var(--nt-gold-bg); --gold: var(--gold-ink); --edge: #6b5a2c;
+  border-color: var(--border); background: radial-gradient(64% 50% at 50% 42%, rgba(245,197,24,.06), rgba(0,0,0,0) 70%), var(--surface); }
+:root[data-theme="dark"] #vp-root :focus-visible { outline-color: var(--focus); }
+:root[data-theme="dark"] #vp-root .vp-lang, :root[data-theme="dark"] #vp-root .vp-menu button, :root[data-theme="dark"] #vp-root .vp-cap,
+:root[data-theme="dark"] #vp-root .cb-msg.user .cb-bubble, :root[data-theme="dark"] #vp-root .cb-auto, :root[data-theme="dark"] #vp-root .vp-note a { color: var(--text-2); }
+:root[data-theme="dark"] #vp-root .vp-lang i { color: var(--muted); }
+:root[data-theme="dark"] #vp-root .vp-lang:hover, :root[data-theme="dark"] #vp-root .vp-lang[aria-expanded="true"] { background: var(--surface-2); }
+:root[data-theme="dark"] #vp-root .vp-sep { opacity: 1; color: var(--muted); }
+:root[data-theme="dark"] #vp-root .vp-menu, :root[data-theme="dark"] #vp-root .cb-help { background: var(--surface-2); border-color: var(--border); box-shadow: 0 18px 40px -16px rgba(0,0,0,.6); }
+:root[data-theme="dark"] #vp-root .vp-menu button:hover, :root[data-theme="dark"] #vp-root .vp-menu button:focus-visible { background: var(--surface-3); }
+:root[data-theme="dark"] #vp-root .vp-eng.off::before, :root[data-theme="dark"] #vp-root .vp-note::before { border-color: #e0a45a; }
+:root[data-theme="dark"] #vp-root .vp-rbtn { background: var(--surface-2); border-color: var(--border); color: var(--text-2); box-shadow: 0 6px 14px -8px rgba(0,0,0,.6); }
+:root[data-theme="dark"] #vp-root .vp-rbtn:hover { background: var(--surface-3); box-shadow: 0 8px 18px -8px rgba(0,0,0,.7); }
+:root[data-theme="dark"] #vp-root .vp-rbtn.xs { box-shadow: none; }
+:root[data-theme="dark"] #vp-root .vp-rbtn[aria-pressed="true"], :root[data-theme="dark"] #vp-root .vp-rbtn[aria-expanded="true"] { background: var(--nt-gold-bg); border-color: var(--edge); color: var(--gold-ink); }
+:root[data-theme="dark"] #vp-root .vp-glow { background: radial-gradient(circle, rgba(247,200,74,.10), rgba(247,200,74,0) 68%); }
+:root[data-theme="dark"] #vp-root .cb-mic.vp-disc { background: linear-gradient(145deg, #4a4330, #3d3826); border-color: var(--edge); color: var(--gold-ink); box-shadow: 0 10px 24px -12px rgba(0,0,0,.7); }
+:root[data-theme="dark"] #vp-root .cb-mic.vp-disc.is-listening { background: var(--btn-slate); border-color: var(--btn-slate); color: var(--text); box-shadow: 0 10px 24px -12px rgba(0,0,0,.7); }
+:root[data-theme="dark"] #vp-root .cb-mic.vp-disc.is-off { color: var(--fg-6); }
+:root[data-theme="dark"] #vp-root .cb-msg.bot .cb-bubble, :root[data-theme="dark"] #vp-root .cb-msg.bot .cb-bubble.cb-voice-card { background: var(--surface-2); border-color: var(--border); box-shadow: 0 16px 32px -20px rgba(0,0,0,.6); }
+:root[data-theme="dark"] #vp-root .cb-msg.bot .cb-bubble.k-warn { border-left-color: #c99a2e; }      /* the dark card border colour above would otherwise erase the amber rule of a refusal */
+:root[data-theme="dark"] #vp-root .cb-voice-row { border-bottom-color: var(--border); }
+:root[data-theme="dark"] #vp-root .cb-voice-yes, :root[data-theme="dark"] #vp-root .vp-send { background: var(--btn-slate); border-color: var(--btn-slate); color: var(--text); }
+:root[data-theme="dark"] #vp-root .cb-voice-no { border-color: var(--border-strong) !important; }
+:root[data-theme="dark"] #vp-root .vp-typed { background: var(--surface-2); border-color: var(--border); box-shadow: none; }
+:root[data-theme="dark"] #vp-root .vp-typed:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(150,193,255,.18); }
+:root[data-theme="dark"] #vp-root .vp-typed .cb-input { caret-color: var(--text); }
+:root[data-theme="dark"] #vp-root .vp-typed .cb-input::placeholder { color: var(--muted); }
+:root[data-theme="dark"] #vp-root .vp-note a { text-decoration-color: var(--fg-6); }
+:root[data-theme="dark"] #vp-root .cb-auto { background: var(--surface-2); border-color: var(--border); }
+#vp-root .cb-auto:has(.form-check-input:checked) { border-color: var(--gold-line); color: var(--text); }
 </style>
 
 <div class="vp-ws" id="vp-ws">
@@ -161,22 +197,13 @@ body:has(.vp-ws) .main-content { padding: 20px 28px 24px; }
 
   // The page's own words. Everything else (the strip, the answers, the card) is written by the shared voice code in base.html.
   const TXT = {
-    th: {
-      press: 'กดเพื่อพูด', working: 'กำลังทำความเข้าใจคำสั่ง',
-      langAuto: 'อัตโนมัติ', langTh: 'ไทย', langEn: 'English', langAria: 'ภาษาที่ฟัง {l} กดเพื่อเลือกภาษา', langMenu: 'ภาษาที่ใช้พูด',
-      noteWhisper: 'Whisper ไม่ได้ทำงาน จึงใช้ตัวถอดเสียงของเบราว์เซอร์ ซึ่งส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ ต้องใช้อินเทอร์เน็ต และถอดที่อยู่ IP ได้แม่นยำน้อยกว่า ',
-      notePinned: 'ตั้งค่าไว้ให้ใช้ตัวถอดเสียงของเบราว์เซอร์ ซึ่งส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ ต้องใช้อินเทอร์เน็ต และถอดที่อยู่ IP ได้แม่นยำน้อยกว่า ',
-      noteLink: 'เปิดใช้ Whisper ในหน้าตั้งค่า', closeTip: 'ยกเลิกและล้างหน้าจอ (Esc)', stopTip: 'ยกเลิกการฟัง (Esc)'
-    },
-    en: {
-      press: 'Press to speak', working: 'Working out the command',
-      langAuto: 'Auto', langTh: 'Thai', langEn: 'English', langAria: 'Speaking language {l}, press to choose', langMenu: 'Speaking language',
-      noteWhisper: 'Whisper is not running, so the browser\'s speech engine is used. It sends the audio to the browser vendor, needs the internet, and reads IP addresses less accurately. ',
-      notePinned: 'The browser\'s speech engine is selected in Settings. It sends the audio to the browser vendor, needs the internet, and reads IP addresses less accurately. ',
-      noteLink: 'Turn on Whisper in Settings', closeTip: 'Cancel and clear the screen (Esc)', stopTip: 'Cancel listening (Esc)'
-    }
+    press: {{ t('voice.js.press') | tojson }}, working: {{ t('voice.js.working') | tojson }},
+    langAuto: {{ t('voice.js.lang_auto') | tojson }}, langTh: {{ t('voice.js.lang_th') | tojson }}, langEn: {{ t('voice.js.lang_en') | tojson }},
+    langAria: {{ t('voice.js.lang_aria') | tojson }}, langMenu: {{ t('voice.js.lang_menu') | tojson }},
+    noteWhisper: {{ t('voice.js.note_whisper') | tojson }} + ' ', notePinned: {{ t('voice.js.note_pinned') | tojson }} + ' ',
+    noteLink: {{ t('voice.js.note_link') | tojson }}, closeTip: {{ t('voice.js.close_tip') | tojson }}, stopTip: {{ t('voice.js.stop_tip') | tojson }}
   };
-  const L = () => TXT[voiceUiLang()];
+  const L = () => TXT;      // the interface follows the site language, which the server already put into these texts
 
   const root = $('vp-root'), ring = $('vp-ring'), cv = $('cv') || $('vp-cv'), strip = $('cb-vstrip'), wrap = $('cb-messages');
   const ACTIVE = { listening: 1, transcribing: 1, understanding: 1 };      // the states that animate the ring
@@ -232,6 +259,8 @@ body:has(.vp-ws) .main-content { padding: 20px 28px 24px; }
     const lang = $('cb-vlang');
     const word = voiceMode === 'auto' ? l.langAuto : voiceMode === 'th' ? l.langTh : l.langEn;
     lang.textContent = '';
+    const li = document.createElement('i'); li.className = 'ti ti-language'; li.setAttribute('aria-hidden', 'true'); lang.appendChild(li);
+    const pre = document.createElement('span'); pre.className = 'vp-lang-pre'; pre.textContent = T.langPrefix; lang.appendChild(pre);
     lang.appendChild(document.createTextNode(word));
     const i = document.createElement('i'); i.className = 'ti ti-chevron-down'; i.setAttribute('aria-hidden', 'true'); lang.appendChild(i);
     lang.setAttribute('aria-label', l.langAria.replace('{l}', word)); lang.title = lang.getAttribute('aria-label');
@@ -290,7 +319,13 @@ body:has(.vp-ws) .main-content { padding: 20px 28px 24px; }
 
   // ─── the ring: one canvas, 72 rounded bars (no blur, nothing drawn while idle) ───
   const N = 72, TAU = Math.PI * 2, vals = new Float32Array(N);
-  const GOLD = [236, 164, 0], PALE = [250, 207, 72], BLUE = [140, 166, 220], GREY = [203, 213, 225];
+  const GOLD = [236, 164, 0], PALE = [250, 207, 72], BLUE = [140, 166, 220], GREY_LIGHT = [203, 213, 225], GREY_DARK = [132, 146, 166];
+  // Gold and blue bars read well on both surfaces; only the quiet grey of a refusal is softened in dark mode (the light grey would be the brightest thing on the page).
+  // Read once and again when the theme button fires "clylar:theme": nothing is added to a frame.
+  let GREY = GREY_LIGHT;
+  const themeColours = () => { GREY = document.documentElement.getAttribute('data-theme') === 'dark' ? GREY_DARK : GREY_LIGHT; };
+  themeColours();
+  document.addEventListener('clylar:theme', () => { themeColours(); drawSoon(); });
   const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
   let cool = 0, grey = 0, lv = 0, lastLvl = -1, raf = 0, timer = 0, lastT = 0, sized = '';
   function fitCanvas() {

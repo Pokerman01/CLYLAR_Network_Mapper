@@ -1,13 +1,14 @@
 {% extends 'base.html' %}
 
+{% block title %}{{ t('history.title') }} · CLYLAR Network Scanner{% endblock %}
 {% block content %}
 
 <div class="d-flex align-items-center justify-content-between mb-4">
     <div>
-        <h2 class="mb-1">Scan History</h2>
-        <p class="text-muted mb-0">ประวัติการสแกนทั้งหมดในระบบ</p>
+        <h2 class="mb-1">{{ t('history.title') }}</h2>
+        <p class="text-muted mb-0">{{ t('history.subtitle') }}</p>
     </div>
-    <span class="badge bg-secondary fs-6">{{ history|length }} รายการ</span>
+    <span class="badge bg-secondary fs-6 hist-count-total">{{ t('history.count_one') if history|length == 1 else t('history.count_many', n=history|length) }}</span>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -15,7 +16,7 @@
         {% for category, message in messages %}
         <div class="alert alert-{{ 'success' if category == 'success' else ('warning' if category == 'warning' else 'danger') }} alert-dismissible fade show" role="alert">
             {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{{ t('common.close') }}"></button>
         </div>
         {% endfor %}
     {% endif %}
@@ -34,33 +35,146 @@ const ALL_SCANS = [
 ];
 </script>
 
+{# the lookups of the advanced filter: its field labels, hints and option names arrive from the server (adv_fields) in a mix of English and Thai, so the page names them itself #}
+{% set hx_fields = {} %}{% for k in ['target', 'name', 'type', 'status', 'triggered_by', 'date', 'host', 'port', 'os', 'cve', 'severity'] %}{% set _ = hx_fields.update({k: t('history.f.' ~ k)}) %}{% endfor %}
+{% set hx_hints = {'name': t('history.h.name'), 'host': t('history.h.host'), 'port': t('history.h.port')} %}
+{% set hx_types = {} %}{% for k in ['discovery', 'fast_scan', 'intense', 'custom', 'xml_upload', 'vuln_scan'] %}{% set _ = hx_types.update({k: k | scan_label}) %}{% endfor %}
+{% set hx_status = {'Completed': t('status.completed'), 'Queued': t('status.queued'), 'Running': t('status.running'), 'Failed': t('status.failed'), 'Cancelled': t('status.cancelled')} %}
+{% set hx_trig = {'manual': t('history.trig.manual'), 'schedule': t('history.trig.schedule'), 'rescan': t('history.trig.rescan'), 'drilldown': t('history.trig.drilldown'), 'chatbot': t('history.trig.chatbot')} %}
+<script>
+// The texts of this page's scripts, in the site language (locales/th|en/history.json). {x} marks a value that the code fills in.
+const HX = {
+    fields: {{ hx_fields | tojson }},
+    hints: {{ hx_hints | tojson }},
+    options: { type: {{ hx_types | tojson }}, status: {{ hx_status | tojson }}, triggered_by: {{ hx_trig | tojson }} },
+    searching: {{ t('history.note.searching') | tojson }},
+    noteFailed: {{ t('history.note.failed') | tojson }},
+    noneSingle: {{ t('history.note.none_single') | tojson }},
+    noneNet: {{ t('history.note.none_net') | tojson }},
+    near: {{ t('history.note.near') | tojson }},
+    nearMore: {{ t('history.note.near_more') | tojson }},
+    foundSingle: {{ t('history.note.found_single') | tojson }},
+    foundNet: {{ t('history.note.found_net') | tojson }},
+    goto: {{ t('history.note.goto') | tojson }},
+    and: {{ t('history.adv.and') | tojson }},
+    exclude: {{ t('history.adv.exclude') | tojson }},
+    busy: {{ t('history.adv.busy') | tojson }},
+    matchedPrefix: {{ t('history.adv.matched_prefix') | tojson }},
+    matchedCount: {{ t('history.adv.matched_count') | tojson }},
+    noConditions: {{ t('history.adv.no_conditions') | tojson }},
+    searchFailed: {{ t('history.adv.search_failed') | tojson }},
+    nothingToSave: {{ t('history.adv.nothing_to_save') | tojson }},
+    saveFailed: {{ t('history.adv.save_failed') | tojson }},
+    savedOk: {{ t('history.adv.saved_ok') | tojson }},
+    qEmptySaved: {{ t('history.adv.q_empty_saved') | tojson }},
+    qEmptyRecent: {{ t('history.adv.q_empty_recent') | tojson }},
+    lastUsed: {{ t('history.adv.last_used') | tojson }},
+    delQueryAria: {{ t('history.adv.del_query_aria') | tojson }},
+    pickCondition: {{ t('history.adv.pick_condition') | tojson }},
+    removeCondition: {{ t('history.adv.remove_condition') | tojson }},
+    removeValue: {{ t('history.adv.remove_value') | tojson }},
+    groupScan: {{ t('history.adv.group_scan') | tojson }},
+    groupResult: {{ t('history.adv.group_result') | tojson }},
+    typePh: {{ t('history.adv.type_ph') | tojson }},
+    dateFrom: {{ t('history.adv.date_from') | tojson }},
+    dateTo: {{ t('history.adv.date_to') | tojson }},
+    noSummary: {{ t('history.adv.no_summary') | tojson }},
+    portsFoundQ: {{ t('history.ports.found_q') | tojson }},
+    portsFoundQOne: {{ t('history.ports.found_q_one') | tojson }},
+    portsFoundAll: {{ t('history.ports.found_all') | tojson }},
+    portsFoundAllOne: {{ t('history.ports.found_all_one') | tojson }},
+    portsNoneQ: {{ t('history.ports.none_q') | tojson }},
+    view: {{ t('common.view') | tojson }},
+    delAllN: {{ t('history.del.all_n') | tojson }},
+    delAllNote: {{ t('history.del.all_note') | tojson }}
+};
+const hxFill = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
+// A text with {slots} as DOM nodes: a string value becomes plain text, a Node (a bold address) goes in as it is, so nothing that comes from a scan is ever read as markup.
+function hxNodes(tpl, vals) {
+    const frag = document.createDocumentFragment();
+    tpl.split(/(\{\w+\})/).forEach(part => {
+        const m = part.match(/^\{(\w+)\}$/);
+        if (!m || !(m[1] in vals)) { if (part) frag.append(part); return; }
+        frag.append(vals[m[1]]);
+    });
+    return frag;
+}
+</script>
+
 <!-- Tab Bar (Tasks style) -->
 <div class="mt-3 mb-1">
-    <div class="d-inline-flex rounded-3 p-1" style="background:#f0f0f0; gap:4px;">
+    <div class="d-inline-flex rounded-3 p-1 hist-tabs" style="gap:4px;">
         <button id="tab-history-btn" onclick="switchHistoryTab('history')"
                 class="btn btn-sm fw-semibold rounded-2 px-4 py-2 hist-tab-btn active-tab"
                 style="font-size:.875rem; transition:all .18s;">
-            History
+            {{ t('history.tab.history') }}
         </button>
         <button id="tab-portsearch-btn" onclick="switchHistoryTab('portsearch')"
                 class="btn btn-sm fw-semibold rounded-2 px-4 py-2 hist-tab-btn"
                 style="font-size:.875rem; transition:all .18s;">
-            Port Search
+            {{ t('history.tab.ports') }}
         </button>
     </div>
 </div>
 <hr class="mt-2 mb-3">
 
 <style>
-.hist-tab-btn { background: transparent; color: #555; border: none; }
-.hist-tab-btn.active-tab { background: #fff; color: #111; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
-.search-note { font-size: .85rem; color: #475569; }
-.search-note b { font-weight: 600; color: #334155; }
-.search-note a, #historyNoMatch .btn-link { color: #2563eb; text-decoration: none; }
+/* Colours of this page that base.html's token block does not have. Light = exactly what the page always used; dark = palette C. Everything else reads base's tokens
+   (--surface, --border, --text, --muted, --link ...), so a change of palette there reaches this page too. */
+:root {
+    --h-seg-bg: #f0f0f0; --h-seg-ink: #555; --h-seg-on-bg: #fff; --h-seg-on-ink: #111; --h-seg-on-shadow: rgba(0, 0, 0, .12);
+    --h-x: #94a3b8; --h-err: #b42318; --h-err-ring: rgba(185, 28, 28, .18);
+    --h-side-bg: #fafbfc; --h-ring: rgba(148, 163, 184, .2);
+    --h-sel-bg: #dbeafe; --h-sel-ink: #1e40af; --h-sel-line: #bfdbfe;
+    --h-selected: #f0f7ff;
+    --h-count-bg: #EAF3DE; --h-count-ink: #3B6D11; --h-count-line: #C0DD97;
+    --h-p-sch-bg: #f1f5f9; --h-p-sch-ink: #334155; --h-p-sch-line: #e2e8f0;
+    --h-p-re-bg: #f0f9ff; --h-p-re-ink: #0369a1; --h-p-re-line: #bae6fd;
+    --h-p-dd-bg: #f5f3ff; --h-p-dd-ink: #6d28d9; --h-p-dd-line: #ddd6fe;
+    --h-p-bot-bg: #ecfdf5; --h-p-bot-ink: #047857; --h-p-bot-line: #a7f3d0;
+    --h-p-man-bg: #f8fafc; --h-p-man-ink: #475569; --h-p-man-line: #e2e8f0;
+    --h-chip-ink: #6c757d; --h-chip-hover: #f8f9fa;
+    --h-pill-bg: #fff3cd; --h-pill-ink: #856404; --h-pill-line: #ffc107;
+    --h-line: #e5e8ec; --h-line-2: #f0f2f5; --h-soft: #5b6472;
+    --h-focus-line: #8796ab; --h-focus-ring: rgba(100, 116, 139, .22);
+    --h-btn-line: #d9dee5; --h-btn-line-hover: #c8cfd9; --h-hover: #f3f5f8;
+    --h-danger-hover: #fdf1f0; --h-del-ink: #b91c1c; --h-del-line: rgba(185, 28, 28, .3); --h-del-line-hover: rgba(185, 28, 28, .45);
+    --h-bar-line: #dfe3e9;
+    --h-bar-shadow: 0 8px 24px rgba(15, 23, 42, .10), 0 1px 3px rgba(15, 23, 42, .06);
+    --h-dlg-shadow: 0 20px 50px rgba(15, 23, 42, .16), 0 0 0 1px rgba(15, 23, 42, .04);
+}
+:root[data-theme="dark"] {
+    --h-seg-bg: var(--track); --h-seg-ink: var(--muted); --h-seg-on-bg: var(--surface-4); --h-seg-on-ink: var(--fg-0); --h-seg-on-shadow: rgba(0, 0, 0, .25);
+    --h-x: var(--muted); --h-err: var(--danger-ink); --h-err-ring: rgba(229, 151, 158, .28);
+    --h-side-bg: var(--sunken); --h-ring: rgba(169, 171, 180, .22);
+    --h-sel-bg: var(--info-bg); --h-sel-ink: var(--info-ink); --h-sel-line: #43587f;
+    --h-selected: #2e3853;
+    --h-count-bg: var(--ok-bg); --h-count-ink: var(--ok-ink); --h-count-line: #46634f;
+    --h-p-sch-bg: var(--surface-3); --h-p-sch-ink: var(--text-2); --h-p-sch-line: var(--border-strong);
+    --h-p-re-bg: var(--info-bg); --h-p-re-ink: var(--info-ink); --h-p-re-line: #43587f;
+    --h-p-dd-bg: #3c3a58; --h-p-dd-ink: #cdc3f5; --h-p-dd-line: #575480;
+    --h-p-bot-bg: #26423b; --h-p-bot-ink: #9be0c8; --h-p-bot-line: #3e6b60;
+    --h-p-man-bg: var(--surface-2); --h-p-man-ink: var(--text-2); --h-p-man-line: var(--border);
+    --h-chip-ink: var(--muted); --h-chip-hover: var(--surface-2);
+    --h-pill-bg: var(--surface-3); --h-pill-ink: var(--text-2); --h-pill-line: var(--border-strong);
+    --h-line: var(--border); --h-line-2: var(--line-soft); --h-soft: var(--muted);
+    --h-focus-line: var(--focus); --h-focus-ring: rgba(169, 171, 180, .28);
+    --h-btn-line: var(--border-strong); --h-btn-line-hover: var(--line-stronger); --h-hover: var(--surface-2);
+    --h-danger-hover: rgba(229, 151, 158, .12); --h-del-ink: var(--danger-ink); --h-del-line: rgba(229, 151, 158, .4); --h-del-line-hover: rgba(229, 151, 158, .6);
+    --h-bar-line: var(--border);
+    --h-bar-shadow: 0 8px 24px rgba(0, 0, 0, .38), 0 1px 3px rgba(0, 0, 0, .28);
+    --h-dlg-shadow: 0 20px 50px rgba(0, 0, 0, .5), 0 0 0 1px var(--border);
+}
+.hist-tabs { background: var(--h-seg-bg); }
+.hist-tab-btn { background: transparent; color: var(--h-seg-ink); border: none; }
+.hist-tab-btn.active-tab { background: var(--h-seg-on-bg); color: var(--h-seg-on-ink); box-shadow: 0 1px 4px var(--h-seg-on-shadow); }
+.search-note { font-size: .85rem; color: var(--text-2); }
+.search-note b { font-weight: 600; color: var(--fg-2); }
+.search-note a, #historyNoMatch .btn-link { color: var(--link); text-decoration: none; }
 .search-note a { margin-left: .25rem; white-space: nowrap; }
 .search-note a:hover, #historyNoMatch .btn-link:hover { text-decoration: underline; }
-.search-note.is-warn { color: #92400e; }   /* amber: a problem, not an alarm */
-.search-note .note-pick { border: 0; background: none; padding: 0; font: inherit; color: #2563eb; }
+.search-note.is-warn { color: var(--amber-ink-2); }   /* amber: a problem, not an alarm */
+.search-note .note-pick { border: 0; background: none; padding: 0; font: inherit; color: var(--link); }
 .search-note .note-pick:hover { text-decoration: underline; }
 </style>
 <div>
@@ -71,29 +185,30 @@ const ALL_SCANS = [
 <div class="card border-0 shadow-sm mb-3 p-3">
     <div class="row g-2 align-items-center">
         <div class="col-md-3">
-            <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="ค้นหา IP, Target หรือชื่องาน" aria-label="ค้นหา IP, Target หรือชื่องาน" autocomplete="off"
-                   title="พิมพ์ส่วนหนึ่งของ Target หรือชื่องาน หรือพิมพ์ IP เต็ม (เช่น 192.168.1.41) หรือช่วง (เช่น 192.168.1.0/24) เพื่อหาสแกนที่พบอุปกรณ์นั้น">
+            <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="{{ t('history.search.ph') }}" aria-label="{{ t('history.search.ph') }}" autocomplete="off"
+                   title="{{ t('history.search.tip') }}">
         </div>
         <div class="col-md-2">
-            <select id="typeFilter" class="form-select form-select-sm">
-                <option value="">ทุก Type</option>
-                <option value="discovery">Discovery</option>
-                <option value="fast_scan">Fast Scan</option>
+            <select id="typeFilter" class="form-select form-select-sm" aria-label="{{ t('common.type') }}">
+                <option value="">{{ t('history.filter.all_types') }}</option>
+                {% for k in ['discovery', 'fast_scan', 'intense', 'vuln_scan', 'custom', 'xml_upload'] %}<option value="{{ k }}">{{ k | scan_label }}</option>{% endfor %}
             </select>
         </div>
         <div class="col-md-2">
-            <select id="statusFilter" class="form-select form-select-sm">
-                <option value="">ทุก Status</option>
-                <option value="Completed">Completed</option>
-                <option value="Queued">Queued</option>
-                <option value="Running">Running</option>
+            <select id="statusFilter" class="form-select form-select-sm" aria-label="{{ t('common.status') }}">
+                <option value="">{{ t('history.filter.all_status') }}</option>
+                <option value="Completed">{{ t('status.completed') }}</option>
+                <option value="Queued">{{ t('status.queued') }}</option>
+                <option value="Running">{{ t('status.running') }}</option>
+                <option value="Failed">{{ t('status.failed') }}</option>
+                <option value="Cancelled">{{ t('status.cancelled') }}</option>
             </select>
         </div>
         <div class="col-md-5 text-end">
             <button type="button" class="btn btn-sm btn-outline-secondary" id="advToggle" aria-expanded="false" aria-controls="advPanel">
-                <i class="ti ti-adjustments-horizontal me-1" aria-hidden="true"></i>ตัวกรองขั้นสูง<span class="adv-dot" id="advDot" hidden></span>
+                <i class="ti ti-adjustments-horizontal me-1" aria-hidden="true"></i>{{ t('history.adv.title') }}<span class="adv-dot" id="advDot" hidden></span>
             </button>
-            <button type="button" class="btn btn-sm btn-outline-secondary ms-1" onclick="clearFilters()">ล้าง</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-1" onclick="clearFilters()">{{ t('common.clear') }}</button>
         </div>
         <div class="col-12 search-note" id="searchNote" role="status" aria-live="polite" hidden></div>
     </div>
@@ -103,30 +218,30 @@ const ALL_SCANS = [
 <div class="adv-card" id="advPanel" hidden>
     <div class="adv-grid">
         <div class="adv-main">
-            <div class="adv-h">ตัวกรองขั้นสูง</div>
+            <div class="adv-h">{{ t('history.adv.title') }}</div>
             <div id="advInclude"></div>
-            <button type="button" class="adv-add" id="advAddInclude"><i class="ti ti-plus" aria-hidden="true"></i> เพิ่มเงื่อนไข</button>
-            <div class="adv-excl">ยกเว้น</div>
+            <button type="button" class="adv-add" id="advAddInclude"><i class="ti ti-plus" aria-hidden="true"></i> {{ t('history.adv.add') }}</button>
+            <div class="adv-excl">{{ t('history.adv.exclude') }}</div>
             <div id="advExclude"></div>
-            <button type="button" class="adv-add" id="advAddExclude"><i class="ti ti-ban" aria-hidden="true"></i> เพิ่มเงื่อนไขที่ยกเว้น</button>
-            <div class="adv-help">หลายแถวเป็น AND · หลายค่าในแถวเดียวกันเป็น OR · เงื่อนไขเกี่ยวกับผลการสแกน (พอร์ต, OS, CVE) ต้องตรงกับอุปกรณ์เครื่องเดียวกัน</div>
+            <button type="button" class="adv-add" id="advAddExclude"><i class="ti ti-ban" aria-hidden="true"></i> {{ t('history.adv.add_exclude') }}</button>
+            <div class="adv-help">{{ t('history.adv.help') }}</div>
             <div class="adv-save" id="advSaveRow" hidden>
-                <input type="text" class="form-control form-control-sm" id="advSaveName" maxlength="100" placeholder="ตั้งชื่อ query เช่น Windows ที่เปิด 445" aria-label="ชื่อ query">
-                <button type="button" class="btn btn-sm btn-primary" id="advSaveGo">บันทึก</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="advSaveCancel">ยกเลิก</button>
+                <input type="text" class="form-control form-control-sm" id="advSaveName" maxlength="100" placeholder="{{ t('history.adv.save_ph') }}" aria-label="{{ t('history.adv.save_name_aria') }}">
+                <button type="button" class="btn btn-sm btn-primary" id="advSaveGo">{{ t('common.save') }}</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="advSaveCancel">{{ t('common.cancel') }}</button>
             </div>
             <div class="adv-actions">
                 <span class="adv-status" id="advStatus" role="status" aria-live="polite"></span>
-                <button type="button" class="btn btn-sm btn-link text-secondary" id="advClear">ล้าง</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="advSave">บันทึก Query</button>
-                <button type="button" class="btn btn-sm btn-primary px-4 fw-semibold" id="advSearch">ค้นหา</button>
+                <button type="button" class="btn btn-sm btn-link text-secondary" id="advClear">{{ t('common.clear') }}</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="advSave">{{ t('history.adv.save') }}</button>
+                <button type="button" class="btn btn-sm btn-primary px-4 fw-semibold" id="advSearch">{{ t('common.search') }}</button>
             </div>
         </div>
-        <aside class="adv-side" aria-label="Queries">
-            <div class="adv-h">Queries</div>
+        <aside class="adv-side" aria-label="{{ t('history.adv.queries') }}">
+            <div class="adv-h">{{ t('history.adv.queries') }}</div>
             <div class="adv-tabs" role="tablist">
-                <button type="button" class="adv-tab" role="tab" data-tab="recent" aria-selected="true">Recent</button>
-                <button type="button" class="adv-tab" role="tab" data-tab="saved" aria-selected="false">My Saved</button>
+                <button type="button" class="adv-tab" role="tab" data-tab="recent" aria-selected="true">{{ t('history.adv.tab_recent') }}</button>
+                <button type="button" class="adv-tab" role="tab" data-tab="saved" aria-selected="false">{{ t('history.adv.tab_saved') }}</button>
             </div>
             <ul class="adv-qlist" id="advQList"></ul>
         </aside>
@@ -138,7 +253,29 @@ const ALL_SCANS = [
 #historyTable { table-layout: fixed; }
 #historyTable th { white-space: nowrap; }
 #historyTable td { vertical-align: middle; }
+/* "how it was started" pills (they were inline colours, which a theme cannot change) */
+.trig-pill { font-weight: 500; border: 1px solid; }
+.trig-schedule { background: var(--h-p-sch-bg); color: var(--h-p-sch-ink); border-color: var(--h-p-sch-line); }
+.trig-rescan { background: var(--h-p-re-bg); color: var(--h-p-re-ink); border-color: var(--h-p-re-line); }
+.trig-drilldown { background: var(--h-p-dd-bg); color: var(--h-p-dd-ink); border-color: var(--h-p-dd-line); }
+.trig-chatbot { background: var(--h-p-bot-bg); color: var(--h-p-bot-ink); border-color: var(--h-p-bot-line); }
+.trig-manual { background: var(--h-p-man-bg); color: var(--h-p-man-ink); border-color: var(--h-p-man-line); }
+/* "scan 3 of 4 of this target" chip */
+.hist-count { font-size: .65rem; background: var(--h-count-bg); color: var(--h-count-ink); border: 0.5px solid var(--h-count-line); }
+/* Dark only: Bootstrap's solid status colours are bright blocks on a dark page, so the status, type and count chips become soft tints (same words, same shapes).
+   Light is untouched. Red stays on Failed / Cancelled as before (a stopped scan), nothing else is red. */
+:root[data-theme="dark"] #historyTable > thead.table-dark,
+:root[data-theme="dark"] #tab-portsearch .table > thead.table-dark { --bs-table-bg: var(--surface-3); --bs-table-color: var(--fg-0); --bs-table-border-color: var(--border-strong); }
+:root[data-theme="dark"] .hist-count-total.badge,
+:root[data-theme="dark"] #historyTable .badge.bg-secondary,
+:root[data-theme="dark"] #portBody .badge.bg-secondary { background-color: var(--surface-3) !important; color: var(--text) !important; }
+:root[data-theme="dark"] #historyTable .badge.st-ok { background-color: var(--ok-bg) !important; color: var(--ok-ink) !important; box-shadow: inset 0 0 0 1px #46634f; }
+:root[data-theme="dark"] #historyTable .badge.st-bad { background-color: var(--danger-tint) !important; color: var(--danger-ink) !important; box-shadow: inset 0 0 0 1px #7a4045; }
+:root[data-theme="dark"] #historyTable .badge.st-wait { background-color: var(--warn-bg) !important; color: #e6d29b !important; box-shadow: inset 0 0 0 1px var(--warn-line); }
+:root[data-theme="dark"] #historyTable, :root[data-theme="dark"] #tab-portsearch { --bs-code-color: #f4a9cd; }      /* Bootstrap's pink code colour is 4.0:1 on a selected row */
+:root[data-theme="dark"] #historyTable .btn.hist-wait-btn:disabled { background-color: var(--surface-3); border-color: var(--surface-3); color: var(--muted); opacity: 1; }
 </style>
+{% set st_text = {'Completed': t('status.completed'), 'Running': t('status.running'), 'Queued': t('status.queued'), 'Failed': t('status.failed'), 'Cancelled': t('status.cancelled')} %}
 <div class="card p-0 shadow-sm border-0">
     <div class="table-responsive">
     <table class="table table-hover mb-0" id="historyTable">
@@ -146,17 +283,17 @@ const ALL_SCANS = [
             <tr>
                 {% if current_user.is_any_admin %}
                 <th style="width: 42px; text-align: center;">
-                    <input type="checkbox" class="form-check-input" id="selectAllCheckbox" title="เลือกทั้งหมด" style="cursor: pointer;">
+                    <input type="checkbox" class="form-check-input" id="selectAllCheckbox" title="{{ t('history.select_all') }}" aria-label="{{ t('history.select_all') }}" style="cursor: pointer;">
                 </th>
                 {% endif %}
-                <th style="width: 70px;">Job ID</th>
-                <th style="width: 170px;">Name</th>
-                <th style="width: 230px;">Target</th>
-                <th style="width: 150px;">Type</th>
-                <th style="width: 130px;">Triggered By</th>
-                <th style="width: 110px;">Status</th>
-                <th style="width: 150px;">Date &amp; Time</th>
-                <th style="width: 130px;">Action</th>
+                <th style="width: 70px;">{{ t('history.col.job') }}</th>
+                <th style="width: 170px;">{{ t('common.name') }}</th>
+                <th style="width: 230px;">{{ t('common.target') }}</th>
+                <th style="width: 150px;">{{ t('common.type') }}</th>
+                <th style="width: 130px;">{{ t('history.col.trig') }}</th>
+                <th style="width: 110px;">{{ t('common.status') }}</th>
+                <th style="width: 150px;">{{ t('history.col.when') }}</th>
+                <th style="width: 130px;">{{ t('common.action') }}</th>
             </tr>
         </thead>
         <tbody id="historyBody">
@@ -170,7 +307,7 @@ const ALL_SCANS = [
                            data-scan-seq="#{{ owner_seq_map.get(job.id, job.id) }}"
                            data-target="{{ job.target }}"
                            data-name="{{ job.scan_name or '' }}"
-                           {% if job.status in ('Queued', 'Running') %}disabled title="เลือกไม่ได้ เพราะงานสแกนนี้กำลังทำงานหรือรอคิว"{% else %}style="cursor: pointer;"{% endif %}>
+                           {% if job.status in ('Queued', 'Running') %}disabled title="{{ t('history.row.cb_disabled') }}" aria-label="{{ t('history.row.cb_disabled') }}"{% else %}style="cursor: pointer;"{% endif %}>
                 </td>
                 {% endif %}
                 <td><span class="text-muted">#{{ owner_seq_map.get(job.id, job.id) }}</span></td>
@@ -185,34 +322,36 @@ const ALL_SCANS = [
                     <code>{{ job.target }}</code>
                     {% set seq_info = scan_seq_map.get(job.id) %}
                     {% if seq_info and seq_info[1] > 1 %}
-                    <span class="badge ms-1" style="font-size:.65rem;background:#EAF3DE;color:#3B6D11;border:0.5px solid #C0DD97;" title="สแกนครั้งที่ {{ seq_info[0] }} จากทั้งหมด {{ seq_info[1] }} ครั้ง">count: {{ seq_info[0] }}/{{ seq_info[1] }}</span>
+                    <span class="badge ms-1 hist-count" title="{{ t('history.row.count_tip', a=seq_info[0], b=seq_info[1]) }}">{{ t('history.row.count', a=seq_info[0], b=seq_info[1]) }}</span>
                     {% endif %}
                 </td>
                 <td><span class="badge bg-secondary">{{ job.scan_type | scan_label }}</span></td>
                 <td>
                     {% if job.triggered_by == 'schedule' %}
-                        <span class="badge" style="background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;font-weight:500;"><i class="ti ti-clock me-1"></i>Schedule</span>
+                        <span class="badge trig-pill trig-schedule"><i class="ti ti-clock me-1" aria-hidden="true"></i>{{ t('history.trig.schedule') }}</span>
                     {% elif job.triggered_by == 'rescan' %}
-                        <span class="badge" style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;font-weight:500;"><i class="ti ti-refresh me-1"></i>Rescan</span>
+                        <span class="badge trig-pill trig-rescan"><i class="ti ti-refresh me-1" aria-hidden="true"></i>{{ t('history.trig.rescan') }}</span>
                     {% elif job.triggered_by == 'drilldown' %}
-                        <span class="badge" style="background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;font-weight:500;"><i class="ti ti-scan me-1"></i>Drill-down</span>
+                        <span class="badge trig-pill trig-drilldown"><i class="ti ti-scan me-1" aria-hidden="true"></i>{{ t('history.trig.drilldown') }}</span>
+                    {% elif job.triggered_by == 'chatbot' %}
+                        <span class="badge trig-pill trig-chatbot"><i class="ti ti-message-circle me-1" aria-hidden="true"></i>{{ t('history.trig.chatbot') }}</span>
                     {% else %}
-                        <span class="badge" style="background:#f8fafc;color:#475569;border:1px solid #e2e8f0;font-weight:500;"><i class="ti ti-user me-1"></i>Manual</span>
+                        <span class="badge trig-pill trig-manual"><i class="ti ti-user me-1" aria-hidden="true"></i>{{ t('history.trig.manual') }}</span>
                     {% endif %}
                 </td>
                 <td>
-                    <span class="badge {{ 'bg-success' if job.status == 'Completed' else 'bg-danger' if job.status in ('Failed', 'Cancelled') else 'bg-warning text-dark' }}">
-                        {{ job.status }}
+                    <span class="badge {{ 'bg-success st-ok' if job.status == 'Completed' else 'bg-danger st-bad' if job.status in ('Failed', 'Cancelled') else 'bg-warning text-dark st-wait' }}">
+                        {{ st_text.get(job.status, job.status) }}
                     </span>
                 </td>
-                <td class="text-nowrap">{{ job.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td class="text-nowrap">{{ job.timestamp | fdt('%Y-%m-%d %H:%M') }}</td>
                 <td class="text-nowrap">
                     <div class="d-flex align-items-center gap-1 flex-nowrap">
                     {% if job.status == 'Completed' %}
                         <a href="{{ url_for('scan_detail', scan_id=job.id) }}"
-                           class="btn btn-sm btn-outline-primary">View</a>
+                           class="btn btn-sm btn-outline-primary">{{ t('common.view') }}</a>
                         {% if current_user.is_any_admin %}
-                        <button class="btn btn-sm btn-outline-danger" title="Delete scan record"
+                        <button class="btn btn-sm btn-outline-danger" title="{{ t('history.row.delete_tip') }}" aria-label="{{ t('history.row.delete_tip') }}"
                                 data-scan-id="{{ job.id }}" data-scan-seq="#{{ owner_seq_map.get(job.id, job.id) }}" data-target="{{ job.target }}" data-total="{{ scan_seq_map.get(job.id, (1,1))[1] }}"
                                 onclick="confirmDelete(+this.dataset.scanId, this.dataset.target, +this.dataset.total, this.dataset.scanSeq)">
                             <i class="ti ti-trash"></i>
@@ -220,7 +359,7 @@ const ALL_SCANS = [
                         {% endif %}
                     {% elif job.status == 'Failed' %}
                         {% if current_user.is_any_admin %}
-                        <button class="btn btn-sm btn-outline-danger" title="Delete scan record"
+                        <button class="btn btn-sm btn-outline-danger" title="{{ t('history.row.delete_tip') }}" aria-label="{{ t('history.row.delete_tip') }}"
                                 data-scan-id="{{ job.id }}" data-scan-seq="#{{ owner_seq_map.get(job.id, job.id) }}" data-target="{{ job.target }}" data-total="{{ scan_seq_map.get(job.id, (1,1))[1] }}"
                                 onclick="confirmDelete(+this.dataset.scanId, this.dataset.target, +this.dataset.total, this.dataset.scanSeq)">
                             <i class="ti ti-trash"></i>
@@ -228,14 +367,14 @@ const ALL_SCANS = [
                         {% endif %}
                     {% elif job.status == 'Cancelled' %}
                         {% if current_user.is_any_admin %}
-                        <button class="btn btn-sm btn-outline-danger" title="Delete scan record"
+                        <button class="btn btn-sm btn-outline-danger" title="{{ t('history.row.delete_tip') }}" aria-label="{{ t('history.row.delete_tip') }}"
                                 data-scan-id="{{ job.id }}" data-scan-seq="#{{ owner_seq_map.get(job.id, job.id) }}" data-target="{{ job.target }}" data-total="{{ scan_seq_map.get(job.id, (1,1))[1] }}"
                                 onclick="confirmDelete(+this.dataset.scanId, this.dataset.target, +this.dataset.total, this.dataset.scanSeq)">
                             <i class="ti ti-trash"></i>
                         </button>
                         {% endif %}
                     {% else %}
-                        <button class="btn btn-sm btn-secondary" disabled>{{ 'Queued...' if job.status == 'Queued' else 'Running...' }}</button>
+                        <button class="btn btn-sm btn-secondary hist-wait-btn" disabled>{{ t('history.row.waiting') if job.status == 'Queued' else t('history.row.running') }}</button>
                     {% endif %}
                     </div>
                 </td>
@@ -243,14 +382,14 @@ const ALL_SCANS = [
 
             {% else %}
             <tr>
-                <td colspan="{{ 9 if current_user.is_any_admin else 8 }}" class="text-center text-muted py-4">ยังไม่มีประวัติการสแกน</td>
+                <td colspan="{{ 9 if current_user.is_any_admin else 8 }}" class="text-center text-muted py-4">{{ t('history.empty') }}</td>
             </tr>
             {% endfor %}
             {% if history %}
             <tr id="historyNoMatch" hidden>
                 <td colspan="{{ 9 if current_user.is_any_admin else 8 }}" class="text-center text-muted py-4">
-                    ไม่พบรายการที่ตรงกับเงื่อนไข
-                    <button type="button" class="btn btn-link btn-sm p-0 ms-2 align-baseline" onclick="clearFilters()">ล้างตัวกรอง</button>
+                    {{ t('common.no_results') }}
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-2 align-baseline" onclick="clearFilters()">{{ t('history.clear_filters') }}</button>
                 </td>
             </tr>
             {% endif %}
@@ -272,9 +411,9 @@ const ALL_SCANS = [
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     </span>
                     <input type="text" id="portSearchInput" class="form-control border-start-0"
-                           placeholder="พิมพ์พอร์ต เช่น 80, 443, ssh, rdp..."
+                           placeholder="{{ t('history.ports.ph') }}" aria-label="{{ t('history.ports.ph') }}"
                            oninput="doPortSearch(this.value)">
-                    <button class="btn btn-outline-secondary" onclick="clearPortSearch()" id="portClearBtn" style="display:none;">&#x2715;</button>
+                    <button class="btn btn-outline-secondary" onclick="clearPortSearch()" id="portClearBtn" style="display:none;" aria-label="{{ t('common.clear') }}" title="{{ t('common.clear') }}">&#x2715;</button>
                 </div>
             </div>
         </div>
@@ -285,7 +424,7 @@ const ALL_SCANS = [
             <button class="btn btn-sm port-chip" onclick="quickPort(this,'3389')">3389 / rdp</button>
             <button class="btn btn-sm port-chip" onclick="quickPort(this,'3306')">3306 / mysql</button>
             <button class="btn btn-sm port-chip" onclick="quickPort(this,'21')">21 / ftp</button>
-            <button class="btn btn-sm port-chip" onclick="quickPort(this,'')">ทั้งหมด</button>
+            <button class="btn btn-sm port-chip" onclick="quickPort(this,'')">{{ t('history.ports.all') }}</button>
         </div>
     </div>
 
@@ -295,15 +434,15 @@ const ALL_SCANS = [
         <table class="table table-hover mb-0">
             <thead class="table-dark">
                 <tr>
-                    <th style="width:22%">IP Address</th>
-                    <th style="width:28%">Matched port</th>
-                    <th style="width:22%">Target / Scan</th>
-                    <th style="width:16%">Date</th>
-                    <th style="width:12%">Action</th>
+                    <th style="width:22%">{{ t('history.ports.col_ip') }}</th>
+                    <th style="width:28%">{{ t('history.ports.col_matched') }}</th>
+                    <th style="width:22%">{{ t('history.ports.col_scan') }}</th>
+                    <th style="width:16%">{{ t('history.ports.col_date') }}</th>
+                    <th style="width:12%">{{ t('common.action') }}</th>
                 </tr>
             </thead>
             <tbody id="portBody">
-                <tr><td colspan="5" class="text-center text-muted py-4">เปิด tab Port Search เพื่อค้นหา</td></tr>
+                <tr><td colspan="5" class="text-center text-muted py-4">{{ t('history.ports.hint') }}</td></tr>
             </tbody>
         </table>
     </div>
@@ -312,10 +451,13 @@ const ALL_SCANS = [
 </div>
 
 <style>
-.port-chip { font-size:.75rem; padding:3px 10px; border-radius:999px; border:1px solid #dee2e6; background:#fff; color:#6c757d; transition:all .12s; }
-.port-chip:hover { background:#f8f9fa; }
+.port-chip { font-size:.75rem; padding:3px 10px; border-radius:999px; border:1px solid var(--bs-border-color); background:var(--surface); color:var(--h-chip-ink); transition:all .12s; }
+.port-chip:hover { background:var(--h-chip-hover); }
 .active-chip { background:#0d6efd !important; color:#fff !important; border-color:#0d6efd !important; }
-.port-pill { display:inline-block; font-family:monospace; font-size:.72rem; font-weight:600; padding:2px 7px; border-radius:4px; background:#fff3cd; color:#856404; border:1px solid #ffc107; margin:2px 2px 2px 0; white-space:nowrap; }
+.port-pill { display:inline-block; font-family:monospace; font-size:.72rem; font-weight:600; padding:2px 7px; border-radius:4px; background:var(--h-pill-bg); color:var(--h-pill-ink); border:1px solid var(--h-pill-line); margin:2px 2px 2px 0; white-space:nowrap; }
+/* Dark: the chosen chip is a pale blue tint with a blue edge, not a solid blue block; the other chips are quiet slate */
+:root[data-theme="dark"] .port-chip:hover { color: var(--text); }
+:root[data-theme="dark"] .port-chip.active-chip { background: var(--info-bg) !important; color: var(--info-ink) !important; border-color: #43587f !important; }
 </style>
 
 <script>
@@ -332,26 +474,39 @@ function doPortSearch(q) {
             if (matched.length) rows.push({ host, matched, scan });
         });
     });
+    // Everything below is built with DOM calls: the address, target and service names come from scans (a banner can say anything) and the query is typed text.
+    const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
     const info = document.getElementById('portResultInfo');
-    info.innerHTML = q
-        ? `พบ <strong>${rows.length}</strong> host ที่มี port ตรงกับ "<strong>${q}</strong>"`
-        : `แสดงทุก host ที่มี open port ทั้งหมด <strong>${rows.length}</strong> รายการ`;
+    const strong = v => mk('strong', null, String(v));
+    const one = rows.length === 1;
+    const tpl = q ? (one ? HX.portsFoundQOne : HX.portsFoundQ) : (one ? HX.portsFoundAllOne : HX.portsFoundAll);
+    info.replaceChildren(hxNodes(tpl, { n: strong(rows.length), q: strong(q) }));
     const tbody = document.getElementById('portBody');
     if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">ไม่พบ host ที่มี port ตรงกับ "${q}"</td></tr>`;
+        const tr = mk('tr'), td = mk('td', 'text-center text-muted py-4');
+        td.colSpan = 5;
+        td.append(hxFill(HX.portsNoneQ, { q: q }));
+        tr.append(td);
+        tbody.replaceChildren(tr);
         return;
     }
-    tbody.innerHTML = rows.map(({ host, matched, scan }) => {
-        const pills = matched.map(p => `<span class="port-pill">${p.port}/${p.name || p.proto}${p.proto !== 'tcp' ? ' (' + p.proto.toUpperCase() + ')' : ''}</span>`).join('');
-        return `<tr>
-            <td><code>${host.ip}</code></td>
-            <td>${pills}</td>
-            <td><code style="font-size:.78rem">${scan.target}</code><br>
-                <span class="badge bg-secondary" style="font-size:.65rem">${scan.scan_type}</span></td>
-            <td><span class="text-muted small">${scan.date}</span></td>
-            <td><a href="${scan.url}" class="btn btn-sm btn-outline-primary">View</a></td>
-        </tr>`;
-    }).join('');
+    tbody.replaceChildren(...rows.map(({ host, matched, scan }) => {
+        const tr = mk('tr');
+        tr.append(mk('td'), mk('td'), mk('td'), mk('td'), mk('td'));
+        const [tdIp, tdPorts, tdScan, tdDate, tdAct] = tr.children;
+        tdIp.append(mk('code', null, host.ip));
+        matched.forEach(p => tdPorts.append(mk('span', 'port-pill', p.port + '/' + (p.name || p.proto) + (p.proto !== 'tcp' ? ' (' + p.proto.toUpperCase() + ')' : ''))));
+        const target = mk('code', null, scan.target);
+        target.style.fontSize = '.78rem';
+        const type = mk('span', 'badge bg-secondary', scan.scan_type);
+        type.style.fontSize = '.65rem';
+        tdScan.append(target, mk('br'), type);
+        tdDate.append(mk('span', 'text-muted small', fmtStamp(scan.date)));
+        const view = mk('a', 'btn btn-sm btn-outline-primary', HX.view);
+        view.href = scan.url;
+        tdAct.append(view);
+        return tr;
+    }));
 }
 function quickPort(el, val) {
     document.querySelectorAll('.port-chip').forEach(c => c.classList.remove('active-chip'));
@@ -442,17 +597,17 @@ function renderSearchNote(key) {
     note.hidden = !addr;
     if (!addr) return;
     const bold = text => { const b = document.createElement('b'); b.textContent = text; return b; };
-    if (hostPending || !hostLookup || hostLookup.key !== key) { note.textContent = 'กำลังค้นหาอุปกรณ์ ' + addr.text + ' …'; return; }
+    if (hostPending || !hostLookup || hostLookup.key !== key) { note.textContent = hxFill(HX.searching, { addr: addr.text }); return; }
     if (!hostLookup.ids) {
         note.classList.add('is-warn');
-        note.textContent = 'ค้นหาตามอุปกรณ์ไม่สำเร็จ จึงแสดงเฉพาะรายการที่ Target หรือชื่องานตรงกับที่พิมพ์';
+        note.textContent = HX.noteFailed;
         return;
     }
     const n = hostLookup.ids.size;
     if (!n) {
-        note.append(addr.single ? 'ไม่พบอุปกรณ์ ' : 'ไม่พบอุปกรณ์ในช่วง ', bold(addr.text), ' ในผลสแกนใดเลย');
+        note.append(hxNodes(addr.single ? HX.noneSingle : HX.noneNet, { addr: bold(addr.text) }));
         if (addr.single && hostLookup.near.length) {
-            note.append(' · มีอุปกรณ์ที่ขึ้นต้นด้วยข้อความนี้: ');
+            note.append(HX.near);
             hostLookup.near.forEach((ip, i) => {
                 if (i) note.append(', ');
                 const b = document.createElement('button');
@@ -461,15 +616,15 @@ function renderSearchNote(key) {
                 note.append(b);
             });
             const more = hostLookup.nearTotal - hostLookup.near.length;
-            if (more > 0) note.append(' และอีก ' + more + ' เครื่อง');
+            if (more > 0) note.append(hxFill(HX.nearMore, { n: more }));
         }
         return;
     }
-    note.append(addr.single ? 'พบอุปกรณ์ ' : 'พบอุปกรณ์ในช่วง ', bold(addr.text), ' ใน ' + n + ' สแกน');
+    note.append(hxNodes(addr.single ? HX.foundSingle : HX.foundNet, { addr: bold(addr.text), n: String(n) }));
     if (addr.single) {
         const a = document.createElement('a');
         a.href = '/devices/' + encodeURIComponent(addr.ip);
-        a.append('ไปที่หน้าอุปกรณ์ ' + addr.ip + ' ');
+        a.append(hxFill(HX.goto, { ip: addr.ip }));
         const arrow = document.createElement('i'); arrow.className = 'ti ti-arrow-right'; arrow.setAttribute('aria-hidden', 'true');
         a.append(arrow);
         note.append(' · ', a);
@@ -522,62 +677,91 @@ function clearFilters() {
 document.getElementById('searchInput').addEventListener('input', onSearchInput);
 document.getElementById('typeFilter').addEventListener('change', filterTable);
 document.getElementById('statusFilter').addEventListener('change', filterTable);
+
+// Apply URL filters (?q=...&type=...&status=...) on initial load (used by voice commands and direct links)
+(function applyHistoryUrlParams() {
+    const p = new URLSearchParams(location.search);
+    const q = (p.get('q') || '').trim();
+    const ty = (p.get('type') || '').trim().toLowerCase();
+    const st = (p.get('status') || '').trim().toLowerCase();
+    let changed = false;
+    if (ty) {
+        const sel = document.getElementById('typeFilter');
+        const hit = Array.from(sel.options).find(o => o.value.toLowerCase() === ty);
+        if (hit) { sel.value = hit.value; changed = true; }
+    }
+    if (st) {
+        const sel = document.getElementById('statusFilter');
+        const hit = Array.from(sel.options).find(o => o.value.toLowerCase() === st);
+        if (hit) { sel.value = hit.value; changed = true; }
+    }
+    if (q) {
+        document.getElementById('searchInput').value = q;
+        onSearchInput();
+    } else if (changed) {
+        filterTable();
+    }
+})();
 </script>
 
 <style>
 /* ── Advanced filter ── */
-.adv-dot { display: inline-block; width: 7px; height: 7px; margin-left: .45rem; border-radius: 50%; background: #2563eb; vertical-align: middle; }
+.adv-dot { display: inline-block; width: 7px; height: 7px; margin-left: .45rem; border-radius: 50%; background: var(--link); vertical-align: middle; }
 .adv-dot[hidden], .adv-save[hidden] { display: none; }   /* their display rules would otherwise override the hidden attribute */
-.adv-card { margin-bottom: 1rem; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 1px 3px rgba(15, 23, 42, .05); overflow: hidden; }
+.adv-card { margin-bottom: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 1px 3px rgba(var(--shadow-rgb), .05); overflow: hidden; }
 .adv-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
 .adv-main { padding: 1.1rem 1.25rem 1rem; }
-.adv-side { padding: 1.1rem; border-left: 1px solid #e2e8f0; background: #fafbfc; }
-@media (max-width: 991px) { .adv-grid { grid-template-columns: 1fr; } .adv-side { border-left: 0; border-top: 1px solid #e2e8f0; } }
-.adv-h { margin-bottom: .75rem; font-size: .95rem; font-weight: 700; color: #0f172a; }
+.adv-side { padding: 1.1rem; border-left: 1px solid var(--border); background: var(--h-side-bg); }
+@media (max-width: 991px) { .adv-grid { grid-template-columns: 1fr; } .adv-side { border-left: 0; border-top: 1px solid var(--border); } }
+.adv-h { margin-bottom: .75rem; font-size: .95rem; font-weight: 700; color: var(--fg-0); }
 
 .adv-row { display: grid; grid-template-columns: 44px 200px minmax(0, 1fr) 30px; gap: .5rem; align-items: start; margin-bottom: .5rem; }
 @media (max-width: 767px) { .adv-row { grid-template-columns: 44px minmax(0, 1fr) 30px; } .adv-row .adv-values, .adv-row .adv-date { grid-column: 2 / 4; } }
-.adv-and { padding: .38rem 0; border: 1px solid #e2e8f0; border-radius: 6px; background: #f1f5f9; font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-align: center; color: #64748b; }
+.adv-and { padding: .38rem 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-align: center; color: var(--muted); }
 .adv-and:empty { visibility: hidden; }
+:root[lang="th"] .adv-and { font-size: .75rem; letter-spacing: 0; padding: .27rem 0; }   /* Thai has no capitals: the Latin size would be too small to read */
 .adv-field { font-size: .82rem; }
-.adv-values { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; min-height: 31px; padding: 3px 6px; border: 1px solid #dee2e6; border-radius: 6px; background: #fff; }
-.adv-values:focus-within { border-color: #94a3b8; box-shadow: 0 0 0 3px rgba(148, 163, 184, .2); }
+.adv-values { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; min-height: 31px; padding: 3px 6px; border: 1px solid var(--bs-border-color); border-radius: 6px; background: var(--surface); }
+.adv-values:focus-within { border-color: var(--line-stronger); box-shadow: 0 0 0 3px var(--h-ring); }
 .adv-values:has(.adv-chip) .adv-input::placeholder { color: transparent; }   /* the hint is only for an empty box */
-.adv-chip { display: inline-flex; align-items: center; gap: .15rem; padding: 1px 3px 1px 9px; border-radius: 999px; background: #eef1f5; font-size: .76rem; font-weight: 500; color: #334155; }
-.adv-chip button { padding: 0 4px; border: 0; background: none; font-size: .95rem; line-height: 1; color: #94a3b8; cursor: pointer; }
-.adv-chip button:hover { color: #0f172a; }
+.adv-chip { display: inline-flex; align-items: center; gap: .15rem; padding: 1px 3px 1px 9px; border-radius: 999px; background: var(--line-soft); font-size: .76rem; font-weight: 500; color: var(--fg-2); }
+.adv-chip button { padding: 0 4px; border: 0; background: none; font-size: .95rem; line-height: 1; color: var(--h-x); cursor: pointer; }
+.adv-chip button:hover { color: var(--fg-0); }
 .adv-input { flex: 1 1 120px; min-width: 110px; padding: 2px; border: 0; outline: 0; background: transparent; font-size: .82rem; }
-.adv-opt { padding: 2px 11px; border: 1px solid #dee2e6; border-radius: 999px; background: #fff; font-size: .76rem; font-weight: 500; color: #475569; cursor: pointer; }
-.adv-opt:hover { border-color: #94a3b8; }
-.adv-opt[aria-pressed="true"] { border-color: #bfdbfe; background: #dbeafe; color: #1e40af; }
+:root[data-theme="dark"] .adv-input { color: var(--text); }
+:root[data-theme="dark"] .adv-input::placeholder { color: var(--muted); opacity: 1; }
+:root[data-theme="dark"] .adv-values:has(.adv-chip) .adv-input::placeholder { color: transparent; }
+.adv-opt { padding: 2px 11px; border: 1px solid var(--bs-border-color); border-radius: 999px; background: var(--surface); font-size: .76rem; font-weight: 500; color: var(--text-2); cursor: pointer; }
+.adv-opt:hover { border-color: var(--line-stronger); }
+.adv-opt[aria-pressed="true"] { border-color: var(--h-sel-line); background: var(--h-sel-bg); color: var(--h-sel-ink); }
 .adv-opt[aria-pressed="true"]::before { content: '\2713\00a0'; font-size: .7rem; }   /* the tick says "on" so the colour is not the only cue */
-.adv-date { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .78rem; color: #64748b; }
+.adv-date { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .78rem; color: var(--muted); }
 .adv-date input { width: auto; font-size: .8rem; }
-.adv-x { padding: .15rem; border: 0; border-radius: 6px; background: none; font-size: 1.2rem; line-height: 1; color: #94a3b8; cursor: pointer; }
-.adv-x:hover { background: #f1f5f9; color: #0f172a; }
-.adv-add { padding: .25rem 0; border: 0; background: none; font-size: .8rem; font-weight: 600; color: #475569; cursor: pointer; }
-.adv-add:hover { color: #0f172a; text-decoration: underline; }
-.adv-excl { display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .6rem; font-size: .68rem; font-weight: 700; letter-spacing: .06em; color: #94a3b8; }
-.adv-excl::after { content: ''; flex: 1; height: 1px; background: #e2e8f0; }
-.adv-help { margin-top: .8rem; font-size: .72rem; line-height: 1.5; color: #94a3b8; }
+.adv-x { padding: .15rem; border: 0; border-radius: 6px; background: none; font-size: 1.2rem; line-height: 1; color: var(--h-x); cursor: pointer; }
+.adv-x:hover { background: var(--surface-2); color: var(--fg-0); }
+.adv-add { padding: .25rem 0; border: 0; background: none; font-size: .8rem; font-weight: 600; color: var(--text-2); cursor: pointer; }
+.adv-add:hover { color: var(--fg-0); text-decoration: underline; }
+.adv-excl { display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .6rem; font-size: .68rem; font-weight: 700; letter-spacing: .06em; color: var(--fg-6); }
+.adv-excl::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.adv-help { margin-top: .8rem; font-size: .72rem; line-height: 1.5; color: var(--fg-6); }
 .adv-save { display: flex; gap: .4rem; margin-top: .7rem; }
-.adv-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; margin-top: 1rem; padding-top: .9rem; border-top: 1px solid #eef1f5; }
-.adv-status { margin-right: auto; font-size: .78rem; color: #64748b; }
-.adv-status b { color: #0f172a; }
-.adv-status.is-error { color: #b42318; }
+.adv-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line-soft); }
+.adv-status { margin-right: auto; font-size: .78rem; color: var(--muted); }
+.adv-status b { color: var(--fg-0); }
+.adv-status.is-error { color: var(--h-err); }
 
-.adv-tabs { display: flex; gap: 3px; margin-bottom: .7rem; padding: 3px; border-radius: 8px; background: #eef1f5; }
-.adv-tab { flex: 1; padding: .3rem; border: 0; border-radius: 6px; background: transparent; font-size: .78rem; font-weight: 600; color: #64748b; cursor: pointer; }
-.adv-tab[aria-selected="true"] { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(15, 23, 42, .1); }
+.adv-tabs { display: flex; gap: 3px; margin-bottom: .7rem; padding: 3px; border-radius: 8px; background: var(--line-soft); }
+.adv-tab { flex: 1; padding: .3rem; border: 0; border-radius: 6px; background: transparent; font-size: .78rem; font-weight: 600; color: var(--muted); cursor: pointer; }
+.adv-tab[aria-selected="true"] { background: var(--h-seg-on-bg); color: var(--fg-0); box-shadow: 0 1px 3px rgba(var(--shadow-rgb), .1); }
 .adv-qlist { display: flex; flex-direction: column; gap: .45rem; max-height: 340px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
 .adv-qitem { position: relative; }
-.adv-q { display: block; width: 100%; padding: .55rem 2rem .55rem .7rem; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; text-align: left; cursor: pointer; }
-.adv-q:hover { border-color: #cbd5e1; }
-.adv-q-name { font-size: .78rem; font-weight: 700; color: #0f172a; }
-.adv-q-sum { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: .74rem; line-height: 1.45; color: #475569; }
-.adv-q-meta { margin-top: .15rem; font-size: .68rem; color: #94a3b8; }
+.adv-q { display: block; width: 100%; padding: .55rem 2rem .55rem .7rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); text-align: left; cursor: pointer; }
+.adv-q:hover { border-color: var(--border-strong); }
+.adv-q-name { font-size: .78rem; font-weight: 700; color: var(--fg-0); }
+.adv-q-sum { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: .74rem; line-height: 1.45; color: var(--text-2); }
+.adv-q-meta { margin-top: .15rem; font-size: .68rem; color: var(--fg-6); }
 .adv-q-del { position: absolute; top: 5px; right: 5px; }
-.adv-qempty { padding: .6rem .2rem; font-size: .76rem; color: #94a3b8; }
+.adv-qempty { padding: .6rem .2rem; font-size: .76rem; color: var(--fg-6); }
 </style>
 
 <script>
@@ -589,6 +773,23 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     const FIELDS = {{ adv_fields | tojson }};
     const meta = Object.create(null);   // no inherited keys, so a link with field "constructor" is not mistaken for a field
     FIELDS.forEach(f => { meta[f.key] = f; });
+    // The server sends each field's label, hint and option names in a mix of English and Thai ("Type", "Status", "Fast Scan"): the page names them in the site language itself
+    // and falls back to what the server sent for anything it does not know.
+    const fieldLabel = key => HX.fields[key] || (meta[key] && meta[key].label) || key;
+    const fieldHint = key => HX.hints[key] || (meta[key] && meta[key].hint) || '';
+    const optLabel = (key, value, fallback) => (HX.options[key] && HX.options[key][value]) || fallback || value;
+    // the same one-line summary of a query that the server writes (describe_criteria), but in the site language and with the Buddhist year in Thai
+    function describe(c) {
+        const row = r => {
+            const m = meta[r.field];
+            let vals = r.values;
+            if (m.kind === 'enum') vals = vals.map(v => { const o = (m.options || []).find(x => x[0] === v); return optLabel(r.field, v, o ? o[1] : v); });
+            else if (m.kind === 'date') vals = [(fmtStamp(vals[0]) || '…') + ' – ' + (fmtStamp(vals[1]) || '…')];
+            return fieldLabel(r.field) + ': ' + vals.join(', ');
+        };
+        const parts = c.include.map(row).concat(c.exclude.map(r => HX.exclude + ' ' + row(r)));
+        return parts.length ? parts.join(' · ') : HX.noSummary;
+    }
     const $ = id => document.getElementById(id);
     const panel = $('advPanel'), toggle = $('advToggle'), dot = $('advDot'), status = $('advStatus');
     let state = { include: [], exclude: [] };
@@ -606,7 +807,7 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     function chip(text, onRemove) {
         const c = el('span', 'adv-chip', text), x = el('button', null, '×');
         x.type = 'button';
-        x.setAttribute('aria-label', 'ลบ ' + text);
+        x.setAttribute('aria-label', hxFill(HX.removeValue, { value: text }));
         x.addEventListener('click', () => { c.remove(); onRemove(); });
         c.appendChild(x);
         return c;
@@ -616,7 +817,7 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
         if (m.kind === 'enum') {
             const box = el('div', 'adv-values');
             m.options.forEach(o => {
-                const b = el('button', 'adv-opt', o[1]);
+                const b = el('button', 'adv-opt', optLabel(row.field, o[0], o[1]));
                 b.type = 'button';
                 b.setAttribute('aria-pressed', row.values.indexOf(o[0]) >= 0 ? 'true' : 'false');
                 b.addEventListener('click', () => {
@@ -630,7 +831,7 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
         }
         if (m.kind === 'date') {
             const box = el('div', 'adv-date');
-            [['ตั้งแต่', 0], ['ถึง', 1]].forEach(p => {
+            [[HX.dateFrom, 0], [HX.dateTo, 1]].forEach(p => {
                 const label = el('label', null, p[0] + ' '), input = el('input', 'form-control form-control-sm');
                 input.type = 'date';
                 input.value = row.values[p[1]] || '';
@@ -643,8 +844,8 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
         const box = el('div', 'adv-values'), input = el('input', 'adv-input');
         input.type = 'text';
         input.maxLength = 100;
-        input.placeholder = m.hint || 'พิมพ์แล้วกด Enter';
-        input.setAttribute('aria-label', m.label);
+        input.placeholder = fieldHint(row.field) || HX.typePh;
+        input.setAttribute('aria-label', fieldLabel(row.field));
         const add = value => {
             value = value.trim().replace(/,+$/, '').trim();
             if (value && row.values.indexOf(value) < 0 && row.values.length < 20) {
@@ -673,13 +874,13 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     }
     function buildRow(section, row, index) {
         const wrap = el('div', 'adv-row');
-        wrap.appendChild(el('span', 'adv-and', section === 'include' && index ? 'AND' : ''));
+        wrap.appendChild(el('span', 'adv-and', section === 'include' && index ? HX.and : ''));
         const select = el('select', 'form-select form-select-sm adv-field');
-        select.setAttribute('aria-label', 'เลือกเงื่อนไข');
-        [['scan', 'ข้อมูลการสแกน'], ['result', 'ผลการสแกน']].forEach(g => {
+        select.setAttribute('aria-label', HX.pickCondition);
+        [['scan', HX.groupScan], ['result', HX.groupResult]].forEach(g => {
             const group = document.createElement('optgroup');
             group.label = g[1];
-            FIELDS.filter(f => f.level === g[0]).forEach(f => { const o = el('option', null, f.label); o.value = f.key; group.appendChild(o); });
+            FIELDS.filter(f => f.level === g[0]).forEach(f => { const o = el('option', null, fieldLabel(f.key)); o.value = f.key; group.appendChild(o); });
             select.appendChild(group);
         });
         select.value = row.field;
@@ -688,7 +889,7 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
         wrap.appendChild(valueBox(row));
         const del = el('button', 'adv-x', '×');
         del.type = 'button';
-        del.setAttribute('aria-label', 'ลบเงื่อนไข');
+        del.setAttribute('aria-label', HX.removeCondition);
         del.addEventListener('click', () => { state[section].splice(index, 1); if (section === 'include' && !state.include.length) state.include.push(blankRow()); render(); });
         wrap.appendChild(del);
         return wrap;
@@ -708,7 +909,7 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
         history.replaceState(null, '', url);
     }
     function search(record) {
-        say('กำลังค้นหา…');
+        say(HX.busy);
         return fetch('/api/history/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ criteria: payload(), record: record !== false }) })
             .then(r => r.json())
             .then(data => {
@@ -720,14 +921,14 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
                 status.className = 'adv-status';
                 status.textContent = '';
                 if (active) {
-                    const b = el('b', null, data.matched + ' จาก ' + data.total + ' รายการ');
-                    status.append('ตรงกับตัวกรอง ', b);
+                    const b = el('b', null, hxFill(HX.matchedCount, { m: data.matched, n: data.total }));
+                    status.append(HX.matchedPrefix, b);
                 } else {
-                    say('ยังไม่ได้ระบุเงื่อนไข');
+                    say(HX.noConditions);
                 }
                 if (active && record !== false) loadQueries();
             })
-            .catch(() => say('ค้นหาไม่สำเร็จ ลองใหม่อีกครั้ง', true));
+            .catch(() => say(HX.searchFailed, true));
     }
     function reset() {
         state = { include: [blankRow()], exclude: [] };
@@ -745,19 +946,21 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
         list.textContent = '';
         document.querySelectorAll('.adv-tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === tab ? 'true' : 'false'));
         const items = queries[tab];
-        if (!items.length) list.appendChild(el('li', 'adv-qempty', tab === 'saved' ? 'ยังไม่มี query ที่บันทึกไว้ · ตั้งค่าเงื่อนไขแล้วกด "บันทึก Query"' : 'ยังไม่มีการค้นหาล่าสุด'));
+        if (!items.length) list.appendChild(el('li', 'adv-qempty', tab === 'saved' ? HX.qEmptySaved : HX.qEmptyRecent));
         items.forEach(q => {
             const li = el('li', 'adv-qitem'), b = el('button', 'adv-q');
             b.type = 'button';
+            let summary;
+            try { summary = describe(q.criteria); } catch (e) { summary = q.summary; }       // (the server's own line, if a query holds a field this page does not know)
             if (q.name) b.appendChild(el('div', 'adv-q-name', q.name));
-            b.appendChild(el('div', 'adv-q-sum', q.summary));
-            b.appendChild(el('div', 'adv-q-meta', 'ใช้ล่าสุด ' + q.last_used));
+            b.appendChild(el('div', 'adv-q-sum', summary));
+            b.appendChild(el('div', 'adv-q-meta', hxFill(HX.lastUsed, { when: fmtStamp(q.last_used) })));
             b.addEventListener('click', () => { state = clone(q.criteria); if (!state.include.length) state.include.push(blankRow()); render(); search(true); });
             li.appendChild(b);
             if (tab === 'saved') {
                 const del = el('button', 'adv-x adv-q-del', '×');
                 del.type = 'button';
-                del.setAttribute('aria-label', 'ลบ query ' + q.name);
+                del.setAttribute('aria-label', hxFill(HX.delQueryAria, { name: q.name }));
                 del.addEventListener('click', () => fetch('/api/history/queries/' + q.id + '/delete', { method: 'POST' }).then(() => loadQueries()));
                 li.appendChild(del);
             }
@@ -781,7 +984,7 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     $('advSearch').addEventListener('click', () => search(true));
     $('advClear').addEventListener('click', () => { reset(); filterTable(); });
     $('advSave').addEventListener('click', () => {
-        if (!hasConditions(state)) { say('ยังไม่มีเงื่อนไขให้บันทึก', true); return; }
+        if (!hasConditions(state)) { say(HX.nothingToSave, true); return; }
         $('advSaveRow').hidden = false;
         $('advSaveName').focus();
     });
@@ -792,14 +995,14 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
         fetch('/api/history/queries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, criteria: payload() }) })
             .then(r => r.json().then(d => ({ ok: r.ok, d: d })))
             .then(res => {
-                if (!res.ok) { say(res.d.error || 'บันทึกไม่สำเร็จ', true); return; }
+                if (!res.ok) { say(res.d.error || HX.saveFailed, true); return; }
                 $('advSaveRow').hidden = true;
                 $('advSaveName').value = '';
                 tab = 'saved';
                 loadQueries();
-                say('บันทึก "' + res.d.name + '" แล้ว');
+                say(hxFill(HX.savedOk, { name: res.d.name }));
             })
-            .catch(() => say('บันทึกไม่สำเร็จ', true));
+            .catch(() => say(HX.saveFailed, true));
     }
     $('advSaveGo').addEventListener('click', save);
     $('advSaveName').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
@@ -823,17 +1026,22 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
 })();
 </script>
 
+{# a text with one {slot} that the page script keeps up to date (a count, a job number): the words around it come from the language file, the slot is a <span id> #}
+{% macro slot(key, name, id, init) -%}
+{%- set parts = t(key).split('{' ~ name ~ '}') -%}
+{{ parts[0] }}<span id="{{ id }}">{{ init }}</span>{{ parts[1] if parts | length > 1 else '' }}
+{%- endmacro %}
 <!-- Floating Bulk Action Toolbar: shown while at least one row is selected (class is-open, set by updateBulkUI) -->
 {% if current_user.is_any_admin %}
-<div id="bulkActionBar" class="bulk-action-bar" role="region" aria-label="การดำเนินการกับงานสแกนที่เลือก">
+<div id="bulkActionBar" class="bulk-action-bar" role="region" aria-label="{{ t('history.bulk.bar_aria') }}">
     <div class="bulk-action-content">
-        <span class="bulk-count" aria-live="polite" aria-atomic="true">เลือก <span id="selectedCount">0</span> รายการ</span>
+        <span class="bulk-count" aria-live="polite" aria-atomic="true">{{ slot('history.bulk.selected', 'n', 'selectedCount', 0) }}</span>
         <span class="bulk-sep" aria-hidden="true"></span>
-        <button type="button" class="bulk-btn bulk-btn-quiet" onclick="deselectAllRows()" title="ยกเลิกการเลือก">
-            <i class="ti ti-x" aria-hidden="true"></i><span class="bulk-lbl">ยกเลิกการเลือก</span>
+        <button type="button" class="bulk-btn bulk-btn-quiet" onclick="deselectAllRows()" title="{{ t('history.bulk.deselect') }}">
+            <i class="ti ti-x" aria-hidden="true"></i><span class="bulk-lbl">{{ t('history.bulk.deselect') }}</span>
         </button>
-        <button type="button" class="bulk-btn bulk-btn-delete" onclick="openBulkDeleteModal()" title="ลบงานสแกนที่เลือก">
-            <i class="ti ti-trash" aria-hidden="true"></i><span>ลบ<span class="bulk-more">ที่เลือก</span></span><span class="visually-hidden"> <span id="bulkBtnCount">0</span> รายการ</span>
+        <button type="button" class="bulk-btn bulk-btn-delete" onclick="openBulkDeleteModal()" title="{{ t('history.bulk.delete_tip') }}">
+            <i class="ti ti-trash" aria-hidden="true"></i><span>{{ t('history.bulk.delete') }}<span class="bulk-more">{{ t('history.bulk.delete_more') }}</span></span><span class="visually-hidden">{{ slot('history.bulk.sr_count', 'n', 'bulkBtnCount', 0) }}</span>
         </button>
     </div>
 </div>
@@ -843,21 +1051,22 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     <div class="modal-dialog modal-dialog-centered dd-dialog">
         <div class="modal-content dd-content">
             <div class="dd-head">
-                <h5 class="dd-title" id="bulkDeleteTitle">ลบงานสแกน <span id="bulkModalCountBadge">0</span> รายการ</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+                <h5 class="dd-title" id="bulkDeleteTitle">{{ slot('history.bulk.title', 'n', 'bulkModalCountBadge', 0) }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"></button>
             </div>
-            <p class="dd-lead" id="bulkDeleteLead">ผลการสแกนและประวัติของงานที่เลือกจะถูกลบออกจากฐานข้อมูลอย่างถาวร และไม่สามารถย้อนกลับได้</p>
-            <div class="dd-list" id="bulkModalSelectedList" role="region" aria-label="งานสแกนที่จะลบ">
+            <p class="dd-lead" id="bulkDeleteLead">{{ t('history.bulk.lead') }}</p>
+            <div class="dd-list" id="bulkModalSelectedList" role="region" aria-label="{{ t('history.bulk.list_aria') }}">
                 <table class="dd-table">
                     <colgroup><col class="dd-c-no"><col><col class="dd-c-type"><col class="dd-c-when"></colgroup>
-                    <thead><tr><th scope="col">งาน</th><th scope="col">เป้าหมาย</th><th scope="col" class="dd-c-type">ประเภท</th><th scope="col">วันที่และเวลา</th></tr></thead>
+                    <thead><tr><th scope="col">{{ t('common.job') }}</th><th scope="col">{{ t('common.target') }}</th><th scope="col" class="dd-c-type">{{ t('common.type') }}</th><th scope="col">{{ t('history.col.when') }}</th></tr></thead>
                     <tbody id="bulkModalRows"><!-- rows are built in JS (textContent only) --></tbody>
                 </table>
             </div>
             <form id="bulkDeleteForm" method="POST" action="{{ url_for('delete_scans_bulk') }}" class="dd-actions">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div id="bulkDeleteHiddenInputs" hidden></div>
-                <button type="button" class="dd-btn dd-btn-quiet" data-bs-dismiss="modal">ยกเลิก</button>
-                <button type="submit" class="dd-btn dd-btn-danger" id="bulkConfirmBtn">ลบ <span id="bulkConfirmBtnCount">0</span> รายการ</button>
+                <button type="button" class="dd-btn dd-btn-quiet" data-bs-dismiss="modal">{{ t('common.cancel') }}</button>
+                <button type="submit" class="dd-btn dd-btn-danger" id="bulkConfirmBtn">{{ slot('history.bulk.confirm', 'n', 'bulkConfirmBtnCount', 0) }}</button>
             </form>
         </div>
     </div>
@@ -872,9 +1081,9 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
 .dd-content {
     border: 0;
     border-radius: 1rem;
-    background: #fff;
+    background: var(--surface);
     padding: 22px 24px 20px;
-    box-shadow: 0 20px 50px rgba(15, 23, 42, .16), 0 0 0 1px rgba(15, 23, 42, .04);
+    box-shadow: var(--h-dlg-shadow);
 }
 .dd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .dd-title {
@@ -886,17 +1095,18 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     overflow-wrap: anywhere;
 }
 .dd-head .btn-close { flex: none; margin: 4px -4px 0 0; --bs-btn-close-opacity: .4; }
-.dd-lead { margin: 4px 0 16px; font-size: .875rem; line-height: 1.7; color: #4b5563; text-wrap: balance; }
+:root[data-theme="dark"] .dd-head .btn-close { --bs-btn-close-opacity: .7; }      /* Bootstrap draws the X white in dark: at .4 it is too faint on #34353a */
+.dd-lead { margin: 4px 0 16px; font-size: .875rem; line-height: 1.7; color: var(--nav-ink); text-wrap: balance; }
 
 /* the list: a hairline box, a sticky header, scrolls when long */
 .dd-list {
     max-height: min(17rem, 38vh);
     overflow: auto;
     scrollbar-width: thin;
-    border: 1px solid #e5e8ec;
+    border: 1px solid var(--h-line);
     border-radius: 10px;
 }
-.dd-list:focus-visible { outline: 0; border-color: #8796ab; box-shadow: 0 0 0 3px rgba(100, 116, 139, .2); }
+.dd-list:focus-visible { outline: 0; border-color: var(--h-focus-line); box-shadow: 0 0 0 3px rgba(var(--ring-rgb), .2); }
 .dd-table {
     width: 100%;
     margin: 0;
@@ -915,17 +1125,17 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     z-index: 1;
     padding: 7px 12px;
     background: var(--nt-bg);
-    border-bottom: 1px solid #e5e8ec;
+    border-bottom: 1px solid var(--h-line);
     font-size: .75rem;
     font-weight: 600;
     line-height: 1.5;
     text-align: left;
     white-space: nowrap;
-    color: #5b6472;
+    color: var(--h-soft);
 }
 .dd-table td {
     padding: 8px 12px;
-    border-bottom: 1px solid #f0f2f5;
+    border-bottom: 1px solid var(--h-line-2);
     line-height: 1.5;
     vertical-align: top;
     white-space: nowrap;
@@ -933,10 +1143,10 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     text-overflow: ellipsis;
 }
 .dd-table tbody tr:last-child td { border-bottom: 0; }
-.dd-table .dd-no, .dd-table .dd-when { color: #5b6472; font-variant-numeric: tabular-nums; }
+.dd-table .dd-no, .dd-table .dd-when { color: var(--h-soft); font-variant-numeric: tabular-nums; }
 .dd-table .dd-target, .dd-table .dd-name { display: block; overflow: hidden; text-overflow: ellipsis; }
 .dd-table .dd-target { font-family: var(--bs-font-monospace); font-size: .8125rem; }
-.dd-table .dd-name { margin-top: 1px; font-size: .75rem; color: #5b6472; }
+.dd-table .dd-name { margin-top: 1px; font-size: .75rem; color: var(--h-soft); }
 
 .dd-actions { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: 8px; margin: 18px 0 0; }
 .dd-btn {
@@ -950,20 +1160,20 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     cursor: pointer;
     transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
 }
-.dd-btn:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(100, 116, 139, .22); border-color: #8796ab; }
-.dd-btn-quiet { background: #fff; border-color: #d9dee5; color: #475569; }
-.dd-btn-quiet:hover { background: #f3f5f8; border-color: #c8cfd9; color: #334155; }
+.dd-btn:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--h-focus-ring); border-color: var(--h-focus-line); }
+.dd-btn-quiet { background: var(--surface); border-color: var(--h-btn-line); color: var(--text-2); }
+.dd-btn-quiet:hover { background: var(--h-hover); border-color: var(--h-btn-line-hover); color: var(--fg-2); }
 .dd-btn-danger { background: #b91c1c; border-color: #b91c1c; color: #fff; font-weight: 600; }
 .dd-btn-danger:hover { background: #a01919; border-color: #a01919; }
 .dd-btn-danger:focus-visible { border-color: #7f1d1d; box-shadow: 0 0 0 3px rgba(185, 28, 28, .25); }
 /* the wider choice (every scan of this target) is a quiet text button at the far left, away from the main pair */
 .dd-actions form { display: contents; }
 .dd-all { display: flex; flex-direction: column; align-items: flex-start; margin: 0 auto 0 -8px; }
-.dd-btn-text { padding-left: 8px; padding-right: 8px; background: none; color: #b42318; }
-.dd-btn-text:hover { background: #fdf1f0; }
-.dd-btn-text:focus-visible { border-color: #b42318; box-shadow: 0 0 0 3px rgba(185, 28, 28, .18); }
+.dd-btn-text { padding-left: 8px; padding-right: 8px; background: none; color: var(--h-err); }
+.dd-btn-text:hover { background: var(--h-danger-hover); }
+.dd-btn-text:focus-visible { border-color: var(--h-err); box-shadow: 0 0 0 3px var(--h-err-ring); }
 /* what "all of this target" leaves out (scans that are waiting or running: the server never deletes those), as a muted line under the button */
-.dd-note { padding: 0 8px; font-size: .8125rem; line-height: 1.5; color: #5b6472; }
+.dd-note { padding: 0 8px; font-size: .8125rem; line-height: 1.5; color: var(--h-soft); }
 
 @media (max-width: 575.98px) {
     .dd-content { padding: 18px 16px 16px; }
@@ -983,14 +1193,14 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     <div class="modal-dialog modal-dialog-centered dd-dialog">
         <div class="modal-content dd-content">
             <div class="dd-head">
-                <h5 class="dd-title" id="deleteModalTitle">ลบงานสแกน <span id="modalScanId">—</span></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+                <h5 class="dd-title" id="deleteModalTitle">{{ slot('history.del.title', 'seq', 'modalScanId', '—') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"></button>
             </div>
-            <p class="dd-lead" id="deleteModalLead">ผลการสแกนและประวัติของงานนี้จะถูกลบออกจากฐานข้อมูลอย่างถาวร และไม่สามารถย้อนกลับได้</p>
+            <p class="dd-lead" id="deleteModalLead">{{ t('history.del.lead') }}</p>
             <div class="dd-list">
                 <table class="dd-table">
                     <colgroup><col class="dd-c-no"><col><col class="dd-c-type"><col class="dd-c-when"></colgroup>
-                    <thead><tr><th scope="col">งาน</th><th scope="col">เป้าหมาย</th><th scope="col" class="dd-c-type">ประเภท</th><th scope="col">วันที่และเวลา</th></tr></thead>
+                    <thead><tr><th scope="col">{{ t('common.job') }}</th><th scope="col">{{ t('common.target') }}</th><th scope="col" class="dd-c-type">{{ t('common.type') }}</th><th scope="col">{{ t('history.col.when') }}</th></tr></thead>
                     <tbody><tr>
                         <td class="dd-no" id="modalSeqCell">—</td>
                         <td id="modalTargetCell"><span class="dd-target" id="modalTarget">—</span><span class="dd-name" id="modalName" hidden></span></td>
@@ -1002,14 +1212,16 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
             <div class="dd-actions">
                 <div class="dd-all" id="deleteAllWrap" hidden>
                     <form id="deleteAllForm" method="POST" action="{{ url_for('delete_scans_by_target') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="target" id="deleteTargetInput">
-                        <button type="submit" class="dd-btn dd-btn-text" id="deleteAllBtn" aria-describedby="deleteAllNote">ลบทั้งหมดของเป้าหมายนี้</button>
+                        <button type="submit" class="dd-btn dd-btn-text" id="deleteAllBtn" aria-describedby="deleteAllNote">{{ t('history.del.all') }}</button>
                     </form>
                     <span class="dd-note" id="deleteAllNote" hidden></span>
                 </div>
-                <button type="button" class="dd-btn dd-btn-quiet" data-bs-dismiss="modal">ยกเลิก</button>
+                <button type="button" class="dd-btn dd-btn-quiet" data-bs-dismiss="modal">{{ t('common.cancel') }}</button>
                 <form id="deleteSingleForm" method="POST">
-                    <button type="submit" class="dd-btn dd-btn-danger">ลบงานนี้</button>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="dd-btn dd-btn-danger">{{ t('history.del.this') }}</button>
                 </form>
             </div>
         </div>
@@ -1029,10 +1241,10 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     z-index: 1050;
     max-width: calc(100vw - 200px);
     padding: 6px;
-    background: #fff;
-    border: 1px solid #dfe3e9;
+    background: var(--surface);
+    border: 1px solid var(--h-bar-line);
     border-radius: 14px;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, .10), 0 1px 3px rgba(15, 23, 42, .06);
+    box-shadow: var(--h-bar-shadow);
     color: var(--nt-text);
     transform: translate(var(--bx), 8px);
     opacity: 0;
@@ -1061,7 +1273,7 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     font-variant-numeric: tabular-nums;
     color: var(--nt-text);
 }
-.bulk-sep { flex: none; width: 1px; height: 22px; margin-right: 6px; background: #e5e8ec; }
+.bulk-sep { flex: none; width: 1px; height: 22px; margin-right: 6px; background: var(--h-line); }
 .bulk-btn {
     display: inline-flex;
     align-items: center;
@@ -1080,13 +1292,13 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
 }
 .bulk-btn .ti { font-size: 1.05rem; line-height: 1; }
-.bulk-btn:focus-visible { outline: 0; border-color: #8796ab; box-shadow: 0 0 0 3px rgba(100, 116, 139, .22); }
-.bulk-btn-quiet { color: #475569; }
-.bulk-btn-quiet:hover { background: #f3f5f8; color: #334155; }
+.bulk-btn:focus-visible { outline: 0; border-color: var(--h-focus-line); box-shadow: 0 0 0 3px var(--h-focus-ring); }
+.bulk-btn-quiet { color: var(--text-2); }
+.bulk-btn-quiet:hover { background: var(--h-hover); color: var(--fg-2); }
 /* the delete action is the restrained one: deep red text and icon, a pale half-strength outline; the solid red belongs to the dialog's last button */
-.bulk-btn-delete { background: #fff; border-color: rgba(185, 28, 28, .3); color: #b91c1c; }
-.bulk-btn-delete:hover { background: #fdf1f0; border-color: rgba(185, 28, 28, .45); }
-.bulk-btn-delete:focus-visible { border-color: #b42318; box-shadow: 0 0 0 3px rgba(185, 28, 28, .18); }
+.bulk-btn-delete { background: var(--surface); border-color: var(--h-del-line); color: var(--h-del-ink); }
+.bulk-btn-delete:hover { background: var(--h-danger-hover); border-color: var(--h-del-line-hover); }
+.bulk-btn-delete:focus-visible { border-color: var(--h-err); box-shadow: 0 0 0 3px var(--h-err-ring); }
 @media (max-width: 639.98px) {
     /* narrow: anchored left, ending 8px before the chat button; the cancel button keeps only its icon (its words stay for screen readers) */
     .bulk-action-bar { --bx: 0; left: 12px; right: 94px; max-width: none; }
@@ -1107,10 +1319,10 @@ document.getElementById('statusFilter').addEventListener('change', filterTable);
     .bulk-action-bar, .bulk-action-bar.is-open, .bulk-btn { transition: none; }
 }
 .history-row.row-selected {
-    background-color: #f0f7ff !important;
+    background-color: var(--h-selected) !important;
 }
 .history-row.row-selected > td {
-    background-color: #f0f7ff !important;
+    background-color: var(--h-selected) !important;
 }
 </style>
 
@@ -1241,7 +1453,7 @@ function ddInfo(cb) {
         target: cb.dataset.target || d.target || '',
         name: cb.dataset.name || d.name || '',
         type: d.typeLabel || '',
-        when: d.when || ''
+        when: fmtStamp(d.when || '')          // the row keeps the plain stamp; the dialog shows it in the calendar of the site language
     };
 }
 
@@ -1326,7 +1538,7 @@ function confirmDelete(scanId, target, totalCount, scanSeq) {
     const seq = scanSeq || `#${scanId}`;
     const row = document.getElementById('scan-row-' + scanId);
     const cb = row && row.querySelector('.scan-row-cb');
-    const o = cb ? ddInfo(cb) : { name: (row && row.dataset.name) || '', type: (row && row.dataset.typeLabel) || '', when: (row && row.dataset.when) || '' };
+    const o = cb ? ddInfo(cb) : { name: (row && row.dataset.name) || '', type: (row && row.dataset.typeLabel) || '', when: fmtStamp((row && row.dataset.when) || '') };
 
     document.getElementById('deleteSingleForm').action = `/history/${scanId}/delete`;
     document.getElementById('deleteTargetInput').value = target;
@@ -1353,8 +1565,8 @@ function confirmDelete(scanId, target, totalCount, scanSeq) {
     const deleteAllBtn = document.getElementById('deleteAllBtn');
     const allNote = document.getElementById('deleteAllNote');
     if (deletable > 1) {
-        deleteAllBtn.textContent = `ลบทั้ง ${deletable} รายการของเป้าหมายนี้`;
-        allNote.textContent = active ? `ไม่รวม ${active} งานที่กำลังทำงานหรือรอคิว` : '';
+        deleteAllBtn.textContent = hxFill(HX.delAllN, { n: deletable });
+        allNote.textContent = active ? hxFill(HX.delAllNote, { n: active }) : '';
         allNote.hidden = !active;
         allWrap.hidden = false;
     } else {

@@ -6,15 +6,15 @@
 <div class="adv-switch scan-adv-mc">
     <div class="adv-switch-text">
         <div class="d-flex align-items-center gap-1">
-            <label class="adv-label" for="{{ prefix }}_ap_input">สแกนทุกพอร์ต (1-65535)</label>
-            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="คำอธิบายการสแกนทุกพอร์ต">
+            <label class="adv-label" for="{{ prefix }}_ap_input">{{ t('tasks.adv.ap') }}</label>
+            <span class="scan-adv-info-btn" role="button" tabindex="0" aria-label="{{ t('tasks.adv.ap_aria') }}">
                 <i class="ti ti-info-circle"></i>
                 <div class="scan-adv-info-card">
-                    <div class="text-secondary" style="font-size:0.77rem;">ตรวจพอร์ต TCP ทั้ง 65,535 พอร์ตแทนรายการปกติ (Fast Scan 100 พอร์ต, Intense Scan และ Vulnerability Scan 1,000 พอร์ต) จึงอาจพบบริการบนพอร์ตที่ไม่อยู่ในรายการนั้น แต่ใช้เวลานานกว่ามากและส่งแพ็กเก็ตจำนวนมาก ระบบตรวจจับการบุกรุก (IDS) อาจแจ้งเตือน รับเป้าหมายได้ไม่เกิน 64 ที่อยู่ อุปกรณ์ที่ใช้เวลาเกิน 45 นาทีจะถูกข้ามและแสดงว่าไม่ทราบพอร์ต ระบบหยุดงานที่ใช้เวลาเกิน 6 ชั่วโมง และงานนั้นจะไม่มีผลสแกน</div>
+                    <div class="text-secondary" style="font-size:0.77rem;">{{ t('tasks.adv.ap_card') }}</div>
                 </div>
             </span>
         </div>
-        <div class="adv-help">ตรวจ 65,535 พอร์ตแทนรายการปกติ ใช้เวลานานกว่ามาก</div>
+        <div class="adv-help">{{ t('tasks.adv.ap_help') }}</div>
     </div>
     <div class="form-check form-switch m-0 p-0">
         <input class="form-check-input" type="checkbox" role="switch" name="all_ports" value="1" id="{{ prefix }}_ap_input" onchange="refreshAllPortsNote('{{ prefix }}')">

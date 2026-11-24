@@ -1,0 +1,83 @@
+{# Three small macros for the Devices page and the device page: they show, in the site language, three texts that scanner.py writes in English
+   (and, for the MAC badge's tips, in Thai). They change what is SHOWN only; the stored values, the filter values and the sort keys stay as the backend wrote them.
+   The clean fix is to make scanner.guess_device_type() and scanner.mac_note() return codes (or call i18n.t) and then delete this file: see the report.
+
+   type_name(label)   the device-type label ("Computer", "Phone / Tablet (likely)") in the site language
+   why_text(reason)   the reason behind a device-type guess ("OS: Windows 10; hostname looks like a PC (acer)"): Thai mode only; English mode shows the text as it is
+   mac_note_tr(html)  the badge from mac_note_html(): its label in Thai mode, its tooltip in English mode
+
+   Import with context:  {% from 'partials/_device_text.html' import type_name, why_text, mac_note_tr with context %} #}
+{% macro type_name(label) -%}
+  {%- set keys = {'Router / Gateway': 'router', 'Virtual Machine': 'vm', 'Computer': 'computer', 'Phone / Tablet': 'phone', 'Printer': 'printer', 'Camera': 'camera', 'Smart TV': 'tv', 'IoT device': 'iot', 'Unknown': 'unknown'} -%}
+  {#- the device page gets its label from report_builder (Thai: 'คอมพิวเตอร์ (คาดเดา)'), the Devices page from scanner (English): both are mapped -#}
+  {%- set th_keys = {'Router / Gateway': 'router', 'เครื่องเสมือน (VM)': 'vm', 'คอมพิวเตอร์': 'computer', 'โทรศัพท์ / แท็บเล็ต': 'phone', 'เครื่องพิมพ์': 'printer', 'กล้อง IP': 'camera', 'Smart TV': 'tv', 'อุปกรณ์ IoT': 'iot', 'ไม่ทราบ': 'unknown'} -%}
+  {%- set likely = label.endswith(' (likely)') or label.endswith(' (คาดเดา)') or label.endswith(' (น่าจะ)') -%}
+  {%- set base = (label[:-9] if (label.endswith(' (likely)') or label.endswith(' (คาดเดา)')) else (label[:-8] if label.endswith(' (น่าจะ)') else label)) -%}
+  {%- set key = keys.get(base) or th_keys.get(base) -%}
+  {%- if key -%}{{ t('shared.dtype.' ~ key) }}{% if likely %} {{ t('shared.dtype.likely') }}{% endif %}{%- else -%}{{ label }}{%- endif -%}
+{%- endmacro %}
+
+{% macro why_text(reason) -%}
+  {%- if ui_lang != 'th' or not reason -%}{{ reason }}
+  {%- elif reason == 'This PC' -%}{{ t('shared.why.this_pc') }}
+  {%- else -%}
+    {#- the first letter of the whole reason was made a capital by the backend, so every fragment is tried in both cases; longer fragments come first -#}
+    {%- set pairs = [
+      ('Default gateway of this network', 'shared.why.default_gw'),
+      ('OS guess is ambiguous (', 'shared.why.os_ambiguous'),
+      ('OS guess: ', 'shared.why.os_guess'),
+      ('(guest OS: ', 'shared.why.guest_os'),
+      ('MAC is a ', 'shared.why.mac_vm_pre'),
+      ('router / UPnP gateway service', 'shared.why.router_svc'),
+      ('hostname looks like a phone (', 'shared.why.host_phone'),
+      ('advertises itself as an iPhone/iPad', 'shared.why.iphone'),
+      ('Windows/Mac file-sharing service or model', 'shared.why.file_share'),
+      ('hostname looks like a PC (', 'shared.why.host_pc'),
+      ('printer port open', 'shared.why.printer_port'),
+      ('printer service', 'shared.why.printer_svc'),
+      ('printer vendor (', 'shared.why.printer_vendor'),
+      ('hostname (', 'shared.why.hostname'),
+      ('video-streaming port open', 'shared.why.video_port'),
+      ('camera / streaming service', 'shared.why.camera_svc'),
+      ('camera vendor (', 'shared.why.camera_vendor'),
+      ('cast/TV port open', 'shared.why.cast_port'),
+      ('cast / TV service', 'shared.why.cast_svc'),
+      ('TV vendor (', 'shared.why.tv_vendor'),
+      ('IoT vendor (', 'shared.why.iot_vendor'),
+      ('smart-home service', 'shared.why.smart_home'),
+      ('network-equipment vendor (', 'shared.why.net_vendor'),
+      ('private (randomised) MAC, which phones and tablets use by default', 'shared.why.private_mac'),
+      ('Not enough information', 'shared.why.no_info'),
+      ('Conflicting clues: ', 'shared.why.conflict'),
+    ] -%}
+    {%- set ns = namespace(s=reason) -%}
+    {%- for en, key in pairs -%}
+      {%- set ns.s = ns.s | replace(en, t(key)) | replace(en[:1] | upper ~ en[1:], t(key)) -%}
+    {%- endfor -%}
+    {%- set ns.s = ns.s | replace(' virtual NIC', '') -%}
+    {%- if reason.startswith('Conflicting clues: ') -%}
+      {%- set ns.s = ns.s | replace(' vs ', t('shared.why.vs')) -%}
+      {%- for en, key in [('Router / Gateway', 'router'), ('Virtual Machine', 'vm'), ('Computer', 'computer'), ('Phone / Tablet', 'phone'), ('Printer', 'printer'), ('Camera', 'camera'), ('Smart TV', 'tv'), ('IoT device', 'iot'), ('Unknown', 'unknown')] -%}
+        {%- set ns.s = ns.s | replace(en, t('shared.dtype.' ~ key)) -%}
+      {%- endfor -%}
+    {%- endif -%}
+    {{ ns.s }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro mac_note_tr(markup) -%}
+  {%- set ns = namespace(s=markup) -%}
+  {%- if ui_lang == 'th' -%}
+    {%- for k in ['private', 'loopback', 'this_pc', 'not_returned', 'other_subnet'] -%}
+      {%- set ns.s = ns.s | replace(t('shared.mac.' ~ k ~ '_src'), t('shared.mac.' ~ k ~ '_tip')) -%}
+    {%- endfor -%}
+    {%- for en, key in [('This PC (loopback)', 'shared.mac.loopback'), ('Private MAC', 'shared.mac.private'), ('Not returned', 'shared.mac.not_returned'), ('Other subnet', 'shared.mac.other_subnet'), ('This PC', 'shared.mac.this_pc')] -%}
+      {%- set ns.s = ns.s | replace(en, t(key)) -%}
+    {%- endfor -%}
+  {%- else -%}
+    {%- for k in ['private', 'loopback', 'this_pc', 'not_returned', 'other_subnet'] -%}
+      {%- set ns.s = ns.s | replace(t('shared.mac.' ~ k ~ '_src'), t('shared.mac.' ~ k ~ '_tip')) -%}
+    {%- endfor -%}
+  {%- endif -%}
+  {{ ns.s }}
+{%- endmacro %}

@@ -80,8 +80,10 @@ _UNSUPPORTED = _group(['custom', 'กำหนดเอง', 'คัสตอม
 _NOT_A_COMMAND = _group([
     'what', 'how', 'why', 'when', 'where', 'which', 'who', 'did', 'does', 'was', 'were', 'failed',
     'result', 'results', 'history', 'last', 'latest', 'previous', 'status', 'summary', 'report',
+    'pdf', 'csv', 'download', 'export',
     "don't", 'dont', 'do not', 'not', 'never', 'cancel', 'stop', 'without',
-    'ผล', 'ล่าสุด', 'ประวัติ', 'สถานะ', 'สรุป', 'รายงาน', 'อะไร', 'ทำไม', 'อย่างไร', 'ยังไง', 'เมื่อไร', 'เมื่อไหร่', 'ไหน', 'กี่', 'เท่าไร', 'เท่าไหร่',
+    'ผล', 'ล่าสุด', 'ประวัติ', 'สถานะ', 'สรุป', 'รายงาน', 'พีดีเอฟ', 'ซีเอสวี', 'ดาวน์โหลด', 'ส่งออก',
+    'อะไร', 'ทำไม', 'อย่างไร', 'ยังไง', 'เมื่อไร', 'เมื่อไหร่', 'ไหน', 'กี่', 'เท่าไร', 'เท่าไหร่',
     'ไม่', 'อย่า', 'ยกเลิก', 'หยุด', 'ห้าม'])
 
 # words that may surround a bare "scan": if nothing else is left the user just forgot the target
@@ -393,6 +395,20 @@ def validate_target(text):
     return True, ''
 
 
+def check_scan_target(target, lang='th'):
+    """Validate an AI-proposed scan target with the exact same guardrail rules as voice commands (IPv4 or CIDR >= /16).
+    Returns {'ok': True, 'target': t, 'public': bool} or {'ok': False, 'reason': code, 'message': localized_text}."""
+    t = str(target or '').strip()
+    if not t:
+        return {'ok': False, 'reason': 'need_target', 'message': _msg('need_target', lang)}
+    ok, reason = validate_target(t)
+    if not ok:
+        code = reason if reason in _MSG else 'octet'
+        return {'ok': False, 'reason': reason, 'message': _msg(code, lang, t)}
+    net = ipaddress.ip_network(t, strict=False)
+    return {'ok': True, 'target': t, 'public': not net.is_private}
+
+
 # ───────────── messages ─────────────
 _MSG = {
     'need_target': {'th': 'จะสแกนอุปกรณ์ใด พูดหรือพิมพ์ที่อยู่ IP เช่น 192.168.1.1',
@@ -428,6 +444,8 @@ _MSG = {
                     'en': 'I heard more than one scan type ({x}). Please name just one.'},
     'many_pages':  {'th': 'ได้ยินหลายหน้า ({x}) กรุณาบอกทีละหน้า',
                     'en': 'I heard several pages ({x}). Please name one page.'},
+    'many_formats': {'th': 'ได้ยินทั้ง PDF และ CSV กรุณาเลือกรูปแบบเดียว',
+                     'en': 'I heard both PDF and CSV. Please choose one format.'},
     'unsupported': {'th': 'คำสั่งเสียงยังไม่รองรับ Custom Scan หรือ XML (พิมพ์สั่งเองได้)',
                     'en': 'Voice commands do not support Custom or XML scans. You can type them.'},
     'not_understood': {'th': 'ไม่เข้าใจคำสั่ง (ได้ยินว่า "{x}") ลองพูดใหม่ เช่น "สแกน 192.168.1.1"',
@@ -586,8 +604,8 @@ HELP_EXAMPLES = {
         'en': ['how many devices', 'how many open ports', 'how many critical CVEs', 'which devices have critical CVEs', 'what was the latest scan', 'is a scan running', 'when is the next scheduled scan'],
     },
     'open': {
-        'th': ['ไปหน้าอุปกรณ์', 'เปิดหน้าช่องโหว่', 'เปิดแดชบอร์ด', 'ไปหน้ารายงาน', 'เปิดแผนผังเครือข่าย'],
-        'en': ['show devices', 'show vulnerabilities', 'open the dashboard', 'open reports', 'show network topology'],
+        'th': ['ไปหน้าอุปกรณ์', 'เปิดหน้าช่องโหว่', 'แสดงช่องโหว่ที่มีความเสี่ยงสูง', 'เปิดแดชบอร์ด', 'ไปหน้ารายงาน', 'เปิดแผนผังเครือข่าย'],
+        'en': ['show devices', 'show vulnerabilities', 'show high vulnerabilities', 'open the dashboard', 'open reports', 'show network topology'],
     },
 }
 
@@ -598,18 +616,75 @@ PAGES = {   # key: (Thai name, English name); app.py maps the key to the URL, so
 }
 _PAGE_WORDS = {
     'dashboard': _group(['dashboard', 'home page', 'main page', 'แดชบอร์ด', 'หน้าหลัก', 'หน้าแรก']),
-    'tasks': _group(['tasks', 'task list', 'task page', 'งานสแกน']),
+    'tasks': re.compile(_group(['tasks', 'task list', 'task page']).pattern + '|(?<!ราย)งานสแกน'),
     'history': _group(['history', 'ประวัติ']),
     'devices': _group(['devices', 'device list', 'อุปกรณ์']),
-    'vulnerabilities': _group(['vulnerabilities', 'vulnerability list', 'cve list', 'cves page', 'ช่องโหว่']),
+    'vulnerabilities': _group(['vulnerabilities', 'vulnerability', 'vulnerability list', 'cve list', 'cves page', 'cves', 'cve', 'vulns', 'ช่องโหว่']),
     'topology': _group(['topology', 'network map', 'network diagram', 'network topology', 'แผนผัง', 'ผังเครือข่าย']),
     'reports': _group(['reports', 'report', 'รายงาน']),
     'settings': _group(['settings', 'setting', 'ตั้งค่า']),
 }
-_NAV_VERB = _group(['open', 'go to', 'go', 'show', 'show me', 'take me to', 'navigate to', 'navigate', 'display', 'view', 'bring up', 'see',
-                    'เปิด', 'ไปที่', 'ไปหน้า', 'ไป', 'แสดง', 'ดู', 'พาไป', 'ขอดู', 'หน้า'])
+_NAV_VERB = _group(['open', 'go to', 'go', 'show', 'show me', 'take me to', 'navigate to', 'navigate', 'display', 'view', 'bring up', 'see', 'filter',
+                    'เปิด', 'ไปที่', 'ไปหน้า', 'ไป', 'แสดง', 'ดู', 'พาไป', 'ขอดู', 'กรอง', 'หน้า'])
+_OPEN_ONLY_VERB = _group(['open', 'go to', 'take me to', 'navigate to', 'navigate', 'show', 'show me', 'display', 'view',
+                          'เปิด', 'ไปที่', 'ไปหน้า', 'พาไป', 'แสดง', 'ดู', 'ขอดู'])
+_IS_YESNO = _group(['is', 'are', 'any', 'ไหม', 'มั้ย', 'หรือเปล่า', 'หรือไม่', 'อยู่ไหม'])
 _NEGATION = _group(["don't", 'dont', 'do not', 'not', 'never', 'cancel', 'stop', 'ไม่', 'อย่า', 'ยกเลิก', 'หยุด', 'ห้าม'])
 _QUESTION = _group(['what', 'how', 'why', 'which', 'who', 'อะไร', 'ทำไม', 'อย่างไร', 'ยังไง', 'กี่', 'เท่าไร', 'เท่าไหร่', 'ไหน'])
+
+_PDF_WORDS = _group(['pdf', 'พีดีเอฟ', 'พี ดี เอฟ'])
+_CSV_WORDS = _group(['csv', 'ซีเอสวี', 'ซี เอส วี'])
+_DOWNLOAD_VERB = _group(['download', 'export', 'save', 'ดาวน์โหลด', 'โหลด', 'ส่งออก', 'เอ็กซ์พอร์ต', 'บันทึก'])
+_EXPORT_VIEW_VERB = _group(['show', 'show me', 'open', 'view', 'display', 'preview', 'see', 'get', 'generate', 'create', 'make', 'print',
+                            'แสดง', 'เปิด', 'ดู', 'ขอดู', 'ขอ', 'สร้าง', 'ทำ', 'ออกรายงาน', 'พิมพ์'])
+_LANDSCAPE = _group(['landscape', 'แนวนอน'])
+_PORTRAIT = _group(['portrait', 'แนวตั้ง'])
+_KEV_WORDS = _group(['kev', 'cisa', 'known exploited', 'exploited', 'ถูกโจมตีจริง', 'ใช้โจมตีจริง', 'เคอีวี'])
+_CVE_ID_RE = re.compile(r'(?<![a-z0-9])(cve-\d{4}-\d{4,7})(?![a-z0-9])')
+_JOB_ID_RE = re.compile(
+    r'(?:งาน(?:สแกน)?(?:ที่|หมายเลข)?|ผลสแกน(?:งาน)?(?:ที่)?|รายงาน(?:งาน)?(?:ที่)?|ครั้งที่|เลข(?:งาน)?|'
+    r'(?<![a-z0-9])(?:job|scan|task|report)(?:\s+(?:number|no\.?|id))?)\s*#?\s*(\d{1,7})(?![\d.])'
+    r'|#\s*(\d{1,7})(?![\d.])'
+)
+_JOB_WORDS = _group(['job', 'jobs', 'task', 'tasks', 'scan', 'scans', 'งาน', 'สแกน'])
+_PAGE_JOINER = _group(['and', 'และ', 'กับ'])
+
+# Filter vocabularies for Devices / History / Tasks / Reports (mapped to exact server-side enum values)
+_OS_FILTERS = [
+    ('Windows', _group(['windows', 'win', 'วินโดวส์', 'วินโดว์'])),
+    ('Android', _group(['android', 'แอนดรอยด์', 'แอนดรอย'])),      # before Linux: Android mentions Linux in OS strings
+    ('Apple', _group(['apple', 'macos', 'mac os', 'ios', 'iphone', 'ipad', 'macbook', 'แอปเปิล', 'แอปเปิ้ล', 'แมค', 'ไอโฟน', 'ไอแพด'])),
+    ('Linux', _group(['linux', 'ubuntu', 'debian', 'openwrt', 'ลินุกซ์', 'อูบุนตู'])),
+]
+_DEVICE_TYPE_FILTERS = [
+    ('Router / Gateway', _group(['router', 'routers', 'gateway', 'เราเตอร์', 'เกตเวย์'])),
+    ('Virtual Machine', _group(['virtual machine', 'virtual machines', 'vm', 'vms', 'เครื่องเสมือน'])),
+    ('Computer', _group(['computer', 'computers', 'desktop', 'laptop', 'คอมพิวเตอร์'])),
+    ('Phone / Tablet', _group(['phone', 'phones', 'mobile', 'smartphone', 'tablet', 'โทรศัพท์', 'มือถือ', 'แท็บเล็ต'])),
+    ('Printer', _group(['printer', 'printers', 'เครื่องพิมพ์', 'ปริ้นเตอร์', 'พรินเตอร์'])),
+    ('Camera', _group(['camera', 'cameras', 'cctv', 'กล้องวงจรปิด', 'กล้อง'])),
+    ('Smart TV', _group(['smart tv', 'tv', 'สมาร์ททีวี', 'ทีวี'])),
+    ('IoT device', _group(['iot', 'ไอโอที'])),
+]
+_PORTS_NONE = _group(['no open ports', 'no ports', 'without open ports', 'without ports', 'zero ports',
+                      'ไม่มีพอร์ตที่เปิด', 'ไม่มีพอร์ตเปิด', 'ไม่มีพอร์ต'])
+_PORTS_HAS = _group(['with open ports', 'open ports', 'has open ports', 'with ports', 'has ports',
+                     'มีพอร์ตที่เปิด', 'มีพอร์ตเปิด'])
+_STATUS_FILTERS = [
+    ('Failed', _group(['failed', 'fail', 'error', 'ล้มเหลว', 'ไม่สำเร็จ', 'ผิดพลาด'])),
+    ('Running', _group(['running', 'in progress', 'ongoing', 'กำลังทำงาน', 'กำลังสแกน', 'ทำงานอยู่'])),
+    ('Queued', _group(['queued', 'waiting', 'pending', 'รอคิว', 'อยู่ในคิว'])),
+    ('Cancelled', _group(['cancelled', 'canceled', 'stopped', 'ยกเลิก', 'ถูกยกเลิก'])),
+    ('Completed', _group(['completed', 'finished', 'done', 'succeeded', 'เสร็จสิ้น', 'สำเร็จ'])),
+]
+_SCAN_TYPE_FILTERS = [
+    ('vuln_scan', _TYPE_WORDS['vuln_scan']),
+    ('discovery', _TYPE_WORDS['discovery']),
+    ('intense', _TYPE_WORDS['intense']),
+    ('fast_scan', _TYPE_WORDS['fast_scan']),
+    ('custom', _group(['custom', 'กำหนดเอง', 'คัสตอม'])),
+    ('xml_upload', _group(['xml', 'เอ็กซ์เอ็มแอล'])),
+]
 
 _COUNT = _group(['how many', 'number of', 'count of', 'count', 'total number', 'กี่', 'จำนวน'])
 _WHICH = _group(['which', 'what devices', 'list', 'เครื่องไหน', 'อุปกรณ์ไหน', 'ไหนบ้าง', 'อะไรบ้าง'])
@@ -633,11 +708,11 @@ _MEDIUM_TH = ['มีเดียม', 'มีเดี่ยม', 'มีเด
 # CVE or at the start of a word group (a space or the start of the text), and before a question word (กี่ บ้าง ทั้งหมด ...) or the end. In ไฮบริด,
 # ช่องโหว่ไฮบริด or ไฮเวย์ it is not the severity; _severity_doubt() then sends such a question to the AI instead of answering it for all severities.
 # (Keep ำ out of this pattern, or run it through _clean() first: the text it is matched against has been NFKC-folded.)
-_HIGH_TH = (r'(?:(?<=ช่องโหว่)|(?<=ระดับ)|(?<=ความรุนแรง)|(?<=ที่เป็น)|(?<=cve)|(?<=ซีวีอี)|(?<=\s)|^)'
+_HIGH_TH = (r'(?:(?<=ช่องโหว่)|(?<=ระดับ)|(?<=ความรุนแรง)|(?<=ความเสี่ยง)|(?<=ที่เป็น)|(?<=cve)|(?<=ซีวีอี)|(?<=\s)|^)'
             r'ไฮ(?=$|\s|กี่|บ้าง|ทั้งหมด|เท่า|มี|หรือ|ไหม|อยู่|ใน|ที่|และ)')
 _LOW_TH = r'(?<!ส)โลว'     # โลว์ (and โลว when the engine drops the silent ์), but not สโลว์
-_SEVERITY = [('critical', _group(['critical', 'วิกฤต', 'วิกฤติ'] + _CRITICAL_TH)),
-             ('high', re.compile(_group(['high', 'สูง']).pattern + '|' + _HIGH_TH)),
+_SEVERITY = [('critical', _group(['critical', 'วิกฤต', 'วิกฤติ', 'สูงมาก'] + _CRITICAL_TH)),
+             ('high', re.compile(r'(?<![a-z0-9])high(?![a-z0-9])|สูง(?!มาก)|' + _HIGH_TH)),
              ('medium', _group(['medium', 'กลาง'] + _MEDIUM_TH)),
              ('low', re.compile(_group(['low', 'ต่ำ']).pattern + '|' + _LOW_TH))]
 
@@ -667,6 +742,75 @@ def _severity_doubt(s):
     return bool(_LEVEL_SHAPE.search(rest))
 
 
+def _extract_target_or_error(s, allow_cidr=False):
+    """Extract a single IPv4 target from a navigation/export phrase, returning (target, bad_target_dict).
+    Never guesses or repairs a malformed IP."""
+    targets = _find_targets(s)
+    if not targets and _ODD_SEPARATOR.search(s):
+        fixed = _ODD_SEPARATOR.sub('.', s)
+        targets = _find_targets(fixed)
+    if not targets:
+        return None, None
+    t = targets[0]
+    if t['problem']:
+        return None, t
+    if not allow_cidr and '/' in t['target']:
+        return None, t
+    return t['target'], None
+
+
+_JOB_PREFIX_RE = re.compile(
+    r'(?:งาน(?:สแกน)?(?:ที่|หมายเลข)?|ผลสแกน(?:งาน)?(?:ที่)?|รายงาน(?:งาน)?(?:ที่)?|ครั้งที่|เลข(?:งาน)?|'
+    r'(?<![a-z0-9])(?:job|scan|task|report)(?:\s+(?:number|no\.?|id))?)\s*#?\s*$'
+)
+
+
+def _extract_job_id(s):
+    """Extract an explicit scan/job number ("งานที่ 12", "job 12", "#12", or spoken "งานที่สอง" / "job five"), ignoring any IP addresses."""
+    masked = s
+    for t in reversed(_find_targets(s)):
+        masked = masked[:t['a']] + ' ' + masked[t['b']:]
+    m = _JOB_ID_RE.search(masked)
+    if m:
+        raw = m.group(1) or m.group(2)
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            pass
+    for it in _items(masked):
+        if it['t'] == 'num' and it['spoken'] and it['v'] is not None and 1 <= it['v'] <= 999999:
+            if _JOB_PREFIX_RE.search(masked[:it['a']]):
+                return it['v']
+    return None
+
+
+def _parse_export(s, lang):
+    """Direct PDF / CSV report action ("แสดงรายงานในรูปแบบ PDF", "ดาวน์โหลด PDF", "export csv")."""
+    if _NEGATION.search(s) or _QUESTION.search(s):
+        return None
+    want_pdf = bool(_PDF_WORDS.search(s))
+    want_csv = bool(_CSV_WORDS.search(s))
+    if not (want_pdf or want_csv):
+        return None
+    if not (_DOWNLOAD_VERB.search(s) or _EXPORT_VIEW_VERB.search(s)):
+        return None
+    if want_pdf and want_csv:
+        return {'intent': 'export', 'status': 'ambiguous', 'message': _msg('many_formats', lang)}
+    fmt = 'pdf' if want_pdf else 'csv'
+    mode = 'download' if (fmt == 'csv' or _DOWNLOAD_VERB.search(s)) else 'view'
+    orientation = 'landscape' if _LANDSCAPE.search(s) else ('portrait' if _PORTRAIT.search(s) else None)
+    ip, bad = _extract_target_or_error(s, allow_cidr=True)
+    if bad:
+        return {'intent': 'export', 'status': 'bad_target', 'message': _bad_target(bad, lang)['message']}
+    job_id = _extract_job_id(s)
+    return {
+        'intent': 'export', 'status': 'ok', 'format': fmt, 'mode': mode,
+        'job_id': job_id, 'ip': ip, 'orientation': orientation, 'message': '',
+    }
+
+
 def _parse_fact(s):
     """A question about the data that app.py can answer exactly (the same figures as the dashboard), or None."""
     if _TIME_SCOPE.search(s) or re.search(r'\d', s):       # "today", "port 80", "last 5 scans", an address: not an all-time figure
@@ -681,8 +825,14 @@ def _parse_fact(s):
     if _NEXT.search(s) and _SCHEDULE.search(s):
         fact = 'next_schedule'
     elif _RUNNING.search(s) and scan:
+        # "แสดงงานสแกนที่กำลังทำงาน" / "show running scans" is a filtered navigation request, not a yes/no fact question
+        if _NAV_VERB.search(s) and not _QUESTION.search(s) and not _IS_YESNO.search(s):
+            return None
         fact = 'running_scans'
     elif latest and scan and not count and not (dev or port or cve):
+        # "เปิดผลสแกนล่าสุด" / "open latest scan" opens the scan detail page; "ผลสแกนล่าสุด" / "latest scan" stays a fact summary
+        if _OPEN_ONLY_VERB.search(s) and not _QUESTION.search(s):
+            return None
         fact = 'latest_scan'
     elif latest:
         return None                                          # "how many devices did the last scan find": a narrower question than we answer
@@ -704,15 +854,137 @@ def _parse_fact(s):
 
 
 def _parse_nav(s, lang):
-    """"Open the devices page": needs a word for opening AND a page name. Returns None when it is not that."""
-    if _NEGATION.search(s) or _QUESTION.search(s) or not _NAV_VERB.search(s):
+    """"Open the devices page" — now also extracts page filters (severity, KEV, IP, OS, device type, ports, job #, status, scan type)."""
+    has_ports_none = bool(_PORTS_NONE.search(s))
+    s_neg = _PORTS_NONE.sub(' ', s) if has_ports_none else s   # "ไม่มีพอร์ตเปิด" / "no open ports" is a filter, not a negation of the command
+    if _NEGATION.search(s_neg) or _QUESTION.search(s) or not _NAV_VERB.search(s):
         return None
+
     pages = [k for k, rx in _PAGE_WORDS.items() if rx.search(s)]
+    sevs = [k for k, rx in _SEVERITY if rx.search(s)]
+    has_kev = bool(_KEV_WORDS.search(s))
+    cve_m = _CVE_ID_RE.search(s)
+    cve_id = cve_m.group(1).upper() if cve_m else None
+    os_val = next((k for k, rx in _OS_FILTERS if rx.search(s)), None)
+    dev_type = next((k for k, rx in _DEVICE_TYPE_FILTERS if rx.search(s)), None)
+    ports_val = 'none' if has_ports_none else ('has' if _PORTS_HAS.search(s) else None)
+    status_val = next((k for k, rx in _STATUS_FILTERS if rx.search(s)), None)
+    scan_type_val = next((k for k, rx in _SCAN_TYPE_FILTERS if rx.search(s)), None)
+    job_id = _extract_job_id(s)
+    is_latest = bool(_LATEST.search(s))
+    ip_single, bad_single = _extract_target_or_error(s, allow_cidr=False)
+    ip_any, bad_any = _extract_target_or_error(s, allow_cidr=True)
+
+    # Resolve compound filter phrases that incidentally match two page keywords
+    # (e.g. "แสดงประวัติสแกนช่องโหว่" -> history + type=vuln_scan; "แสดงช่องโหว่ของอุปกรณ์ 192.168.1.41" -> vulnerabilities + host=...)
+    if len(pages) > 1:
+        pset = set(pages)
+        if 'history' in pset and pset <= {'history', 'vulnerabilities', 'devices', 'tasks'} and not _PAGE_JOINER.search(s):
+            pages = ['history']
+        elif 'reports' in pset and pset <= {'reports', 'vulnerabilities', 'devices'} and not _PAGE_JOINER.search(s):
+            pages = ['reports']
+        elif pset == {'vulnerabilities', 'devices'} and (ip_single or sevs or has_kev or cve_id or not _PAGE_JOINER.search(s)):
+            pages = ['vulnerabilities']
+        elif pset == {'tasks', 'vulnerabilities'} and (status_val or job_id):
+            pages = ['tasks']
+
+    # Direct scan detail ("เปิดผลสแกนล่าสุด", "เปิดงานที่ 12", "open job 12")
+    if job_id is not None:
+        if 'reports' in pages:
+            return {'intent': 'navigate', 'status': 'ok', 'page': 'scan_report',
+                    'page_name': 'Scan report' if lang == 'en' else 'รายงานการสแกน',
+                    'filters': {'job_id': job_id}, 'message': ''}
+        if not pages or pages == ['tasks'] or pages == ['history']:
+            return {'intent': 'navigate', 'status': 'ok', 'page': 'scan_detail',
+                    'page_name': 'Scan result' if lang == 'en' else 'ผลสแกน',
+                    'filters': {'job_id': job_id}, 'message': ''}
+
+    # Latest scan / latest report ("เปิดผลสแกนล่าสุด", "เปิดรายงานล่าสุด")
+    if is_latest:
+        if pages == ['reports']:
+            f = {'latest': True}
+            if ip_any:
+                f['ip'] = ip_any
+            return {'intent': 'navigate', 'status': 'ok', 'page': 'scan_report',
+                    'page_name': 'Scan report' if lang == 'en' else 'รายงานการสแกน',
+                    'filters': f, 'message': ''}
+        if (not pages or pages == ['tasks'] or pages == ['history']) and _SCAN_W.search(s):
+            f = {'latest': True}
+            if ip_any:
+                f['ip'] = ip_any
+            return {'intent': 'navigate', 'status': 'ok', 'page': 'scan_detail',
+                    'page_name': 'Scan result' if lang == 'en' else 'ผลสแกน',
+                    'filters': f, 'message': ''}
+
+    # Implicit page from unambiguous filter terms when the page noun itself was omitted
+    # (e.g. "แสดงเครื่องพิมพ์", "ดูเครื่อง 192.168.1.41", "แสดงงานที่ล้มเหลว", "show running scans")
     if not pages:
-        return None
+        if cve_id:
+            pages = ['vulnerabilities']
+        elif (os_val or dev_type or ports_val or (ip_single and _DEVICE.search(s))) and not _SCAN_W.search(s) and not _CVE.search(s):
+            pages = ['devices']
+        elif bad_single and _DEVICE.search(s) and not _SCAN_W.search(s):
+            return {'intent': 'navigate', 'status': 'bad_target', 'message': _bad_target(bad_single, lang)['message']}
+        elif status_val and _JOB_WORDS.search(s):
+            pages = ['tasks']
+        else:
+            return None
+
     if len(pages) > 1:
         return {'intent': 'navigate', 'status': 'ambiguous', 'message': _msg('many_pages', lang, ', '.join(PAGES[k][0 if lang != 'en' else 1] for k in pages))}
-    return {'intent': 'navigate', 'status': 'ok', 'page': pages[0], 'page_name': PAGES[pages[0]][1 if lang == 'en' else 0], 'message': ''}
+
+    page = pages[0]
+    filters = {}
+
+    if page == 'vulnerabilities':
+        if _severity_doubt(s):
+            return None
+        if bad_single and not cve_id:
+            return {'intent': 'navigate', 'status': 'bad_target', 'message': _bad_target(bad_single, lang)['message']}
+        if sevs:
+            filters['sev'] = sevs
+        if has_kev:
+            filters['kev'] = True
+        if ip_single:
+            filters['host'] = ip_single
+        if cve_id:
+            filters['q'] = cve_id
+    elif page == 'devices':
+        if bad_single:
+            return {'intent': 'navigate', 'status': 'bad_target', 'message': _bad_target(bad_single, lang)['message']}
+        if ip_single:
+            filters['ip'] = ip_single
+        else:
+            if os_val:
+                filters['os'] = os_val
+            if dev_type:
+                filters['type'] = dev_type
+            if ports_val:
+                filters['ports'] = ports_val
+    elif page == 'history':
+        if bad_any:
+            return {'intent': 'navigate', 'status': 'bad_target', 'message': _bad_target(bad_any, lang)['message']}
+        if status_val:
+            filters['status'] = status_val
+        if scan_type_val:
+            filters['type'] = scan_type_val
+        if ip_any:
+            filters['q'] = ip_any
+    elif page == 'tasks':
+        if status_val:
+            filters['status'] = status_val
+    elif page == 'reports':
+        if bad_any:
+            return {'intent': 'navigate', 'status': 'bad_target', 'message': _bad_target(bad_any, lang)['message']}
+        if scan_type_val:
+            filters['type'] = scan_type_val
+        if ip_any:
+            filters['q'] = ip_any
+
+    out = {'intent': 'navigate', 'status': 'ok', 'page': page, 'page_name': PAGES[page][1 if lang == 'en' else 0], 'message': ''}
+    if filters:
+        out['filters'] = filters
+    return out
 
 
 def understand(text, lang='th'):
@@ -722,7 +994,7 @@ def understand(text, lang='th'):
     s = _clean(text)
     if not s:
         return r
-    return _parse_fact(s) or _parse_nav(s, lang) or r
+    return _parse_export(s, lang) or _parse_fact(s) or _parse_nav(s, lang) or r
 
 
 # ───────────── what the speech engine offers ─────────────
@@ -736,8 +1008,11 @@ _RETRY_REASONS = ('incomplete', 'too_many') + _TAIL_REASONS
 
 
 def is_usable(r):
-    """True when a parser result is something the app can act on: a scan with a good target, a question about the data, or a page to open."""
-    return (r['intent'] == 'scan' and r['status'] == 'ok') or r['intent'] == 'fact' or (r['intent'] == 'navigate' and r['status'] == 'ok')
+    """True when a parser result is something the app can act on: a scan with a good target, a question about the data, a page to open, or a report export."""
+    return ((r['intent'] == 'scan' and r['status'] == 'ok')
+            or r['intent'] == 'fact'
+            or (r['intent'] == 'navigate' and r['status'] == 'ok')
+            or (r['intent'] == 'export' and r['status'] == 'ok'))
 
 
 _usable = is_usable
@@ -813,9 +1088,14 @@ def understand_best(texts, lang='th'):
     return first, 0, seen[0]
 
 
-def worth_asking_ai(text):
-    """False for what is clearly not a sentence ("2nd 1.01.208.", a single word, noise): asking the AI about it only costs tokens."""
+def worth_asking_ai(text, typed=False):
+    """False for what is clearly not a sentence ("2nd 1.01.208.", a single word, noise): asking the AI about it only costs tokens.
+    `typed`: the words were typed, not spoken. A person typed them on purpose, so a short question ("คุณคือ?", "who are you") must reach the AI: the
+    strict rule exists for what a microphone writes down. Typed text is refused only when it holds no word at all (a lone number or address, one or
+    two letters): one English word of 3 or more letters, or 3 or more Thai consonants, is enough."""
     s = _clean(text)
+    if typed:
+        return len(re.findall(r'[a-z]{3,}', s)) >= 1 or len(re.findall(r'[ก-ฮ]', s)) >= 3
     return len(re.findall(r'[a-z]{3,}', s)) >= 2 or len(re.findall(r'[ก-ฮ]', s)) >= 6
 
 

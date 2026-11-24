@@ -21,18 +21,62 @@
     });
     return Object.keys(map).map(function (key) { return map[key]; }).sort(function (a, b) { return a.net - b.net; });
   }
-  // Every label sits on a white backing, so a line that passes behind a label is hidden there instead of running through the text.
+  // The key of the subnet a device is drawn in, the same grouping apply() uses ('a.b.c.0/24'; 'Other' for an address that is not IPv4).
+  function groupKey(ip, prefix) {
+    var value = ipToNumber(ip);
+    if (value === null) return 'Other';
+    var size = Math.pow(2, 32 - prefix);
+    return numberToIp(Math.floor(value / size) * size) + '/' + prefix;
+  }
+  // Every label sits on a tinted backing matching the active canvas, so a line passing behind a label stays hidden there.
   var LABEL_BG = 'rgba(255,255,255,.94)';
-  // Lines are light: the structure should be readable, not heavy. A line only darkens while its device is hovered (see focusPath).
+  // Lines are light: the structure should be readable, not heavy. A line only highlights while its device is hovered (see focusPath).
   var EDGE_HOST = { color: '#b9c2ca', highlight: '#64748b', hover: '#64748b', opacity: .9 };
   var EDGE_UPLINK = { color: '#aeb8c1', highlight: '#64748b', hover: '#64748b' };
   var EDGE_FOCUS = { color: '#64748b', highlight: '#64748b', hover: '#64748b' };
+  // Dark canvas ("Midnight NOC") tokens: only used when callers pass { theme: 'dark' }.
+  var DARK_PALETTE = {
+    isDark: true,
+    labelBg: 'rgba(14,22,33,.86)',
+    strokeColor: '#0e1621',
+    edgeHost: { color: '#384b66', highlight: '#7dd3fc', hover: '#7dd3fc', opacity: .88 },
+    edgeUplink: { color: '#475e7d', highlight: '#7dd3fc', hover: '#7dd3fc' },
+    edgeFocus: { color: '#5cd0ff', highlight: '#7dd3fc', hover: '#7dd3fc', opacity: 1 },
+    edgeFocusWidth: 2.8,
+    edgeFocusShadow: { enabled: true, color: 'rgba(56,189,248,.85)', size: 14, x: 0, y: 0 },
+    nodeHoverShadow: { enabled: true, color: 'rgba(56,189,248,.90)', size: 24, x: 0, y: 0 },
+    flatEdge: { color: '#384b66', highlight: '#5cd0ff', hover: '#5cd0ff' },
+    dimEdgeColor: '#384b66',
+    hubLabel: '#e2e8f0',
+    hubShadow: 'rgba(56,189,248,.52)',
+    segmentShadow: 'rgba(56,189,248,.34)'
+  };
+  var LIGHT_PALETTE = {
+    isDark: false,
+    labelBg: LABEL_BG,
+    strokeColor: '#ffffff',
+    edgeHost: EDGE_HOST,
+    edgeUplink: EDGE_UPLINK,
+    edgeFocus: EDGE_FOCUS,
+    edgeFocusWidth: 1.8,
+    edgeFocusShadow: false,
+    nodeHoverShadow: null,
+    flatEdge: { color: '#90a4ae', highlight: '#607d8b', hover: '#607d8b' },
+    dimEdgeColor: '#b9c2ca',
+    hubLabel: null,
+    hubShadow: 'rgba(33,37,41,.24)',
+    segmentShadow: 'rgba(33,37,41,.18)'
+  };
+  function themePalette(config) {
+    return (config && (config.theme === 'dark' || config.dark)) ? DARK_PALETTE : LIGHT_PALETTE;
+  }
   // By default vis-network makes a hovered edge 1.5px and a selected edge 2px thicker, which turns a fan of lines into a heavy mass
   // that covers the labels. The lines keep their own width; only the colour changes.
   function sameWidth(width) { return width; }
-  function options(prefix) {
-    // The white outline around the glyphs closes the small gaps the backing leaves between the parts of a label (the dot, the IP).
-    var nodes = { font: { background: LABEL_BG, strokeWidth: 3, strokeColor: '#ffffff' } }, edges = { hoverWidth: sameWidth, selectionWidth: sameWidth };
+  function options(prefix, config) {
+    var pal = themePalette(config);
+    // The outline around the glyphs closes the small gaps the backing leaves between the parts of a label (the dot, the IP).
+    var nodes = { font: { background: pal.labelBg, strokeWidth: 3, strokeColor: pal.strokeColor } }, edges = { hoverWidth: sameWidth, selectionWidth: sameWidth };
     if (+prefix) return { nodes: nodes, edges: edges, physics: { enabled: false }, layout: { improvedLayout: false }, interaction: { hover: true, zoomView: true, tooltipDelay: 300 } };
     return { nodes: nodes, edges: edges, physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -130, springLength: 170, springConstant: .04, damping: .5 }, stabilization: { iterations: 200 } }, layout: { improvedLayout: true }, interaction: { hover: true, zoomView: true, tooltipDelay: 300 } };
   }
@@ -65,9 +109,9 @@
     result.forEach(function (subnet) {
       var gateway = gatewayFor(subnet), gatewayAt = gateway && gateway.hostIndex >= 0 ? gateway.hostIndex : -1;
       // the detected gateway is drawn as the router itself, so it takes no place on the ring
-      subnet.ringMembers = subnet.members.filter(function (member, i) { return i !== gatewayAt; });
+      subnet.ringMembers = subnet.collapsed ? [] : subnet.members.filter(function (member, i) { return i !== gatewayAt; });
       subnet.rings = ringPlan(subnet.ringMembers.length);
-      subnet.radius = subnet.rings.length ? subnet.rings[subnet.rings.length - 1].r : STAR_MIN_RADIUS;
+      subnet.radius = subnet.rings.length ? subnet.rings[subnet.rings.length - 1].r : (subnet.collapsed ? 70 : STAR_MIN_RADIUS);
     });
     var cloud = nodes.filter(function (item) { return item.id === 0; })[0];
     if (cloud) { cloud.x = 0; cloud.y = 0; }
@@ -110,11 +154,11 @@
   // too. Nothing is ever invented: with no evidence the answer is "no router" and the diagram draws the subnet itself.
   // Returns { ip, reason, hostIndex, evidence, inScan, note }; ip is '' when no router could be identified.
   var VIRTUAL_ROUTER_MACS = [
-    { prefix: '00:00:5e:00:01', label: 'VRRP (IPv4) virtual router MAC' },
-    { prefix: '00:00:5e:00:02', label: 'VRRP (IPv6) virtual router MAC' },
-    { prefix: '00:00:0c:07:ac', label: 'Cisco HSRP v1 virtual router MAC' },
-    { prefix: '00:00:0c:9f:f0', label: 'Cisco HSRP v2 virtual router MAC' },
-    { prefix: '00:07:b4:00',    label: 'Cisco GLBP virtual router MAC' }
+    { prefix: '00:00:5e:00:01', label: 'VRRP (IPv4) virtual router MAC', key: 'vmac_vrrp4' },
+    { prefix: '00:00:5e:00:02', label: 'VRRP (IPv6) virtual router MAC', key: 'vmac_vrrp6' },
+    { prefix: '00:00:0c:07:ac', label: 'Cisco HSRP v1 virtual router MAC', key: 'vmac_hsrp1' },
+    { prefix: '00:00:0c:9f:f0', label: 'Cisco HSRP v2 virtual router MAC', key: 'vmac_hsrp2' },
+    { prefix: '00:07:b4:00',    label: 'Cisco GLBP virtual router MAC', key: 'vmac_glbp' }
   ];
   // Firmware that only routers run. Not "gateway" (a VPN appliance or phone can be fingerprinted as one) and not "access point".
   var ROUTER_OS_WORDS = ['routeros', 'openwrt', 'dd-wrt', 'pfsense', 'opnsense', 'vyos', 'cisco ios', 'junos', 'fortios', 'mikrotik', 'router'];
@@ -123,6 +167,10 @@
     if (base === null || value === null || !(bits >= 0 && bits <= 32)) return false;
     var size = Math.pow(2, 32 - bits);
     return Math.floor(value / size) === Math.floor(base / size);
+  }
+  function _st(key, fallback) {
+    var dict = global.SUBNET_T;
+    return (dict && dict[key]) ? dict[key] : fallback;
   }
   function detectGateway(hosts, systemGw, subnet) {
     var none = { ip: '', reason: '', hostIndex: -1, evidence: '', inScan: false, note: '' };
@@ -144,7 +192,7 @@
       var mac = String(hosts[i].mac || '').toLowerCase().replace(/-/g, ':');
       for (var v = 0; v < VIRTUAL_ROUTER_MACS.length; v++) {
         if (mac.indexOf(VIRTUAL_ROUTER_MACS[v].prefix) === 0) {
-          return { ip: hosts[i].ip, reason: VIRTUAL_ROUTER_MACS[v].label + ' (' + hosts[i].mac + ')', hostIndex: i, evidence: 'virtual-mac', inScan: true, note: '' };
+          return { ip: hosts[i].ip, reason: _st(VIRTUAL_ROUTER_MACS[v].key, VIRTUAL_ROUTER_MACS[v].label) + ' (' + hosts[i].mac + ')', hostIndex: i, evidence: 'virtual-mac', inScan: true, note: '' };
         }
       }
     }
@@ -152,15 +200,15 @@
     // 2. this computer's default gateway
     var sysIp = systemGw && systemGw.ip ? String(systemGw.ip).trim() : '';
     if (sysIp) {
-      var metric = (systemGw.metric !== undefined && systemGw.metric < 9999) ? ' [metric ' + systemGw.metric + ']' : '';
+      var metric = (systemGw.metric !== undefined && systemGw.metric < 9999) ? ' [' + _st('metric_tag', 'metric {n}').replace('{n}', String(systemGw.metric)) + ']' : '';
       var onlyLocalhost = hosts.every(function (h) { return h.ip === '127.0.0.1'; });
       if (onlyLocalhost) {
-        return { ip: sysIp, reason: "This computer's default gateway (OS routing table)" + metric, hostIndex: -1, evidence: 'system-route', inScan: false,
-                 note: 'Shown for localhost: this computer reaches the network through it.' };
+        return { ip: sysIp, reason: _st('sys_gw', "This computer's default gateway (OS routing table)") + metric, hostIndex: -1, evidence: 'system-route', inScan: false,
+                 note: _st('localhost_note', 'Shown for localhost: this computer reaches the network through it.') };
       }
       if (inSubnet(sysIp)) {
         var at = indexOfIp(sysIp);
-        return { ip: sysIp, reason: "This computer's default gateway (OS routing table)" + metric, hostIndex: at, evidence: 'system-route', inScan: at >= 0, note: '' };
+        return { ip: sysIp, reason: _st('sys_gw', "This computer's default gateway (OS routing table)") + metric, hostIndex: at, evidence: 'system-route', inScan: at >= 0, note: '' };
       }
     }
 
@@ -171,7 +219,7 @@
         var pen = hops[hops.length - 2], penIp = pen && (pen.ipaddr || pen.ip);
         if (penIp && penIp !== hosts[t].ip && inSubnet(penIp)) {
           var penAt = indexOfIp(penIp);
-          return { ip: penIp, reason: 'Last router before ' + hosts[t].ip + ' on the traceroute', hostIndex: penAt, evidence: 'traceroute', inScan: penAt >= 0, note: '' };
+          return { ip: penIp, reason: _st('trace_last', 'Last router before {ip} on the traceroute').replace('{ip}', hosts[t].ip), hostIndex: penAt, evidence: 'traceroute', inScan: penAt >= 0, note: '' };
         }
       }
     }
@@ -184,24 +232,37 @@
     });
     if (candidates.length === 1) {
       var only = hosts[candidates[0]];
-      return { ip: only.ip, reason: 'Router OS fingerprint: ' + only.os, hostIndex: candidates[0], evidence: 'router-os', inScan: true, note: '' };
+      return { ip: only.ip, reason: _st('router_os', 'Router OS fingerprint: {os}').replace('{os}', only.os), hostIndex: candidates[0], evidence: 'router-os', inScan: true, note: '' };
     }
     if (candidates.length > 1) {
-      none.note = candidates.length + ' hosts look like routers by their OS (' + candidates.map(function (c) { return hosts[c].ip; }).join(', ') +
-                  '); the scan cannot say which one is the gateway.';
+      none.note = _st('multi_router', 'Possible routers ({n}): {ips}')
+        .replace('{n}', String(candidates.length))
+        .replace('{ips}', candidates.slice(0, 3).map(function (c) { return hosts[c].ip; }).join(', ') + (candidates.length > 3 ? ' +' + (candidates.length - 3) : ''));
     }
     return none;
   }
 
   // A subnet whose router is unknown is drawn as the network itself: a shared wire the devices hang on, not a device.
-  var SEGMENT_ICON = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">'
-    + '<g fill="none" stroke="#4a9fd4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
-    + '<rect x="10" y="29" width="60" height="12" rx="6" fill="#eaf5fc"/>'
-    + '<path d="M24 29V18M40 29V14M56 29V18M24 41v11M40 41v15M56 41v11"/></g>'
-    + '<g fill="#4a9fd4"><circle cx="24" cy="16" r="2.6"/><circle cx="40" cy="12" r="2.6"/><circle cx="56" cy="16" r="2.6"/>'
-    + '<circle cx="24" cy="54" r="2.6"/><circle cx="40" cy="58" r="2.6"/><circle cx="56" cy="54" r="2.6"/></g></svg>');
+  function makeSegmentIcon(stroke, fill) {
+    return 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 70" width="80" height="70">'
+      + '<g fill="none" stroke="' + stroke + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
+      + '<rect x="10" y="29" width="60" height="12" rx="6" fill="' + fill + '"/>'
+      + '<path d="M24 29V18M40 29V14M56 29V18M24 41v11M40 41v15M56 41v11"/></g>'
+      + '<g fill="' + stroke + '"><circle cx="24" cy="16" r="2.6"/><circle cx="40" cy="12" r="2.6"/><circle cx="56" cy="16" r="2.6"/>'
+      + '<circle cx="24" cy="54" r="2.6"/><circle cx="40" cy="58" r="2.6"/><circle cx="56" cy="54" r="2.6"/></g></svg>');
+  }
+  var SEGMENT_ICON = makeSegmentIcon('#4a9fd4', '#eaf5fc');
+  var SEGMENT_ICON_DARK = makeSegmentIcon('#7dd3fc', '#123352');
 
+  // How many columns the tree lays a subnet's devices in: at most 4 (the scan reports and every /24 are unchanged). With config.wideGroups (the
+  // topology page) a group of more than 256 devices, which only a /16 or wider can be, gets up to 24 columns (about as wide as tall: rows are closer together than columns) so it opens as a block, not a strip.
+  function columnsFor(count, wide) {
+    var columns = Math.min(4, Math.max(1, Math.ceil(Math.sqrt(count))));
+    if (wide && count > 256) columns = Math.min(24, Math.ceil(Math.sqrt(count)));
+    return columns;
+  }
   function apply(nodes, edges, devices, prefix, config) {
+    var pal = themePalette(config);
     prefix = +prefix || 0;
     if (!prefix) {
       // Flat mode is the original diagram: Gateway connects directly to every
@@ -209,19 +270,27 @@
       devices.forEach(function (device, index) {
         if (!nodes.filter(function (item) { return item.id === index + 1; })[0]) return;
         var ports = (device && device.ports) || [];
-        edges.push({ from: 0, to: index + 1, color: { color: '#90a4ae', highlight: '#607d8b', hover: '#607d8b' }, width: 1.6, dashes: ports.length === 0, smooth: false });
+        edges.push({ from: 0, to: index + 1, color: Object.assign({}, pal.flatEdge), width: 1.6, dashes: ports.length === 0, smooth: false, _edgeRole: 'flat' });
       });
       return [];
     }
     config = config || {};
     var palette = ['#212529','#343a40','#495057','#5c636a','#6c757d','#3f464d'];
     var result = groups(devices, prefix).map(function (group, index) {
-      var count = group.members.length, columns = Math.min(4, Math.max(1, Math.ceil(Math.sqrt(count))));
-      var rows = Math.ceil(count / columns), width = Math.max(240, columns * 125 + 60);
+      // config.collapsed = { '<subnet key>': true }: the caller drew no node for these devices, so the layouts must not leave room for them
+      var total = group.members.length, collapsed = !!(config.collapsed && config.collapsed[group.key]), count = collapsed ? 0 : total;
+      var columns = columnsFor(count, config.wideGroups);
+      var rows = Math.ceil(count / columns), width = collapsed ? 130 : Math.max(240, columns * 125 + 60);
       var x = (index - (groups(devices, prefix).length - 1) / 2) * Math.max(300, width + 55);
-      return { key: group.key, members: group.members, count: count, x: x, y: -60, width: width, rows: rows,
-        radius: Math.max(145, width / 2), color: palette[index % palette.length], hubId: devices.length + 1 + index };
+      return { key: group.key, members: group.members, count: total, shown: count, collapsed: collapsed, x: x, y: -60, width: width, rows: rows,
+        radius: collapsed ? 70 : Math.max(145, width / 2), color: palette[index % palette.length], hubId: devices.length + 1 + index };
     });
+    // With config.collapsed (the topology page) the subnets are placed side by side by their own widths, so a wide subnet next to a narrow
+    // bubble never overlaps it; without it the old even spacing is kept (the scan reports).
+    if (config.collapsed && result.length) {
+      var gapX = 55, sum = result.reduce(function (t, sn) { return t + sn.width; }, 0) + gapX * (result.length - 1), cursor = -sum / 2;
+      result.forEach(function (sn) { sn.x = cursor + sn.width / 2; cursor += sn.width + gapX; });
+    }
     var gatewayCache = {};
     function gatewayFor(subnet) {
       if (!gatewayCache[subnet.key]) {
@@ -234,15 +303,17 @@
     result.forEach(function (subnet) {
       var gateway = gatewayFor(subnet), known = !!(gateway && gateway.ip), NL = String.fromCharCode(10);
       nodes.push({ id: subnet.hubId, label: '', shape: 'dot', size: 24, x: subnet.x, y: subnet.y, fixed: { x: false, y: false },
-                   font: { color: subnet.color, size: 12, face: 'monospace', background: LABEL_BG }, _subnet: subnet.key, _count: subnet.count });
+                   font: { color: pal.hubLabel || subnet.color, size: 12, face: 'monospace', background: pal.labelBg }, _subnet: subnet.key, _count: subnet.count, _collapsed: subnet.collapsed, _lightFontColor: subnet.color });
       var hubNode = nodes[nodes.length - 1];
       if (known) {
         // A router that was identified from evidence (see detectGateway). A scanned host that is the router is drawn as the router.
-        hubNode.label = 'Router' + NL + gateway.ip;
+        hubNode.label = _st('lbl_router', 'Router') + NL + gateway.ip;
         hubNode.image = config.gatewayIcon || config.hubIcon;
         hubNode.shape = hubNode.image ? 'image' : 'dot';
         hubNode.size = 36;
-        hubNode.shadow = { enabled: true, color: 'rgba(33,37,41,.24)', size: 10 };
+        hubNode.shadow = pal.isDark
+          ? { enabled: true, color: pal.hubShadow, size: 22, x: 0, y: 0 }
+          : { enabled: true, color: pal.hubShadow, size: 10 };
         hubNode._isGateway = true;
         hubNode._gwIp = gateway.ip;
         hubNode._gwReason = gateway.reason;
@@ -254,21 +325,23 @@
           ? hubNode._device.ports.filter(function (p) { return String(p.state || '').toLowerCase() === 'open'; }).length : 0;
         hubNode._sortedPorts = hubNode._device && hubNode._device.ports
           ? hubNode._device.ports.slice().sort(function (a, b) { return (+a.port || 0) - (+b.port || 0); }) : [];
-        hubNode.title = 'Router' + NL + 'IP: ' + gateway.ip + NL + 'Subnet: ' + subnet.key + NL + 'Identified by: ' + gateway.reason;
+        hubNode.title = _st('lbl_router', 'Router') + NL + _st('tip_ip', 'IP: ') + gateway.ip + NL + _st('tip_subnet', 'Subnet: ') + subnet.key + NL + _st('tip_by', 'Identified by: ') + gateway.reason;
       } else {
         // No router could be identified, so none is drawn: the hub is the subnet itself (a network segment), not a device.
-        hubNode.label = 'Subnet' + NL + subnet.key;
-        hubNode.image = SEGMENT_ICON;
+        hubNode.label = _st('lbl_subnet', 'Subnet') + NL + subnet.key;
+        hubNode.image = config.segmentIcon || ((config.theme === 'dark' || config.dark) ? SEGMENT_ICON_DARK : SEGMENT_ICON);
         hubNode.shape = 'image';
         hubNode.size = 30;
-        hubNode.shadow = { enabled: true, color: 'rgba(33,37,41,.18)', size: 8 };
+        hubNode.shadow = pal.isDark
+          ? { enabled: true, color: pal.segmentShadow, size: 14, x: 0, y: 0 }
+          : { enabled: true, color: pal.segmentShadow, size: 8 };
         hubNode._isGateway = false;
         hubNode._isSegment = true;
         hubNode._note = gateway && gateway.note || '';
         hubNode._device = null;
         hubNode._portCnt = 0;
         hubNode._sortedPorts = [];
-        hubNode.title = 'Subnet ' + subnet.key + NL + subnet.count + ' device(s) in the scan results' + NL + 'No router was identified for this subnet'
+        hubNode.title = _st('lbl_subnet', 'Subnet') + ' ' + subnet.key + NL + _st('tip_count', 'Devices: {n}').replace('{n}', String(subnet.count)) + NL + _st('tip_no_router', 'No router identified')
           + (hubNode._note ? NL + hubNode._note : '');
       }
 
@@ -281,8 +354,8 @@
       }
       // In the star the uplinks are the straight spokes of the big star; in the tree they are gentle curves. The link to the Internet
       // is dashed when no router was identified, because then nothing in the scan shows that this subnet is connected to it.
-      edges.push({ from: 0, to: subnet.hubId, color: Object.assign({}, EDGE_UPLINK), width: 1.8, smooth: star ? false : { type: 'cubicBezier', roundness: .16 },
-                   dashes: known ? false : [7, 6], title: known ? '' : 'Link to the Internet not verified: no router was identified for this subnet' });
+      edges.push({ from: 0, to: subnet.hubId, color: Object.assign({}, pal.edgeUplink), width: 1.8, smooth: star ? false : { type: 'cubicBezier', roundness: .16 },
+                   dashes: known ? false : [7, 6], title: known ? '' : _st('edge_unverified', 'Link to the Internet not verified: no router was identified for this subnet'), _edgeRole: 'uplink' });
       subnet.members.forEach(function (deviceIndex, memberIndex) {
         // A detected gateway is already represented by this subnet's router
         // node.  Do not render its scanned-host node a second time.
@@ -293,13 +366,13 @@
           node.x = subnet.x + subnet.offsets[deviceIndex].x;
           node.y = subnet.y + subnet.offsets[deviceIndex].y;
         } else {
-          var columns = Math.min(4, Math.max(1, Math.ceil(Math.sqrt(subnet.count))));
+          var columns = columnsFor(subnet.shown, config.wideGroups);
           var column = memberIndex % columns, row = Math.floor(memberIndex / columns);
           node.x = subnet.x + (column - (columns - 1) / 2) * 125;
           node.y = subnet.y + 145 + row * 115;
         }
         node.fixed = { x: false, y: false };
-        edges.push({ from: subnet.hubId, to: deviceIndex + 1, color: Object.assign({}, EDGE_HOST), width: 1.2, dashes: false, smooth: false });
+        edges.push({ from: subnet.hubId, to: deviceIndex + 1, color: Object.assign({}, pal.edgeHost), width: 1.2, dashes: false, smooth: false, _edgeRole: 'host' });
       });
     });
     return result;
@@ -308,6 +381,10 @@
   function attachRegions(network, getSubnets, settings) {
     network.__subnetGetter = getSubnets;
     var floating = !!(settings && settings.float);
+    // The hover highlight (focusPath) is on unless the caller passes { highlight: false }; network.__setHighlight(on) switches it live.
+    var highlightOn = !(settings && settings.highlight === false);
+    var pal = themePalette(settings);
+    network.__themePalette = pal;
     function region(subnet) {
       var ids = [subnet.hubId].concat(subnet.members.map(function (index) { return index + 1; }));
       var positions = network.getPositions(ids), hub = positions[subnet.hubId];
@@ -367,14 +444,27 @@
       drag = null;
     });
 
-    // Hovering a device darkens its own line and the router's line up to the Internet, and fades every other line, so one path
-    // can be followed in a busy diagram. Hovering a router does the same for all of its devices. Leaving restores the light lines.
+    // Hovering a device highlights its own line and the router's line up to the Internet, and fades every other line, so one path
+    // can be followed in a busy diagram. Hovering a router does the same for all of its devices. Leaving restores the base lines.
     var baseStyle = null;
+    var baseNodeShadow = null;
+    var lastGlowNode = null;
+    network.__resetThemeCache = function () {
+      baseStyle = null;
+      baseNodeShadow = null;
+      lastGlowNode = null;
+    };
     function focusPath(nodeId) {
+      var curPal = network.__themePalette || pal;
       var data = network.body.data.edges, items = data.get(), keep = {};
+      var nodeData = network.body.data.nodes;
       if (!baseStyle) {
         baseStyle = {};
-        items.forEach(function (edge) { baseStyle[edge.id] = { color: edge.color, width: edge.width }; });
+        items.forEach(function (edge) { baseStyle[edge.id] = { color: edge.color, width: edge.width, shadow: edge.shadow || false }; });
+      }
+      if (!baseNodeShadow && nodeData) {
+        baseNodeShadow = {};
+        nodeData.get().forEach(function (n) { baseNodeShadow[n.id] = n.shadow || false; });
       }
       if (nodeId !== null) {
         items.forEach(function (edge) {
@@ -383,11 +473,22 @@
           items.forEach(function (up) { if (up.to === edge.from) keep[up.id] = true; });     // the line above the router
         });
       }
+      if (nodeData) {
+        var nodeUpdates = [];
+        if (lastGlowNode !== null && lastGlowNode !== nodeId && baseNodeShadow[lastGlowNode] !== undefined) {
+          nodeUpdates.push({ id: lastGlowNode, shadow: baseNodeShadow[lastGlowNode] });
+        }
+        if (curPal.nodeHoverShadow && nodeId !== null && baseNodeShadow[nodeId] !== undefined) {
+          nodeUpdates.push({ id: nodeId, shadow: curPal.nodeHoverShadow });
+        }
+        lastGlowNode = curPal.nodeHoverShadow ? nodeId : null;
+        if (nodeUpdates.length) nodeData.update(nodeUpdates);
+      }
       data.update(items.map(function (edge) {
-        var base = baseStyle[edge.id] || { color: edge.color, width: edge.width };
-        if (nodeId === null) return { id: edge.id, color: base.color, width: base.width };
-        if (keep[edge.id]) return { id: edge.id, color: Object.assign({}, EDGE_FOCUS), width: Math.max(base.width, 1.8) };
-        return { id: edge.id, color: { color: typeof base.color === 'string' ? base.color : (base.color && base.color.color) || '#b9c2ca', opacity: .14 }, width: base.width };
+        var base = baseStyle[edge.id] || { color: edge.color, width: edge.width, shadow: edge.shadow || false };
+        if (nodeId === null) return { id: edge.id, color: base.color, width: base.width, shadow: base.shadow };
+        if (keep[edge.id]) return { id: edge.id, color: Object.assign({}, curPal.edgeFocus), width: Math.max(base.width, curPal.edgeFocusWidth), shadow: curPal.edgeFocusShadow };
+        return { id: edge.id, color: { color: typeof base.color === 'string' ? base.color : (base.color && base.color.color) || curPal.dimEdgeColor, opacity: .16 }, width: base.width, shadow: false };
       }));
     }
     // The highlight is not changed while a mouse button is held: restyling every line in the middle of a press or a drag only gets
@@ -414,14 +515,16 @@
     };
     if (floating) startFloat(network, getSubnets);
     var hovered = null, pressed = false;
-    function hoverTo(nodeId) { hovered = nodeId; if (!pressed) focusPath(nodeId); }
+    function hoverTo(nodeId) { hovered = nodeId; if (!pressed && highlightOn) focusPath(nodeId); }
+    // Off: every line goes back to its base style at once and hovering changes nothing. On: the device under the pointer is highlighted again.
+    network.__setHighlight = function (on) { highlightOn = !!on; focusPath(highlightOn ? hovered : null); };
     network.on('hoverNode', function (event) { hoverTo(event.node); });
     network.on('blurNode', function () { hoverTo(null); });
     var frame = network.canvas && network.canvas.frame;
     if (frame) {
       frame.addEventListener('mousedown', function () {
         pressed = true;
-        document.addEventListener('mouseup', function () { pressed = false; focusPath(hovered); }, { once: true });
+        document.addEventListener('mouseup', function () { pressed = false; if (highlightOn) focusPath(hovered); }, { once: true });
       });
       // A node only follows the mouse while the button is held. vis-network ends a drag when it sees the button released, but it
       // can miss that (the browser cancels the press, the release lands somewhere else, the window loses focus), and then the node
@@ -474,6 +577,12 @@
       Object.keys(state).forEach(function (id) {
         var s = state[id];
         if (s.router && initial[id]) { s.hx = initial[id].x; s.hy = initial[id].y; }      // the devices follow their router
+      });
+    };
+    network.__syncFloatTargets = function () {
+      Object.keys(state).forEach(function (id) {
+        var s = state[id], node = nodes[id];
+        if (s.router && node) { s.hx = node.x; s.hy = node.y; }
       });
     };
     network.on('dragStart', function (event) {
@@ -534,6 +643,49 @@
     raf = requestAnimationFrame(function (now) { last = now; step(now); });
     network.on('destroy', function () { cancelAnimationFrame(raf); });
   }
+  function setTheme(network, config) {
+    if (!network || !network.body || !network.body.data) return;
+    var pal = themePalette(config);
+    network.__themePalette = pal;
+    network.setOptions({ nodes: { font: { background: pal.labelBg, strokeColor: pal.strokeColor } } });
+    var nodeData = network.body.data.nodes;
+    if (nodeData) {
+      var nodeUpdates = [];
+      nodeData.get().forEach(function (n) {
+        if (n._isGateway) {
+          var gwFont = Object.assign({}, n.font || {}, { color: pal.hubLabel || n._lightFontColor || '#212529', background: pal.labelBg });
+          nodeUpdates.push({
+            id: n.id,
+            image: (config && config.gatewayIcon) || n.image,
+            font: gwFont,
+            shadow: pal.isDark
+              ? { enabled: true, color: pal.hubShadow, size: 22, x: 0, y: 0 }
+              : { enabled: true, color: pal.hubShadow, size: 10 }
+          });
+        } else if (n._isSegment) {
+          var segFont = Object.assign({}, n.font || {}, { color: pal.hubLabel || n._lightFontColor || '#212529', background: pal.labelBg });
+          nodeUpdates.push({
+            id: n.id,
+            image: (config && config.segmentIcon) || (pal.isDark ? SEGMENT_ICON_DARK : SEGMENT_ICON),
+            font: segFont,
+            shadow: pal.isDark
+              ? { enabled: true, color: pal.segmentShadow, size: 14, x: 0, y: 0 }
+              : { enabled: true, color: pal.segmentShadow, size: 8 }
+          });
+        }
+      });
+      if (nodeUpdates.length) nodeData.update(nodeUpdates);
+    }
+    var edgeData = network.body.data.edges;
+    if (edgeData) {
+      var edgeUpdates = edgeData.get().map(function (e) {
+        var roleColor = e._edgeRole === 'uplink' ? pal.edgeUplink : (e._edgeRole === 'flat' ? pal.flatEdge : pal.edgeHost);
+        return { id: e.id, color: Object.assign({}, roleColor), shadow: false };
+      });
+      if (edgeUpdates.length) edgeData.update(edgeUpdates);
+    }
+    if (network.__resetThemeCache) network.__resetThemeCache();
+  }
   function fit(network, animate) { network.fit({ animation: animate ? { duration: 450, easingFunction: 'easeInOutQuad' } : false }); }
-  global.SubnetTopology = { apply: apply, visOptions: options, attachRegions: attachRegions, fit: fit, detectGateway: detectGateway };
+  global.SubnetTopology = { apply: apply, visOptions: options, attachRegions: attachRegions, fit: fit, detectGateway: detectGateway, setTheme: setTheme, groupKey: groupKey };
 })(window);

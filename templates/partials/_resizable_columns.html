@@ -14,14 +14,16 @@
     }
     .col-resizer::after {
         content: ''; position: absolute; top: 24%; bottom: 24%; left: 4px; width: 1px;
-        background: #94a3b8; transition: background .15s, top .15s, bottom .15s;
+        background: var(--line-stronger); transition: background .15s, top .15s, bottom .15s;
     }
-    .col-resizer:hover::after, .col-resizer.is-active::after, .col-resizer:focus-visible::after { top: 8%; bottom: 8%; background: #475569; }
-    .col-resizer:focus-visible { outline: none; background: rgba(71, 85, 105, .15); }
+    .col-resizer:hover::after, .col-resizer.is-active::after, .col-resizer:focus-visible::after { top: 8%; bottom: 8%; background: var(--text-2); }
+    .col-resizer:focus-visible { outline: none; background: rgba(var(--pulse-rgb), .15); }
     body.col-resizing { cursor: col-resize; user-select: none; }
 </style>
 <script>
     (function () {
+        var RESIZE_LABEL = {{ t('shared.resize.label') | tojson }};     // interface texts (Thai or English by the site language)
+        var RESIZE_TIP = {{ t('shared.resize.tip') | tojson }};
         var MIN_COL = 48;     // px floor, even for short labels
         var KEY_STEP = 10;    // px per arrow-key press
 
@@ -104,8 +106,8 @@
                 h.tabIndex = 0;
                 h.setAttribute('role', 'separator');
                 h.setAttribute('aria-orientation', 'vertical');
-                h.setAttribute('aria-label', 'Resize ' + th.textContent.trim() + ' column');
-                h.title = 'Drag to resize · double-click to reset';
+                h.setAttribute('aria-label', RESIZE_LABEL.replace('{name}', th.textContent.trim()));
+                h.title = RESIZE_TIP;
                 h.addEventListener('pointerdown', function (e) { startDrag(e, i, h); });
                 h.addEventListener('dblclick', reset);
                 h.addEventListener('keydown', function (e) {

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
-{% block page_title %}<div class="topbar-page-title">รายงาน</div>{% endblock %}
-{% block page_subtitle %}<div class="topbar-page-subtitle">ส่งออกรายงานผลสแกนเป็น CSV หรือ PDF</div>{% endblock %}
+{% block page_title %}<div class="topbar-page-title">{{ t('nav.reports') }}</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">{{ t('reports.subtitle') }}</div>{% endblock %}
 
 {% block content %}
 
@@ -10,57 +10,226 @@
 {% for category, message in messages %}
 <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
   {{ message }}
-  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{{ t('common.close') }}"></button>
 </div>
 {% endfor %}
 {% endif %}
 {% endwith %}
 
-<div class="card border-0 shadow-sm">
+{# A PDF that could not be made (written by the script below) #}
+<div class="alert alert-warning alert-dismissible fade show" role="alert" id="rpMsg" hidden>
+  <span id="rpMsgText"></span>
+  <button type="button" class="btn-close" id="rpMsgClose" aria-label="{{ t('common.close') }}"></button>
+</div>
+<div class="visually-hidden" role="status" aria-live="polite" id="rpStatus"></div>
+
+<div class="card border-0 shadow-sm rp-card">
   <div class="card-body p-0">
     {% if history %}
+
+    <!-- Search and filter -->
+    <div class="tf-toolbar d-flex flex-wrap align-items-center gap-2 px-4 py-3 border-bottom">
+      <div class="tf-search">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input type="search" class="form-control form-control-sm" data-tf-search placeholder="{{ t('reports.search_ph') }}" aria-label="{{ t('reports.search_aria') }}" autocomplete="off">
+      </div>
+      <select class="form-select form-select-sm" data-tf-select="type" data-tf-label="{{ t('common.type') }}" aria-label="{{ t('reports.f.type_aria') }}">
+        <option value="">{{ t('reports.f.type_all') }}</option>
+        {% for stype, n in type_options %}<option value="{{ stype }}" data-display="{{ stype | scan_label }}">{{ stype | scan_label }} ({{ n }})</option>{% endfor %}
+      </select>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-tf-clear hidden><i class="ti ti-filter-off me-1" aria-hidden="true"></i>{{ t('shared.tf.clear') }}</button>
+      <span class="ms-auto text-muted small" data-tf-count data-tf-unit="{{ t('shared.unit.items') }}" role="status" aria-live="polite">{{ t('shared.tf.showing', shown=history|length, total=history|length, unit=t('shared.unit.items')) }}</span>
+    </div>
+
     <div class="table-responsive">
       <table class="table align-middle mb-0" style="font-size:.88rem;">
         <thead>
-          <tr style="background:#f8fafc;">
-            <th class="ps-4 py-3 text-muted" style="font-weight:600;font-size:.78rem;">ชื่อการสแกน</th>
-            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;">เป้าหมาย</th>
-            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;">ประเภท</th>
-            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;">วันที่</th>
-            <th class="pe-4 py-3 text-muted" style="font-weight:600;font-size:.78rem;">Export</th>
+          <tr class="rp-head">
+            <th class="ps-4 py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="name">{{ t('reports.col.name') }}<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="target">{{ t('common.target') }}<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="type">{{ t('common.type') }}<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 text-muted" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="date" data-tf-first="desc">{{ t('reports.col.date') }}<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 pe-3 text-muted text-end" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="hosts" data-tf-type="num" data-tf-first="desc">{{ t('reports.col.devices') }}<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 pe-3 text-muted text-end" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="ports" data-tf-type="num" data-tf-first="desc">{{ t('reports.col.ports') }}<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="py-3 pe-3 text-muted text-end" style="font-weight:600;font-size:.78rem;" aria-sort="none"><button type="button" class="tf-sort" data-tf-sort="cves" data-tf-type="num" data-tf-first="desc">{{ t('reports.col.cves') }}<i class="ti ti-selector" aria-hidden="true"></i></button></th>
+            <th class="pe-4 py-3 text-muted text-end" style="font-weight:600;font-size:.78rem;">{{ t('common.export') }}</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody data-tf-body>
           {% for job in history %}
-          <tr style="border-top:1px solid #f1f3f5;">
-            <td class="ps-4 py-3 fw-semibold" style="color:#0f172a;">{{ job.scan_name or ('Job #' ~ owner_seq_map.get(job.id, job.id)) }}</td>
+          {% set st = stats[job.id] %}
+          {% set title = job.scan_name or (owner_seq_map.get(job.id, job.id) | job_label) %}
+          {% set when = job.timestamp | fdt('%Y-%m-%d %H:%M') if job.timestamp else '—' %}
+          <tr class="rp-row" data-tf-row data-href="{{ url_for('scan_detail', scan_id=job.id) }}"
+              data-q="{{ [title, job.target, job.scan_type, job.scan_type | scan_label, when] | select | map('string') | join('|') | lower }}"
+              data-f-type="{{ job.scan_type }}"
+              data-s-name="{{ title }}" data-s-target="{{ job.target }}" data-s-type="{{ job.scan_type | scan_label }}"
+              data-s-date="{{ job.timestamp.strftime('%Y-%m-%d %H:%M:%S') if job.timestamp else '' }}"
+              data-s-hosts="{{ '' if st.hosts is none else st.hosts }}" data-s-ports="{{ '' if st.ports is none or (st.ports == 0 and st.ports_partial) else st.ports }}" data-s-cves="{{ '' if st.cves is none else st.cves }}">
+            <td class="ps-4 py-3 fw-semibold"><a class="rp-name" href="{{ url_for('scan_detail', scan_id=job.id) }}">{{ title }}</a></td>
             <td class="py-3">{{ job.target }}</td>
             <td class="py-3">
-              <span class="badge rounded-pill" style="background:#fff3cd;color:#8a6d00;font-weight:600;">
+              <span class="badge rounded-pill rp-pill">
                 {{ job.scan_type | scan_label }}
               </span>
             </td>
-            <td class="py-3 text-muted">{{ job.timestamp.strftime('%Y-%m-%d %H:%M') if job.timestamp else '—' }}</td>
-            <td class="pe-4 py-3 text-end">
+            <td class="py-3 text-muted" style="white-space:nowrap;">{{ when }}</td>
+            <td class="py-3 pe-3 text-end rp-num">{% if st.hosts is none %}<span class="text-muted" title="{{ t('reports.no_data') }}">—</span>{% else %}{{ st.hosts }}{% endif %}</td>
+            <td class="py-3 pe-3 text-end rp-num">{% if st.ports is none %}<span class="text-muted" title="{{ t('reports.ports_unknown') }}">—</span>{% elif st.ports_partial %}<span title="{{ t('reports.ports_partial', n=st.ports_partial) }}">{% if st.ports == 0 %}<span class="text-muted">—</span>{% else %}{{ st.ports }}+{% endif %}</span>{% else %}{{ st.ports }}{% endif %}</td>
+            <td class="py-3 pe-3 text-end rp-num">
+              {% if st.cves is none %}
+                <span class="text-muted" title="{{ (t('reports.cve_partial') if st.ports_partial else t('reports.cve_unknown')) if job.scan_type == 'vuln_scan' else t('reports.cve_not_checked') }}">—</span>
+              {% elif st.cves == 0 %}
+                <span title="{{ t('reports.cve_none') }}">0</span>
+              {% else %}
+                <span class="rp-sev" title="{{ st.sev_text }}"><i class="rp-dot rp-dot-{{ st.worst | lower }}" aria-hidden="true"></i>{{ st.cves }}{% if st.ports_partial %}+{% endif %}</span>
+              {% endif %}
+            </td>
+            <td class="pe-4 py-3 text-end text-nowrap">
               <a href="{{ url_for('export_csv', scan_id=job.id) }}" class="btn btn-sm btn-outline-secondary">
                 <i class="ti ti-file-spreadsheet"></i> CSV
               </a>
-              <a href="{{ url_for('export_pdf', scan_id=job.id) }}" class="btn btn-sm btn-outline-secondary">
-                <i class="ti ti-file-type-pdf"></i> PDF
-              </a>
+              <span class="btn-group rp-pdfgrp">
+                <a href="{{ url_for('export_pdf', scan_id=job.id) }}" class="btn btn-sm btn-outline-secondary rp-pdf" data-base="{{ url_for('export_pdf', scan_id=job.id) }}">
+                  <i class="ti ti-file-type-pdf rp-ic"></i><span class="spinner-border spinner-border-sm rp-spin me-1" hidden aria-hidden="true"></span><span class="rp-lbl">PDF</span>
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split rp-orient" data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false" aria-label="{{ t('reports.pdf_orient_aria') }}" title="{{ t('reports.pdf_orient_aria') }}"></button>
+                <ul class="dropdown-menu dropdown-menu-end rp-orient-menu">
+                  <li><button type="button" class="dropdown-item rp-orient-item" data-orient="portrait"><i class="ti ti-check rp-orient-ck" aria-hidden="true"></i>{{ t('reports.orient.portrait') }}</button></li>
+                  <li><button type="button" class="dropdown-item rp-orient-item" data-orient="landscape"><i class="ti ti-check rp-orient-ck" aria-hidden="true"></i>{{ t('reports.orient.landscape') }}</button></li>
+                </ul>
+              </span>
             </td>
           </tr>
           {% endfor %}
+          <tr data-tf-empty hidden>
+            <td colspan="8" class="text-center text-muted py-5">
+              <i class="ti ti-filter-off rp-empty-ic" style="font-size:2rem;" aria-hidden="true"></i>
+              <p class="mt-2 mb-1">{{ t('reports.empty_filter') }}</p>
+              <p class="small mb-1" data-tf-empty-detail></p>
+              <p class="small mb-3">{{ t('shared.tf.try_shorter') }}</p>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-tf-clear>{{ t('shared.tf.clear') }}</button>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
     {% else %}
     <div class="text-center py-5 text-muted">
-      <i class="ti ti-file-analytics" style="font-size:2.5rem;color:#cbd5e1;"></i>
-      <p class="mt-2 mb-0">ยังไม่มี Scan ที่เสร็จสมบูรณ์ให้ออกรายงาน</p>
+      <i class="ti ti-file-analytics rp-empty-ic" aria-hidden="true"></i>
+      <p class="mt-2 mb-0">{{ t('reports.empty') }}</p>
     </div>
     {% endif %}
   </div>
 </div>
+
+<style>
+  /* Colours are tokens from base.html; the ones that have no token there are page-local pairs (light = the colour the page always had). */
+  :root { --rp-hair: #f1f3f5; --rp-pill-bg: #fff3cd; --rp-pill-ink: #8a6d00; --rp-d-crit: #dc3545; --rp-d-high: #fd7e14; --rp-d-med: #e0a800; --rp-d-low: #94a3b8; --rp-d-unk: #94a3b8; }
+  :root[data-theme="dark"] { --rp-hair: #3f4046; --rp-pill-bg: var(--nt-gold-bg); --rp-pill-ink: var(--gold-ink); --rp-d-crit: #f0626f; --rp-d-high: #f59a56; --rp-d-med: #e8b923; --rp-d-low: #8b97a8; --rp-d-unk: #8b97a8; }
+  .rp-card { margin-bottom: 5.5rem; }      /* room under the last row so the floating chat button never covers its buttons */
+  .rp-head { background: var(--sunken); }
+  .rp-row { border-top: 1px solid var(--rp-hair); cursor: pointer; }
+  .rp-row:hover > td { background: var(--hover-1); }
+  .rp-name, .rp-name:hover { color: var(--fg-0); text-decoration: none; }
+  .rp-row:hover .rp-name { text-decoration: underline; text-underline-offset: 3px; }
+  .rp-num { font-variant-numeric: tabular-nums; }
+  .badge.rp-pill { background: var(--rp-pill-bg); color: var(--rp-pill-ink); font-weight: 600; }
+  .rp-empty-ic { font-size: 2.5rem; color: var(--border-strong); }
+  .rp-sev { display: inline-flex; align-items: center; gap: .4rem; font-weight: 600; }
+  .rp-dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--rp-d-unk); flex: none; }
+  .rp-dot-critical { background: var(--rp-d-crit); } .rp-dot-high { background: var(--rp-d-high); }
+  .rp-dot-medium { background: var(--rp-d-med); } .rp-dot-low { background: var(--rp-d-low); }
+  .rp-pdf.is-busy { pointer-events: none; opacity: .75; }
+  .rp-orient-item { display: flex; align-items: center; gap: .5rem; font-size: .88rem; }
+  .rp-orient-ck { visibility: hidden; font-size: 1rem; }
+  .rp-orient-item.is-on .rp-orient-ck { visibility: visible; }
+  .rp-orient-item.is-on { font-weight: 600; }
+</style>
+
+{% if history %}{% include 'partials/_table_filter.html' %}{% endif %}
+
+<script>
+(function () {
+    const TXT = { building: {{ t('reports.pdf_building') | tojson }}, buildingShort: {{ t('reports.pdf_building_short') | tojson }}, failed: {{ t('reports.pdf_failed') | tojson }} };
+    const msg = document.getElementById('rpMsg'), msgText = document.getElementById('rpMsgText'), status = document.getElementById('rpStatus');
+    document.getElementById('rpMsgClose').addEventListener('click', () => { msg.hidden = true; });
+    function setBusy(a, on) {
+        a.classList.toggle('is-busy', on);
+        a.setAttribute('aria-busy', on ? 'true' : 'false');
+        a.setAttribute('aria-disabled', on ? 'true' : 'false');
+        a.querySelector('.rp-ic').hidden = on;
+        a.querySelector('.rp-spin').hidden = !on;
+        const lbl = a.querySelector('.rp-lbl');
+        if (lbl) lbl.textContent = on ? TXT.buildingShort : 'PDF';
+        const orientBtn = a.closest('.rp-pdfgrp') && a.closest('.rp-pdfgrp').querySelector('.rp-orient');
+        if (orientBtn) orientBtn.disabled = on;
+        status.textContent = on ? TXT.building : '';
+    }
+    function fileName(r, fallback) {
+        const cd = r.headers.get('Content-Disposition') || '';
+        let m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        if (m) { try { return decodeURIComponent(m[1]); } catch (e) { /* fall through */ } }
+        m = /filename="?([^";]+)"?/i.exec(cd);
+        return m ? m[1] : fallback;
+    }
+    // The paper of the PDF: A4 portrait (the default) or A4 landscape, remembered per person in this browser (every storage access can fail: then the default is used)
+    const ORIENT_KEY = 'clylar.report.orientation.' + {{ current_user.id | tojson }};
+    function getOrient() {
+        try { const v = localStorage.getItem(ORIENT_KEY); return v === 'landscape' ? 'landscape' : 'portrait'; } catch (e) { return 'portrait'; }
+    }
+    function setOrient(v) { try { localStorage.setItem(ORIENT_KEY, v); } catch (e) { /* not remembered */ } }
+    function applyOrient() {
+        const o = getOrient();
+        document.querySelectorAll('a.rp-pdf').forEach(function (a) { a.href = a.dataset.base + '?orientation=' + o; });      // a Ctrl or middle click uses the same choice
+        document.querySelectorAll('.rp-orient-item').forEach(function (b) {
+            const on = b.dataset.orient === o;
+            b.classList.toggle('is-on', on);
+            b.setAttribute('aria-current', on ? 'true' : 'false');
+        });
+    }
+    applyOrient();
+    document.addEventListener('click', function (e) {
+        const item = e.target.closest && e.target.closest('.rp-orient-item');
+        if (!item) return;
+        const a = item.closest('.rp-pdfgrp').querySelector('a.rp-pdf');
+        if (a && a.classList.contains('is-busy')) return;
+        setOrient(item.dataset.orient);
+        applyOrient();
+        if (a) a.click();                                    // choosing a paper exports with it at once
+    });
+    // PDF: built by a headless browser on the server (3 to 5 seconds), so the button shows it is working and a failure is said out loud
+    document.addEventListener('click', async function (e) {
+        const a = e.target.closest && e.target.closest('a.rp-pdf');
+        if (!a || e.button || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        e.preventDefault();
+        if (a.classList.contains('is-busy')) return;
+        msg.hidden = true;
+        setBusy(a, true);
+        try {
+            const r = await fetch(a.href, { credentials: 'same-origin' });
+            const ct = (r.headers.get('Content-Type') || '').toLowerCase();
+            if (!r.ok || !ct.includes('pdf')) throw new Error('HTTP ' + r.status);
+            const blob = await r.blob(), url = URL.createObjectURL(blob), link = document.createElement('a');
+            link.href = url; link.download = fileName(r, 'report.pdf');
+            document.body.appendChild(link); link.click(); link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        } catch (err) {
+            msgText.textContent = TXT.failed;
+            msg.hidden = false;
+        } finally {
+            setBusy(a, false);
+        }
+    });
+    // a click anywhere on a row (but not on a button, a link or selected text) opens that scan's report
+    const body = document.querySelector('[data-tf-body]');
+    if (body) body.addEventListener('click', function (e) {
+        const row = e.target.closest('tr[data-href]');
+        if (!row || e.target.closest('a, button')) return;
+        if (window.getSelection && String(window.getSelection())) return;
+        location.href = row.dataset.href;
+    });
+})();
+</script>
 
 {% endblock %}

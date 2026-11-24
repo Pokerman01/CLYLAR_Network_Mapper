@@ -24,18 +24,18 @@
     [data-tf-row].is-filtered-out { visibility: collapse; }
 
     .tf-search { position: relative; flex: 1 1 240px; max-width: 380px; }
-    .tf-search i { position: absolute; left: .65rem; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none; }
+    .tf-search i { position: absolute; left: .65rem; top: 50%; transform: translateY(-50%); color: var(--fg-6); pointer-events: none; }
     .tf-search input { padding-left: 2rem; }
     .tf-toolbar select { width: auto; max-width: 260px; }
-    .tf-toolbar .is-set { border-color: #64748b; background-color: #f8fafc; }
+    .tf-toolbar .is-set { border-color: var(--muted); background-color: var(--hover-1); }
 
     /* The sort arrow sits in the header cell's own padding (absolutely positioned) so sortable headers are no wider than plain ones.
        nowrap: a header that wrapped ("Open Ports" over two lines) left its arrow stranded at the cell's far edge, away from the text. */
     .tf-sort { position: relative; display: inline-block; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: inherit; white-space: nowrap; cursor: pointer; }
     .tf-sort i { position: absolute; left: 100%; top: 50%; margin-left: 1px; transform: translateY(-50%); font-size: .68rem; opacity: .5; }
-    .tf-sort:hover, th[aria-sort="ascending"] .tf-sort, th[aria-sort="descending"] .tf-sort { color: #0f172a; }
+    .tf-sort:hover, th[aria-sort="ascending"] .tf-sort, th[aria-sort="descending"] .tf-sort { color: var(--fg-0); }
     th[aria-sort="ascending"] .tf-sort i, th[aria-sort="descending"] .tf-sort i { opacity: 1; }
-    .tf-sort:focus-visible { outline: 2px solid #64748b; outline-offset: 2px; border-radius: 3px; }
+    .tf-sort:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
 </style>
 <script>
     (function () {
@@ -50,7 +50,10 @@
         const chips = Array.prototype.slice.call(document.querySelectorAll('[data-tf-chip]'));
         const sortBtns = Array.prototype.slice.call(document.querySelectorAll('[data-tf-sort]'));
         const clearBtns = Array.prototype.slice.call(document.querySelectorAll('[data-tf-clear]'));
-        const unit = countEl.getAttribute('data-tf-unit') || 'รายการ';
+        const unit = countEl.getAttribute('data-tf-unit') || {{ t('shared.unit.items') | tojson }};
+        // Interface texts (Thai or English by the site language); {shown} {total} {unit} {q} are filled in below
+        const TXT = { showing: {{ t('shared.tf.showing') | tojson }}, searchFor: {{ t('shared.tf.search_for') | tojson }}, active: {{ t('shared.tf.active') | tojson }} };
+        const fill = function (s, v) { return s.replace(/\{(\w+)\}/g, function (m, k) { return Object.prototype.hasOwnProperty.call(v, k) ? v[k] : m; }); };
         const chipNames = Array.from(new Set(chips.map(function (c) { return c.getAttribute('data-tf-chip'); })));
 
         const state = { q: '', sort: '', dir: '', sel: {}, chip: {} };
@@ -172,7 +175,15 @@
             });
             selects.forEach(function (s) {
                 const n = s.getAttribute('data-tf-select'), v = p.get(n) || '';
-                if (Array.prototype.some.call(s.options, function (o) { return o.value === v; })) state.sel[n] = v;
+                if (!v) return;
+                if (!Array.prototype.some.call(s.options, function (o) { return o.value === v; })) {
+                    const opt = document.createElement('option');
+                    opt.value = v;
+                    opt.textContent = v + ' (0)';
+                    opt.setAttribute('data-display', v);
+                    s.appendChild(opt);
+                }
+                state.sel[n] = v;
             });
             const k = p.get('sort');
             if (k && sortMeta.hasOwnProperty(k)) { state.sort = k; state.dir = p.get('dir') === 'asc' || p.get('dir') === 'desc' ? p.get('dir') : sortMeta[k].first; }
@@ -203,7 +214,7 @@
 
         function describeFilters() {
             const parts = [];
-            if (state.q.trim()) parts.push('ค้นหา “' + state.q.trim() + '”');
+            if (state.q.trim()) parts.push(fill(TXT.searchFor, { q: state.q.trim() }));
             chipNames.forEach(function (n) {
                 if (!state.chip[n].size) return;
                 const label = chips.filter(function (c) { return c.getAttribute('data-tf-chip') === n; })[0].getAttribute('data-tf-label') || n;
@@ -217,7 +228,7 @@
                 const opt = s.options[s.selectedIndex];
                 parts.push((s.getAttribute('data-tf-label') || '') + ' ' + (opt.getAttribute('data-display') || v));
             });
-            return parts.length ? 'ตัวกรองที่ใช้อยู่: ' + parts.join(' · ') : '';
+            return parts.length ? TXT.active + parts.join(' · ') : '';
         }
 
         function apply() {
@@ -233,7 +244,7 @@
             rows.slice().sort(compare).forEach(function (r) { body.insertBefore(r, emptyRow); });
             emptyRow.hidden = shown !== 0;
             if (shown === 0) emptyDetail.textContent = describeFilters();     // say which filters are on, so it is clear why nothing matches
-            countEl.textContent = 'แสดง ' + shown + ' จาก ' + rows.length + ' ' + unit;
+            countEl.textContent = fill(TXT.showing, { shown: shown, total: rows.length, unit: unit });
             syncControls();
             writeUrl();
         }

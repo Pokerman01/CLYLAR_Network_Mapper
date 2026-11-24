@@ -1,0 +1,17 @@
+{
+  "vulnscan.stat_cve_found": "พบ CVE",
+  "vulnscan.cve_by_sev": "CVE ตามระดับความรุนแรง",
+  "vulnscan.tab_result": "ผลการสแกน",
+  "vulnscan.tab_cve": "CVE / ช่องโหว่",
+  "vulnscan.col.version_cve": "เวอร์ชัน / CVE",
+  "vulnscan.col.cve_id": "รหัส CVE",
+  "vulnscan.col.cvss": "CVSS",
+  "vulnscan.col.severity": "ระดับความรุนแรง",
+  "vulnscan.col.description": "รายละเอียด",
+  "vulnscan.kev_tip": "CISA ระบุว่ามีการโจมตีใช้ช่องโหว่นี้จริง (รายการ Known Exploited Vulnerabilities)",
+  "vulnscan.kev_added": " · เพิ่มเมื่อ {date}",
+  "vulnscan.kev_badge": "ถูกโจมตีจริง",
+  "vulnscan.empty_title": "ไม่พบ CVE",
+  "vulnscan.empty_sub": "ไม่พบช่องโหว่ CVE จากการสแกนครั้งนี้"
+}
+

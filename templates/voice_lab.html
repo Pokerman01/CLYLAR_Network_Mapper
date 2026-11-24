@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 
-{% block page_title %}<div class="topbar-page-title">ห้องทดสอบเสียง</div>{% endblock %}
-{% block page_subtitle %}<div class="topbar-page-subtitle">อัดประโยคคำสั่ง เพื่อวัดว่าตัวถอดเสียงฟังถูกกี่ครั้ง</div>{% endblock %}
-{% block page_context %}"หน้า: ห้องทดสอบเสียง (อัดเสียงเพื่อวัดความแม่นยำของตัวถอดเสียง)"{% endblock %}
+{% block page_title %}<div class="topbar-page-title">{{ t('voicelab.page_title') }}</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">{{ t('voicelab.page_subtitle') }}</div>{% endblock %}
+{% block page_context %}{{ t('voicelab.context') | tojson }}{% endblock %}
 
 {% block content %}
 <style>
@@ -31,42 +31,64 @@
   .vl-verdict.neutral { background: #f1f5f9; color: #475569; }
   .vl-heard { font-family: ui-monospace, Consolas, monospace; font-size: 1.05rem; color: #0f172a; word-break: break-all; }
   .vl-sum td, .vl-sum th { padding: 4px 12px 4px 0; font-size: .88rem; }
+
+  :root[data-theme="dark"] .vl-card { background: var(--surface); border-color: var(--border); color: var(--text); }
+  :root[data-theme="dark"] .vl-steps { color: var(--text-2); }
+  :root[data-theme="dark"] .vl-note { color: var(--muted); }
+  :root[data-theme="dark"] .vl-dot { border-color: var(--border-strong); background: var(--surface-2); color: var(--muted); }
+  :root[data-theme="dark"] .vl-dot.ok { background: rgba(52, 168, 83, .18); border-color: #4f9e69; color: #9adab0; }
+  :root[data-theme="dark"] .vl-dot.bad { background: var(--nt-gold-bg); border-color: var(--warn-line); color: var(--gold-ink); }
+  :root[data-theme="dark"] .vl-dot.now { box-shadow: 0 0 0 3px rgba(247, 209, 109, .28); border-color: var(--gold-ink); }
+  :root[data-theme="dark"] .vl-lang { background: var(--nt-gold-bg); color: var(--gold-ink); }
+  :root[data-theme="dark"] .vl-say { color: var(--text); }
+  :root[data-theme="dark"] .vl-meter { background: var(--surface-3); }
+  :root[data-theme="dark"] .vl-meter > i { background: var(--gold-ink); }
+  :root[data-theme="dark"] .vl-rec { background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong); }
+  :root[data-theme="dark"] .vl-rec:hover { background: var(--surface-4); }
+  :root[data-theme="dark"] .vl-rec.on { background: var(--nt-gold-bg); color: var(--gold-ink); box-shadow: inset 0 0 0 1.5px var(--warn-line); border-color: transparent; }
+  :root[data-theme="dark"] .vl-btn { border-color: var(--border-strong); background: var(--surface-2); color: var(--text-2); }
+  :root[data-theme="dark"] .vl-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+  :root[data-theme="dark"] .vl-verdict.ok { background: rgba(52, 168, 83, .16); color: #9adab0; }
+  :root[data-theme="dark"] .vl-verdict.bad { background: var(--nt-gold-bg); color: var(--gold-ink); }
+  :root[data-theme="dark"] .vl-verdict.neutral { background: var(--surface-2); color: var(--text-2); }
+  :root[data-theme="dark"] .vl-heard { color: var(--text); }
+  :root[data-theme="dark"] .vl-sum td, :root[data-theme="dark"] .vl-sum th { color: var(--text-2); }
 </style>
 
 <div class="row g-3">
   <div class="col-12">
     <div class="vl-card">
-      <h6 class="fw-bold mb-2">วิธีใช้ (ใช้เวลาประมาณ 15 นาที)</h6>
+      <h6 class="fw-bold mb-2">{{ t('voicelab.how_to_title') }}</h6>
       <ol class="vl-steps">
-        <li>ใช้ <b>Chrome หรือ Edge</b> ในห้องที่เงียบพอสมควร และใช้ไมโครโฟนตัวที่ใช้งานจริง</li>
-        <li>กด <b>เริ่มอัด</b> แล้วพูดประโยคที่เห็นบนจอ <b>เหมือนที่คุณจะพูดจริง</b> ไม่ต้องอ่านเลขแบบเดียวกันทุกครั้ง</li>
-        <li>หยุดพูดสักครู่ ระบบจะหยุดอัดเอง (หรือกด <b>หยุด</b> ก็ได้)</li>
-        <li>ดูผลทันทีด้านล่าง ถ้าอัดพลาด (เช่น ไอ หรือพูดผิด) กด <b>อัดใหม่</b> ได้</li>
-        <li>ครบ {{ prompts | length }} ประโยคแล้วถือว่าเสร็จ แจ้งผู้พัฒนาได้เลยว่าอัดครบแล้ว</li>
+        <li>{{ t('voicelab.step1_a') }} <b>{{ t('voicelab.step1_b') }}</b> {{ t('voicelab.step1_c') }}</li>
+        <li>{{ t('voicelab.step2_a') }} <b>{{ t('voicelab.step2_b') }}</b> {{ t('voicelab.step2_c') }} <b>{{ t('voicelab.step2_d') }}</b> {{ t('voicelab.step2_e') }}</li>
+        <li>{{ t('voicelab.step3_a') }} <b>{{ t('voicelab.step3_b') }}</b>{{ t('voicelab.step3_c') }}</li>
+        <li>{{ t('voicelab.step4_a') }} <b>{{ t('voicelab.step4_b') }}</b>{{ t('voicelab.step4_c') }}</li>
+        <li>{{ t('voicelab.step5', n=prompts|length) }}</li>
       </ol>
-      <div class="vl-note mt-2"><i class="ti ti-lock"></i> เสียงถูกเก็บไว้ในเครื่องนี้เท่านั้น ที่โฟลเดอร์ <code>{{ folder }}</code> ไม่ถูกส่งออกไปไหน (ยกเว้นที่เบราว์เซอร์ส่งไปถอดเสียงให้ตามปกติ เหมือนตอนใช้ปุ่มไมโครโฟนในแชท) ลบโฟลเดอร์ทิ้งได้ทุกเมื่อ</div>
+      <div class="vl-note mt-2"><i class="ti ti-lock"></i> {{ t('voicelab.local_note_1') }} <code>{{ folder }}</code> {{ t('voicelab.local_note_2') }}</div>
     </div>
   </div>
 
   <div class="col-12 col-xl-8">
     <div class="vl-card">
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-        <div><span class="fw-bold" id="vl-pos">ประโยคที่ 1 / {{ prompts | length }}</span> <span class="vl-lang ms-2" id="vl-lang"></span></div>
-        <div class="vl-dots" id="vl-dots" aria-label="ความคืบหน้า"></div>
+        <div><span class="fw-bold" id="vl-pos">{{ t('voicelab.pos', i=1, n=prompts|length) }}</span> <span class="vl-lang ms-2" id="vl-lang"></span></div>
+        <div class="vl-dots" id="vl-dots" aria-label="{{ t('voicelab.progress_aria') }}"></div>
       </div>
       <div class="vl-note" id="vl-kind"></div>
       <div class="vl-say" id="vl-say" aria-live="polite"></div>
 
       <div class="d-flex align-items-center flex-wrap gap-3 mt-3">
-        <button class="vl-rec" id="vl-rec" type="button"><i class="ti ti-microphone"></i> <span id="vl-rec-t">เริ่มอัด</span></button>
+        <button class="vl-rec" id="vl-rec" type="button"><i class="ti ti-microphone"></i> <span id="vl-rec-t">{{ t('voicelab.rec_start') }}</span></button>
         <div style="flex:1;min-width:160px;">
           <div class="vl-meter" aria-hidden="true"><i id="vl-level"></i></div>
-          <div class="vl-note mt-1" id="vl-status">พร้อม กด &ldquo;เริ่มอัด&rdquo; แล้วพูดได้เลย</div>
+          <div class="vl-note mt-1" id="vl-status">{{ t('voicelab.status_ready') }}</div>
         </div>
       </div>
 
       <div id="vl-result" class="mt-3" hidden>
-        <div class="vl-note mb-1">เบราว์เซอร์ถอดเสียงได้ว่า</div>
+        <div class="vl-note mb-1">{{ t('voicelab.heard_label') }}</div>
         <div class="vl-heard" id="vl-heard"></div>
         <div class="vl-verdict mt-2" id="vl-verdict"></div>
         <div class="d-flex align-items-center flex-wrap gap-2 mt-3">
@@ -75,17 +97,17 @@
       </div>
 
       <div class="d-flex flex-wrap gap-2 mt-4">
-        <button class="vl-btn" id="vl-prev" type="button">&larr; ก่อนหน้า</button>
-        <button class="vl-btn" id="vl-next" type="button">ถัดไป &rarr;</button>
-        <button class="vl-btn" id="vl-todo" type="button">ไปประโยคที่ยังไม่ได้อัด</button>
+        <button class="vl-btn" id="vl-prev" type="button">&larr; {{ t('voicelab.prev') }}</button>
+        <button class="vl-btn" id="vl-next" type="button">{{ t('voicelab.next') }} &rarr;</button>
+        <button class="vl-btn" id="vl-todo" type="button">{{ t('voicelab.todo') }}</button>
       </div>
     </div>
   </div>
 
   <div class="col-12 col-xl-4">
     <div class="vl-card">
-      <h6 class="fw-bold mb-2">สรุปตอนนี้</h6>
-      <div id="vl-sum" class="vl-note">ยังไม่มีคลิป</div>
+      <h6 class="fw-bold mb-2">{{ t('voicelab.summary_title') }}</h6>
+      <div id="vl-sum" class="vl-note">{{ t('voicelab.no_clips') }}</div>
     </div>
   </div>
 </div>
@@ -94,24 +116,70 @@
 (() => {
   const PROMPTS = {{ prompts | tojson }};
   const SESSION = {{ session_id | tojson }};
+  const VL_T = {
+    pos: {{ t('voicelab.pos') | tojson }},
+    recStart: {{ t('voicelab.rec_start') | tojson }},
+    recRetry: {{ t('voicelab.rec_retry') | tojson }},
+    recStop: {{ t('voicelab.rec_stop') | tojson }},
+    statusReady: {{ t('voicelab.status_ready') | tojson }},
+    statusRecording: {{ t('voicelab.status_recording') | tojson }},
+    statusSaving: {{ t('voicelab.status_saving') | tojson }},
+    statusSavedOk: {{ t('voicelab.status_saved_ok') | tojson }},
+    statusSavedMismatch: {{ t('voicelab.status_saved_mismatch') | tojson }},
+    statusSaveError: {{ t('voicelab.status_save_error') | tojson }},
+    noTextHeard: {{ t('voicelab.no_text_heard') | tojson }},
+    refusedPrefix: {{ t('voicelab.refused.prefix') | tojson }},
+    refusedDefault: {{ t('voicelab.refused.default') | tojson }},
+    altUsed: {{ t('voicelab.alt_used') | tojson }},
+    langTh: {{ t('voicelab.lang_th') | tojson }},
+    langEn: {{ t('voicelab.lang_en') | tojson }},
+    micInsecure: {{ t('voicelab.mic.insecure') | tojson }},
+    micBlocked: {{ t('voicelab.mic.blocked') | tojson }},
+    micNotFound: {{ t('voicelab.mic.not_found') | tojson }},
+    micOpenError: {{ t('voicelab.mic.open_error') | tojson }},
+    micCannotRecord: {{ t('voicelab.mic.cannot_record') | tojson }},
+    noClips: {{ t('voicelab.no_clips') | tojson }},
+    sumRecorded: {{ t('voicelab.sum.recorded') | tojson }},
+    sumExact: {{ t('voicelab.sum.exact') | tojson }},
+    sumThai: {{ t('voicelab.sum.thai') | tojson }},
+    sumEnglish: {{ t('voicelab.sum.english') | tojson }},
+    sumScanCmd: {{ t('voicelab.sum.scan_cmd') | tojson }},
+    sumWhisperNote: {{ t('voicelab.sum.whisper_note') | tojson }}
+  };
   const TAGS = { en: 'en-US', th: 'th-TH' };
-  const KIND = { scan: 'คำสั่งสแกน', navigate: 'คำสั่งเปิดหน้า', fact: 'คำถามเกี่ยวกับข้อมูล' };
+  const KIND = {
+    scan: {{ t('voicelab.kind.scan') | tojson }},
+    navigate: {{ t('voicelab.kind.navigate') | tojson }},
+    fact: {{ t('voicelab.kind.fact') | tojson }}
+  };
   const SILENCE_MS = 1500, MAX_MS = 12000, SPEECH_RMS = 0.02;
   const $ = (id) => document.getElementById(id);
   const results = {};                       // prompt id -> { score, url }
   let idx = 0, busy = false, stream = null, audioCtx = null, analyser = null, raf = 0;
 
   const VERDICT = {
-    exact: 'ถูกต้องทั้งหมด ระบบจะแสดงการ์ดยืนยันที่ถูกต้อง',
-    wrong_type: 'ที่อยู่ถูก แต่ชนิดการสแกนผิด',
-    wrong_target: 'ได้ที่อยู่อื่น',
-    not_a_command: 'ระบบไม่เข้าใจว่าเป็นคำสั่ง',
-    other_command: 'ระบบเข้าใจเป็นคำสั่งอื่น',
-    no_text: 'เบราว์เซอร์ไม่ส่งข้อความมา (ไม่ได้ยิน หรือใช้ตัวถอดเสียงไม่ได้) แต่เสียงถูกบันทึกไว้แล้ว'
+    exact: {{ t('voicelab.verdict.exact') | tojson }},
+    wrong_type: {{ t('voicelab.verdict.wrong_type') | tojson }},
+    wrong_target: {{ t('voicelab.verdict.wrong_target') | tojson }},
+    not_a_command: {{ t('voicelab.verdict.not_a_command') | tojson }},
+    other_command: {{ t('voicelab.verdict.other_command') | tojson }},
+    no_text: {{ t('voicelab.verdict.no_text') | tojson }}
   };
-  const REFUSED = { incomplete: 'ที่อยู่ไม่ครบ', too_many: 'มีตัวเลขเกิน', octet: 'มีตัวเลขเกิน 255', reserved: 'ที่อยู่ที่ใช้สแกนไม่ได้', prefix: 'เครือข่ายกว้างเกินไป' };
-  const DIGITS = { same_digits: 'ตัวเลขถูกครบทุกตัว แต่จุดผิดที่', lost: 'ตัวเลขหายไป 1 ตัว', extra: 'ตัวเลขเกินมา 1 ตัว', one_wrong: 'ตัวเลขผิด 1 ตัว',
-                   off2: 'ตัวเลขผิดประมาณ 2 ตัว', different: 'ตัวเลขต่างจากที่พูดมาก' };
+  const REFUSED = {
+    incomplete: {{ t('voicelab.refused.incomplete') | tojson }},
+    too_many: {{ t('voicelab.refused.too_many') | tojson }},
+    octet: {{ t('voicelab.refused.octet') | tojson }},
+    reserved: {{ t('voicelab.refused.reserved') | tojson }},
+    prefix: {{ t('voicelab.refused.prefix_wide') | tojson }}
+  };
+  const DIGITS = {
+    same_digits: {{ t('voicelab.digits.same_digits') | tojson }},
+    lost: {{ t('voicelab.digits.lost') | tojson }},
+    extra: {{ t('voicelab.digits.extra') | tojson }},
+    one_wrong: {{ t('voicelab.digits.one_wrong') | tojson }},
+    off2: {{ t('voicelab.digits.off2') | tojson }},
+    different: {{ t('voicelab.digits.different') | tojson }}
+  };
 
   function setStatus(t) { $('vl-status').textContent = t; }
 
@@ -134,10 +202,10 @@
     if (!r) { box.hidden = true; return; }
     box.hidden = false;
     const s = r.score;
-    $('vl-heard').textContent = s.heard ? '“' + s.heard + '”' : '(ไม่มีข้อความ)';
-    let text = s.category === 'refused' ? ('ระบบปฏิเสธ: ' + (REFUSED[s.reason] || 'ที่อยู่ไม่ถูกต้อง')) : (VERDICT[s.category] || s.category);
+    $('vl-heard').textContent = s.heard ? '“' + s.heard + '”' : VL_T.noTextHeard;
+    let text = s.category === 'refused' ? (VL_T.refusedPrefix + (REFUSED[s.reason] || VL_T.refusedDefault)) : (VERDICT[s.category] || s.category);
     if (s.digits && DIGITS[s.digits]) text += ' · ' + DIGITS[s.digits];
-    if (s.ok && !s.best_ok) text += ' (ใช้คำอื่นที่เบราว์เซอร์เสนอมา)';
+    if (s.ok && !s.best_ok) text += ' ' + VL_T.altUsed;
     const v = $('vl-verdict');
     v.textContent = text;
     v.className = 'vl-verdict ' + (s.ok ? 'ok' : s.category === 'no_text' ? 'neutral' : 'bad');
@@ -146,18 +214,18 @@
 
   function show() {
     const p = PROMPTS[idx];
-    $('vl-pos').textContent = 'ประโยคที่ ' + (idx + 1) + ' / ' + PROMPTS.length;
-    $('vl-lang').textContent = p.lang === 'th' ? 'ภาษาไทย' : 'ENGLISH';
+    $('vl-pos').textContent = VL_T.pos.replace('{i}', String(idx + 1)).replace('{n}', String(PROMPTS.length));
+    $('vl-lang').textContent = p.lang === 'th' ? VL_T.langTh : VL_T.langEn;
     $('vl-kind').textContent = KIND[p.kind] || '';
     $('vl-say').textContent = p.text;
     $('vl-prev').disabled = busy || idx === 0;
     $('vl-next').disabled = busy || idx === PROMPTS.length - 1;
     $('vl-rec').disabled = false;
-    $('vl-rec-t').textContent = results[p.id] ? 'อัดใหม่' : 'เริ่มอัด';
+    $('vl-rec-t').textContent = results[p.id] ? VL_T.recRetry : VL_T.recStart;
     showResult(p);
     drawDots();
   }
-  function go(i) { if (i < 0 || i >= PROMPTS.length) return; idx = i; setStatus('พร้อม กด “เริ่มอัด” แล้วพูดได้เลย'); $('vl-level').style.width = '0'; show(); }
+  function go(i) { if (i < 0 || i >= PROMPTS.length) return; idx = i; setStatus(VL_T.statusReady); $('vl-level').style.width = '0'; show(); }
 
   async function getStream() {
     if (stream && stream.getTracks().every((t) => t.readyState === 'live')) return stream;
@@ -171,10 +239,10 @@
 
   function micMessage(e) {
     const n = (e && e.name) || String(e);
-    if (n === 'insecure') return 'เปิดหน้านี้ผ่าน localhost หรือ https เท่านั้น ไมโครโฟนถึงจะใช้ได้';
-    if (n === 'NotAllowedError' || n === 'SecurityError') return 'ไมโครโฟนถูกบล็อก กดไอคอนข้าง URL แล้วอนุญาตให้ใช้ไมโครโฟน';
-    if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'ไม่พบไมโครโฟน';
-    return 'เปิดไมโครโฟนไม่ได้ (' + n + ')';
+    if (n === 'insecure') return VL_T.micInsecure;
+    if (n === 'NotAllowedError' || n === 'SecurityError') return VL_T.micBlocked;
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return VL_T.micNotFound;
+    return VL_T.micOpenError.replace('{err}', n);
   }
 
   // the browser's own engine, run in parallel on the same sentence, collected EXACTLY the way the chat's mic does it (base.html voiceStart)
@@ -220,7 +288,7 @@
     const want = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
     const mime = (window.MediaRecorder && want.find((m) => MediaRecorder.isTypeSupported(m))) || '';
     let mr;
-    try { mr = new MediaRecorder(stream, mime ? { mimeType: mime } : {}); } catch (e) { busy = false; show(); setStatus('เบราว์เซอร์นี้อัดเสียงไม่ได้ (' + ((e && e.name) || e) + ')'); return; }
+    try { mr = new MediaRecorder(stream, mime ? { mimeType: mime } : {}); } catch (e) { busy = false; show(); setStatus(VL_T.micCannotRecord.replace('{err}', (e && e.name) || e)); return; }
     mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     const stopped = new Promise((resolve) => { mr.onstop = resolve; });
     const engine = startEngine(p.lang);
@@ -228,8 +296,8 @@
     mr.start();
     const t0 = performance.now(), buf = new Uint8Array(analyser.fftSize);
     let spoke = false, lastVoice = t0, ended = false;
-    $('vl-rec').disabled = false; $('vl-rec').classList.add('on'); $('vl-rec-t').textContent = 'หยุด';
-    setStatus('กำลังอัด… พูดได้เลย');
+    $('vl-rec').disabled = false; $('vl-rec').classList.add('on'); $('vl-rec-t').textContent = VL_T.recStop;
+    setStatus(VL_T.statusRecording);
     const stop = () => { if (ended) return; ended = true; cancelAnimationFrame(raf); try { mr.stop(); } catch (e) { } engine.stop(); };
     $('vl-rec').onclick = stop;
     const tick = () => {
@@ -244,7 +312,7 @@
     raf = requestAnimationFrame(tick);
     await stopped;
     $('vl-rec').classList.remove('on'); $('vl-rec').onclick = null; $('vl-level').style.width = '0';
-    setStatus('กำลังบันทึกและตรวจผล…');
+    setStatus(VL_T.statusSaving);
     await Promise.race([engine.done, new Promise((r) => setTimeout(r, 2500))]);   // the engine may answer a moment after the audio stopped
     const blob = new Blob(chunks, { type: (mr.mimeType || mime || 'audio/webm').split(';')[0] || 'audio/webm' });
     await upload(p, blob, engine, Math.round(performance.now() - t0), stream);
@@ -264,10 +332,10 @@
       const j = await resp.json();
       if (results[p.id] && results[p.id].url) URL.revokeObjectURL(results[p.id].url);
       results[p.id] = { score: j.score, url: URL.createObjectURL(blob) };
-      setStatus(j.score.ok ? 'บันทึกแล้ว ถูกต้อง' : 'บันทึกแล้ว (ผลยังไม่ถูกต้อง ไม่เป็นไร เป็นข้อมูลที่ต้องการ)');
+      setStatus(j.score.ok ? VL_T.statusSavedOk : VL_T.statusSavedMismatch);
       refreshSummary();
     } catch (e) {
-      setStatus('บันทึกไม่สำเร็จ: ' + ((e && e.message) || e) + ' ลองกดอัดใหม่อีกครั้ง');
+      setStatus(VL_T.statusSaveError.replace('{err}', (e && e.message) || e));
     }
   }
 
@@ -275,17 +343,17 @@
     try {
       const j = await (await fetch('/api/voice-lab/summary?session=' + encodeURIComponent(SESSION))).json();
       const box = $('vl-sum'); box.textContent = '';
-      if (!j.total) { box.textContent = 'ยังไม่มีคลิป'; return; }
+      if (!j.total) { box.textContent = VL_T.noClips; return; }
       const mk = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; };
       const t = document.createElement('table'); t.className = 'vl-sum';
       const row = (a, b) => { const tr = document.createElement('tr'); tr.appendChild(mk('th', a)); tr.appendChild(mk('td', b)); t.appendChild(tr); };
-      row('อัดแล้ว', j.total + ' / ' + PROMPTS.length);
-      row('ถูกต้องทั้งหมด', j.exact + ' (' + Math.round(100 * j.exact / j.total) + '%)');
-      if (j.by_lang.th) row('ภาษาไทย', j.by_lang.th.exact + ' / ' + j.by_lang.th.total);
-      if (j.by_lang.en) row('ภาษาอังกฤษ', j.by_lang.en.exact + ' / ' + j.by_lang.en.total);
-      if (j.by_kind.scan) row('คำสั่งสแกน (มีที่อยู่)', j.by_kind.scan.exact + ' / ' + j.by_kind.scan.total);
+      row(VL_T.sumRecorded, j.total + ' / ' + PROMPTS.length);
+      row(VL_T.sumExact, j.exact + ' (' + Math.round(100 * j.exact / j.total) + '%)');
+      if (j.by_lang.th) row(VL_T.sumThai, j.by_lang.th.exact + ' / ' + j.by_lang.th.total);
+      if (j.by_lang.en) row(VL_T.sumEnglish, j.by_lang.en.exact + ' / ' + j.by_lang.en.total);
+      if (j.by_kind.scan) row(VL_T.sumScanCmd, j.by_kind.scan.exact + ' / ' + j.by_kind.scan.total);
       box.appendChild(t);
-      box.appendChild(mk('div', 'ตัวเลขนี้คือผลของตัวถอดเสียงในเบราว์เซอร์ (ตัวเทียบ) ส่วนผลของ Whisper จะวัดจากเสียงชุดเดียวกันนี้ทีหลัง', 'vl-note mt-2'));
+      box.appendChild(mk('div', VL_T.sumWhisperNote, 'vl-note mt-2'));
     } catch (e) { /* the summary is a convenience */ }
   }
 

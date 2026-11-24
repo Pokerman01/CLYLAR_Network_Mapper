@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
-{% block page_title %}<div class="topbar-page-title">ตั้งค่า</div>{% endblock %}
-{% block page_subtitle %}<div class="topbar-page-subtitle">ข้อมูลบัญชีผู้ใช้ของคุณ</div>{% endblock %}
+{% block page_title %}<div class="topbar-page-title">{{ t('settings.title') }}</div>{% endblock %}
+{% block page_subtitle %}<div class="topbar-page-subtitle">{{ t('settings.subtitle') }}</div>{% endblock %}
 
 {% block content %}
 
@@ -9,33 +9,33 @@
   <div class="col-12 col-lg-6">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body p-4">
-        <h6 class="fw-bold mb-3">บัญชีผู้ใช้</h6>
+        <h6 class="fw-bold mb-3">{{ t('settings.account') }}</h6>
         <div class="d-flex align-items-center gap-3 mb-4">
-          <div style="width:52px;height:52px;border-radius:50%;background:#e2e5ea;display:flex;align-items:center;justify-content:center;font-size:22px;color:#8a8f98;">
+          <div style="width:52px;height:52px;border-radius:50%;background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--avatar-ink);">
             <i class="ti ti-user"></i>
           </div>
           <div>
-            <div style="font-weight:700;font-size:1.05rem;color:#0f172a;">{{ current_user.username | title }}</div>
-            <div style="font-size:.8rem;color:#6b7280;">{{ current_user.role | title }}</div>
+            <div style="font-weight:700;font-size:1.05rem;color:var(--fg-0);">{{ current_user.username | title }}</div>
+            <div style="font-size:.8rem;color:var(--nt-text-muted);">{{ t('nav.role.' ~ current_user.role) }}</div>
           </div>
         </div>
         <table class="table table-sm mb-0" style="font-size:.85rem;">
           <tbody>
             <tr>
-              <td class="text-muted" style="width:40%;">Username</td>
+              <td class="text-muted" style="width:40%;">{{ t('settings.username') }}</td>
               <td class="fw-semibold">{{ current_user.username }}</td>
             </tr>
             <tr>
-              <td class="text-muted">Role</td>
-              <td class="fw-semibold">{{ current_user.role | title }}</td>
+              <td class="text-muted">{{ t('settings.role') }}</td>
+              <td class="fw-semibold">{{ t('nav.role.' ~ current_user.role) }}</td>
             </tr>
             <tr>
-              <td class="text-muted">สร้างเมื่อ</td>
-              <td class="fw-semibold">{{ current_user.created_at.strftime('%Y-%m-%d %H:%M') if current_user.created_at else '—' }}</td>
+              <td class="text-muted">{{ t('settings.created_at') }}</td>
+              <td class="fw-semibold">{{ (current_user.created_at | fdt) if current_user.created_at else '—' }}</td>
             </tr>
             {% if current_user.creator %}
             <tr>
-              <td class="text-muted">สร้างโดย</td>
+              <td class="text-muted">{{ t('settings.created_by') }}</td>
               <td class="fw-semibold">{{ current_user.creator.username }}</td>
             </tr>
             {% endif %}
@@ -48,17 +48,17 @@
   <div class="col-12 col-lg-6">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body p-4">
-        <h6 class="fw-bold mb-3">เปลี่ยนรหัสผ่าน</h6>
+        <h6 class="fw-bold mb-3">{{ t('settings.password_title') }}</h6>
         <p class="text-muted mb-3" style="font-size:.85rem;">
-          ติดต่อผู้ดูแลระบบ (Admin) เพื่อรีเซ็ตรหัสผ่านของคุณผ่านหน้า
+          {{ t('settings.password_help') }}
           {% if current_user.role in ('admin', 'superadmin') %}
-          <a href="{{ url_for('user_management') }}">จัดการผู้ใช้งาน</a>
+          <a href="{{ url_for('user_management') }}">{{ t('top.user_mgmt') }}</a>
           {% else %}
-          จัดการผู้ใช้งาน
+          {{ t('top.user_mgmt') }}
           {% endif %}
         </p>
         <hr>
-        <h6 class="fw-bold mb-2 mt-4">เกี่ยวกับระบบ</h6>
+        <h6 class="fw-bold mb-2 mt-4">{{ t('settings.about') }}</h6>
         <div class="text-muted" style="font-size:.85rem;">
           CLYLAR Network Scanner · v1.0.0<br>
           National Telecom Public Company Limited
@@ -68,43 +68,108 @@
   </div>
 </div>
 
+{# Theme and language (ui_theme / ui_lang from the server). The top bar has the same two buttons; both call clylarSetTheme / clylarSetLang in base.html, which
+   change the page at once (theme) or save and reload (language), keep the choice per user on the server and in a cookie, and say whether saving worked. The chosen choice is
+   raised and bold with its icon, so colour is not the only cue. #}
+<style>
+  .tl-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; }
+  .tl-row + .tl-row { border-top: 1px solid var(--nt-border); }
+  .tl-name { font-weight: 600; font-size: .9rem; color: var(--nt-text); }
+  .tl-help { font-size: .78rem; color: var(--nt-text-muted); margin-top: 2px; }
+  .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--nt-bg); border: 1px solid var(--nt-border); border-radius: 10px; flex: none; }
+  .seg button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; color: var(--nt-text-muted); font-size: .82rem; font-weight: 500; padding: 5px 14px; border-radius: 7px; line-height: 1.5; cursor: pointer; font-family: inherit; }
+  .seg button i { font-size: 15px; color: inherit; }
+  .seg button:hover { color: var(--nt-text); }
+  .seg button[aria-pressed="true"] { background: var(--thumb-bg); color: var(--nt-text); font-weight: 700; border-color: var(--nt-border); cursor: default; }
+  .seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  #tlNote { font-size: .8rem; min-height: 1.2em; }
+  #tlNote.is-fail { color: var(--amber-ink); }
+  #tlNote.is-ok { color: var(--nt-text-muted); }
+  @media (max-width: 575.98px) { .tl-row { flex-direction: column; align-items: flex-start; } }
+</style>
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm" id="themeCard">
+      <div class="card-body px-4 py-3">
+        <div class="d-flex align-items-baseline gap-3 flex-wrap mb-1"><h6 class="mb-0 fw-bold">{{ t('ui.settings.card_title') }}</h6><span class="small text-muted">{{ t('ui.settings.card_note') }}</span></div>
+        <div class="tl-row">
+          <div><div class="tl-name">{{ t('ui.settings.theme_name') }}</div><div class="tl-help">{{ t('ui.settings.theme_help') }}</div></div>
+          <div class="seg" role="group" aria-label="{{ t('ui.theme') }}">
+            <button type="button" data-set-theme="light" aria-pressed="{{ 'true' if ui_theme == 'light' else 'false' }}"><i class="ti ti-sun" aria-hidden="true"></i>{{ t('ui.theme.light') }}</button>
+            <button type="button" data-set-theme="dark" aria-pressed="{{ 'true' if ui_theme == 'dark' else 'false' }}"><i class="ti ti-moon" aria-hidden="true"></i>{{ t('ui.theme.dark') }}</button>
+          </div>
+        </div>
+        <div class="tl-row">
+          <div><div class="tl-name">{{ t('ui.settings.lang_name') }}</div><div class="tl-help">{{ t('ui.settings.lang_help') }}</div></div>
+          <div class="seg" role="group" aria-label="{{ t('ui.lang') }}">
+            <button type="button" data-card-lang="th" lang="th" aria-pressed="{{ 'true' if ui_lang == 'th' else 'false' }}">{{ t('ui.lang.th') }}</button>
+            <button type="button" data-card-lang="en" lang="en" aria-pressed="{{ 'true' if ui_lang == 'en' else 'false' }}">{{ t('ui.lang.en') }}</button>
+          </div>
+        </div>
+        <div id="tlNote" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const note = document.getElementById('tlNote');
+  const SAVED = {{ t('ui.settings.saved') | tojson }}, FAILED = {{ t('ui.settings.failed') | tojson }};
+  let timer = 0;
+  function say(ok) {
+    clearTimeout(timer);
+    note.textContent = ok ? SAVED : FAILED;
+    note.className = ok ? 'is-ok' : 'is-fail';
+    if (ok) timer = setTimeout(() => { note.textContent = ''; note.className = ''; }, 2500);
+  }
+  document.querySelectorAll('#themeCard [data-set-theme]').forEach((b) => b.addEventListener('click', async () => {
+    if (b.getAttribute('aria-pressed') === 'true') return;
+    say(await clylarSetTheme(b.dataset.setTheme));
+  }));
+  document.querySelectorAll('#themeCard [data-card-lang]').forEach((b) => b.addEventListener('click', async () => {
+    if (b.getAttribute('aria-pressed') === 'true') return;
+    if (!(await clylarSetLang(b.dataset.cardLang))) say(false);        // on success the page reloads in the new language
+  }));
+})();
+</script>
+
 {# The floating button = speed dial (bottom right of every page): each admin can hide it for themselves. Kept per user on the server
    (AppSetting 'chat_button_hidden.<user id>'), so it holds in every browser and the page never shows it before hiding it. Compact on purpose:
    one line with the switch, and the explanation folds away behind "รายละเอียด". #}
 {% if current_user.is_any_admin %}
 <style>
-  .fab-more { border: 0; background: none; padding: 0; color: #6b7280; font-size: .78rem; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+  .fab-more { border: 0; background: none; padding: 0; color: var(--nt-text-muted); font-size: .78rem; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
   .fab-more i { font-size: 14px; transition: transform .2s; }
   .fab-more[aria-expanded="true"] i { transform: rotate(180deg); }
-  .fab-more:hover { color: #1e293b; }
-  .fab-more:focus-visible { outline: 2px solid #64748b; outline-offset: 2px; border-radius: 4px; }
+  .fab-more:hover { color: var(--text); }
+  .fab-more:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
   .info-list { list-style: none; margin: 0; padding-left: 0; display: grid; gap: 6px; }
   .info-list li { position: relative; padding-left: 14px; line-height: 1.65; }
-  .info-list li::before { content: ""; position: absolute; left: 2px; top: .72em; width: 4px; height: 4px; border-radius: 50%; background: #94a3b8; }
-  .info-list b { color: #475569; font-weight: 600; }
+  .info-list li::before { content: ""; position: absolute; left: 2px; top: .72em; width: 4px; height: 4px; border-radius: 50%; background: var(--fill-mid); }
+  .info-list b { color: var(--text-2); font-weight: 600; }
   @media (prefers-reduced-motion: reduce) { .fab-more i { transition: none; } }
 </style>
 <div class="row g-3 mt-0">
   <div class="col-12">
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm" id="fab-card" style="scroll-margin-top: 90px;">
       <div class="card-body px-4 py-3">
         <div class="d-flex align-items-center justify-content-between gap-3">
           <div class="d-flex align-items-center gap-3 flex-wrap">
-            <h6 class="fw-bold mb-0">ปุ่มลอยและเมนูลัด</h6>
-            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#fabInfo" aria-expanded="false" aria-controls="fabInfo"><i class="ti ti-chevron-down" aria-hidden="true"></i>รายละเอียด</button>
+            <h6 class="fw-bold mb-0">{{ t('settings.fab.title') }}</h6>
+            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#fabInfo" aria-expanded="false" aria-controls="fabInfo"><i class="ti ti-chevron-down" aria-hidden="true"></i>{{ t('settings.more') }}</button>
           </div>
           <div class="form-check form-switch mb-0" style="font-size:1.1rem;">
             <input class="form-check-input" type="checkbox" role="switch" id="fabSwitch" {% if not chat_button_hidden %}checked{% endif %}>
-            <label class="form-check-label" for="fabSwitch" id="fabSwitchLabel" role="status" style="font-size:.9rem;">{{ 'ซ่อนอยู่' if chat_button_hidden else 'แสดงอยู่' }}</label>
+            <label class="form-check-label" for="fabSwitch" id="fabSwitchLabel" role="status" style="font-size:.9rem;">{{ t('settings.hidden') if chat_button_hidden else t('settings.shown') }}</label>
           </div>
         </div>
         <div class="collapse" id="fabInfo">
           <div class="text-muted pt-2" style="font-size:.82rem;max-width:640px;">
-            ปุ่มลอยที่มุมขวาล่างของทุกหน้า กดแล้วเลือกเปิดแชท สั่งด้วยเสียง หรือสแกนด่วนได้ ปิดได้หากไม่ต้องการให้บังหน้าจอ และกลับมาเปิดอีกครั้งได้ที่นี่เสมอ<br>
-            เมื่อซ่อนปุ่ม จะเปิดแชทและสั่งด้วยเสียงไม่ได้จนกว่าจะเปิดกลับ · ตั้งค่านี้ใช้กับบัญชีของคุณเท่านั้น
+            {{ t('settings.fab.info1') }}<br>
+            {{ t('settings.fab.info2') }}
           </div>
         </div>
-        <div id="fabMsg" style="font-size:.8rem;color:#a16207;" role="alert"></div>
+        <div id="fabMsg" style="font-size:.8rem;color:var(--amber-ink);" role="alert"></div>
       </div>
     </div>
   </div>
@@ -122,7 +187,7 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       sw.checked = !!data.visible;
-      label.textContent = data.visible ? 'แสดงอยู่' : 'ซ่อนอยู่';      // the label says it; only a failure needs a sentence
+      label.textContent = data.visible ? {{ t('settings.shown') | tojson }} : {{ t('settings.hidden') | tojson }};      // the label says it; only a failure needs a sentence
       const btn = document.getElementById('chatbot-dial'), popup = document.getElementById('chatbot-popup');   // this page too, no reload
       if (btn) {
         btn.classList.toggle('is-hidden', !data.visible);
@@ -131,10 +196,146 @@
     } catch (e) {
       sw.checked = !want;
       msg.classList.add('mt-2');
-      msg.textContent = 'เปลี่ยนค่าไม่สำเร็จ ลองใหม่อีกครั้ง';
+      msg.textContent = {{ t('settings.change_failed') | tojson }};
     } finally {
       sw.disabled = false;
     }
+  });
+})();
+</script>
+{% endif %}
+
+{# One key row (state, test, set, delete, and the form behind "set"). p is the id prefix: "my" = my own key, "key" = the shared key. #}
+{% macro key_block(p, title, hint, editable, paste_label=None) %}
+<div class="mt-3 pt-3" style="border-top:1px solid var(--nt-border);" id="{{ p }}Box">
+  <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <div style="font-size:.9rem;">
+      <span class="fw-semibold" title="{{ hint }}">{{ title }}</span>
+      <span id="{{ p }}State" class="ms-2 text-muted" style="font-size:.85rem;"></span>
+    </div>
+    {% if editable %}
+    <div class="d-flex gap-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}TestSavedBtn" hidden>{{ t('settings.ai.test_saved') }}</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}EditBtn">{{ t('settings.ai.set_key') }}</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}DelBtn" hidden>{{ t('settings.ai.delete_key') }}</button>
+    </div>
+    {% endif %}
+  </div>
+  {% if editable %}
+  <form id="{{ p }}Form" class="mt-2" hidden autocomplete="off" style="max-width:560px;">
+    <label for="{{ p }}Input" class="text-muted" style="font-size:.8rem;">{{ paste_label or t('settings.ai.paste_label') }}</label>
+    <input type="password" id="{{ p }}Input" class="form-control form-control-sm" autocomplete="new-password" spellcheck="false" maxlength="200" placeholder="{{ t('settings.ai.key_ph') }}">
+    <div class="mt-2" style="font-size:.8rem;">
+      <span class="text-muted">{{ t('settings.ai.get_key') }}</span>
+      <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="gemini-get-key">{{ t('settings.ai.get_key_link') }} <i class="ti ti-external-link" aria-hidden="true"></i></a>
+    </div>
+    <div class="d-flex gap-2 mt-2 flex-wrap">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}TestBtn">{{ t('settings.ai.test') }}</button>
+      <button type="submit" class="btn btn-sm btn-dark" id="{{ p }}SaveBtn">{{ t('common.save') }}</button>
+      <button type="button" class="btn btn-sm btn-link text-muted" id="{{ p }}CancelBtn">{{ t('common.cancel') }}</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% if ai is not none %}
+{# The NVD API key: the CVE lookup of the Vulnerability Scan. Shared by the whole app, so only a superadmin changes it; other admins see the state. #}
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <h6 class="fw-bold mb-0">{{ t('nvd.title') }}</h6>
+          <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#nvdInfo" aria-expanded="false" aria-controls="nvdInfo"><i class="ti ti-chevron-down" aria-hidden="true"></i> {{ t('settings.more') }}</button>
+        </div>
+        <div class="collapse" id="nvdInfo">
+          <ul class="info-list text-muted pt-2" style="font-size:.82rem;max-width:720px;">
+            <li><b>{{ t('nvd.b1h') }}</b> {{ t('nvd.b1') }}</li>
+            <li><b>{{ t('nvd.b2h') }}</b> {{ t('nvd.b2') }}</li>
+            <li><b>{{ t('nvd.b3h') }}</b> {{ t('nvd.b3') }} <a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank" rel="noopener noreferrer">nvd.nist.gov</a></li>
+            <li><b>{{ t('nvd.b4h') }}</b> {{ t('nvd.b4') }}</li>
+          </ul>
+        </div>
+        {% if not can_change_ai %}<div class="text-muted mt-2" style="font-size:.78rem;">{{ t('nvd.superadmin_only') }}</div>{% endif %}
+        <div id="nvdMsg" class="mt-2" style="font-size:.8rem;" role="status"></div>
+        {{ key_block('nvd', t('nvd.row_title'), t('nvd.row_hint'), can_change_ai, t('nvd.paste_label')) }}
+        {% if can_change_ai %}
+        <div class="mt-3" style="font-size:.85rem;">
+          <span class="text-muted">{{ t('nvd.get_key') }}</span>
+          <a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank" rel="noopener noreferrer" id="nvdGetKey">{{ t('nvd.get_key_link') }} <i class="ti ti-external-link" aria-hidden="true"></i></a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const CAN_EDIT = {{ 'true' if can_change_ai else 'false' }};
+  const NT = {
+    testing: {{ t('settings.ai.testing') | tojson }}, testFailed: {{ t('settings.ai.test_failed') | tojson }}, pasteFirst: {{ t('settings.ai.paste_first') | tojson }},
+    saveFailed: {{ t('settings.ai.save_failed') | tojson }}, savedThen: {{ t('settings.ai.saved_then') | tojson }}, savedBut: {{ t('settings.ai.saved_but') | tojson }},
+    deleted: {{ t('settings.ai.deleted') | tojson }}, deleteFailed: {{ t('settings.ai.delete_failed') | tojson }}, confirmDelete: {{ t('nvd.confirm_delete') | tojson }},
+    setKey: {{ t('settings.ai.set_key') | tojson }}, changeKey: {{ t('settings.ai.change_key') | tojson }}, endsWith: {{ t('settings.ai.ends_with') | tojson }},
+    srcSettings: {{ t('settings.ai.shared_src_settings') | tojson }}, srcEnv: {{ t('settings.ai.shared_src_env') | tojson }}, unset: {{ t('nvd.unset') | tojson }}
+  };
+  const fill = (s, v) => String(s).replace(/\{(\w+)\}/g, (m, k) => (v && k in v ? v[k] : m));
+  const $ = id => document.getElementById('nvd' + id);
+  const msg = document.getElementById('nvdMsg'), state = $('State'), editBtn = $('EditBtn'), delBtn = $('DelBtn'), testSaved = $('TestSavedBtn');
+  const form = $('Form'), input = $('Input');
+  const AMBER = 'var(--amber-ink-2)';
+  const note = (text, bad) => { msg.className = 'mt-2 ' + (bad === 'ok' ? 'ai-ok' : bad ? 'ai-bad' : 'text-muted'); msg.textContent = text; };
+  async function post(url, body) {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    let data = null; try { data = await res.json(); } catch (e) {}
+    return { ok: res.ok, data: data };
+  }
+  function render(s) {
+    if (!s.key_set) { state.textContent = NT.unset; state.style.color = AMBER; }
+    else { state.textContent = ({ settings: NT.srcSettings, env: NT.srcEnv }[s.key_source] || '') + (s.key_tail ? fill(NT.endsWith, { tail: s.key_tail }) : ''); state.style.color = ''; }
+    if (editBtn) editBtn.textContent = s.key_set ? NT.changeKey : NT.setKey;
+    if (delBtn) delBtn.hidden = s.key_source !== 'settings';
+    if (testSaved) testSaved.hidden = !s.key_set;
+  }
+  render({{ nvd|tojson }});
+  if (!CAN_EDIT || !form) return;
+  const closeForm = () => { form.hidden = true; input.value = ''; };
+  async function runTest(useTyped) {
+    note(NT.testing);
+    const r = await post('/api/nvd/key/test', { key: useTyped ? input.value.trim() : '' });
+    note((r.data && r.data.message) || NT.testFailed, r.data && r.data.ok ? 'ok' : true);
+    return !!(r.data && r.data.ok);
+  }
+  editBtn.addEventListener('click', function () { form.hidden = !form.hidden; if (!form.hidden) input.focus(); });
+  $('CancelBtn').addEventListener('click', closeForm);
+  form.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeForm(); editBtn.focus(); } });
+  testSaved.addEventListener('click', async function () { this.disabled = true; try { await runTest(false); } finally { this.disabled = false; } });
+  $('TestBtn').addEventListener('click', async function () {
+    if (!input.value.trim()) { note(NT.pasteFirst, true); return; }
+    this.disabled = true; try { await runTest(true); } finally { this.disabled = false; }
+  });
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const btn = $('SaveBtn');
+    if (!input.value.trim()) { note(NT.pasteFirst, true); return; }
+    btn.disabled = true;
+    try {
+      const r = await post('/api/nvd/key', { key: input.value.trim() });
+      if (!r.ok) { note((r.data && r.data.message) || NT.saveFailed, true); return; }
+      closeForm(); render(r.data);
+      const good = await runTest(false);
+      note(fill(good ? NT.savedThen : NT.savedBut, { msg: msg.textContent }), good ? 'ok' : true);
+    } catch (err) { note(NT.saveFailed, true); } finally { btn.disabled = false; }
+  });
+  delBtn.addEventListener('click', async function () {
+    if (!confirm(NT.confirmDelete)) return;
+    this.disabled = true;
+    try {
+      const r = await post('/api/nvd/key/clear');
+      if (!r.ok) throw new Error('HTTP');
+      render(r.data); note(NT.deleted);
+    } catch (err) { note(NT.deleteFailed, true); } finally { this.disabled = false; }
   });
 })();
 </script>
@@ -150,29 +351,29 @@
       <div class="card-body px-4 py-3">
         <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
           <div class="d-flex align-items-center gap-3 flex-wrap">
-            <h6 class="fw-bold mb-0">ตัวถอดเสียงพูด (Whisper ในเครื่อง)</h6>
-            <span id="wsState" style="font-size:.85rem;color:#64748b;" role="status">กำลังตรวจสอบ…</span>
-            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#wsInfo" aria-expanded="false" aria-controls="wsInfo"><i class="ti ti-chevron-down"></i> รายละเอียด</button>
+            <h6 class="fw-bold mb-0">{{ t('settings.ws.title') }}</h6>
+            <span id="wsState" style="font-size:.85rem;color:var(--muted);" role="status">{{ t('settings.ws.checking') }}</span>
+            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#wsInfo" aria-expanded="false" aria-controls="wsInfo"><i class="ti ti-chevron-down"></i> {{ t('settings.more') }}</button>
           </div>
           <div class="form-check form-switch mb-0" style="font-size:1.1rem;">
             <input class="form-check-input" type="checkbox" role="switch" id="wsSwitch" disabled>
-            <label class="form-check-label" for="wsSwitch" id="wsSwitchLabel" style="font-size:.9rem;">ปิดอยู่</label>
+            <label class="form-check-label" for="wsSwitch" id="wsSwitchLabel" style="font-size:.9rem;">{{ t('settings.ws.off') }}</label>
           </div>
         </div>
         <div class="collapse" id="wsInfo">
           <ul class="info-list text-muted pt-2" style="font-size:.82rem;max-width:720px;">
-            <li><b>การทำงาน:</b> Whisper ถอดเสียงคำสั่งเป็นข้อความบนเครื่องนี้ ไม่ส่งเสียงออกนอกเครื่องและไม่เก็บเสียงไว้ ใช้เวลาประมาณ 1 ถึง 2 วินาทีต่อคำสั่งบนการ์ดจอ NVIDIA และนานกว่ามากบน CPU (ประมาณ 8 ถึง 17 วินาที)</li>
-            <li><b>สวิตช์ด้านขวา:</b> เปิดหรือปิดโปรแกรม Whisper การเปิดใช้เวลาโหลดโมเดลประมาณ 10 ถึง 20 วินาที เป็นโปรแกรมเดียวที่ผู้ดูแลระบบทุกคนใช้ร่วมกัน การปิดจึงมีผลกับทุกคน</li>
-            <li><b>เมื่อ Whisper ไม่ทำงาน:</b> ปุ่มไมโครโฟนจะใช้ตัวถอดเสียงของเบราว์เซอร์แทนโดยอัตโนมัติ</li>
-            <li><b>ตัวถอดเสียงของเบราว์เซอร์:</b> ส่งเสียงไปยังผู้พัฒนาเบราว์เซอร์ (Chrome ส่งไปยัง Google และ Edge ส่งไปยัง Microsoft) จึงต้องใช้อินเทอร์เน็ต และจากการทดสอบมักถอดตัวเลขที่อยู่ IP ผิดมากกว่า Whisper</li>
-            <li><b>หลังปิดหรือรีสตาร์ทเครื่อง:</b> Whisper จะไม่เริ่มทำงานเอง ต้องเปิดสวิตช์อีกครั้ง หรือดับเบิลคลิก <code>start_whisper_worker.bat</code> ในโฟลเดอร์โปรเจกต์ ส่วนการโหลดแอปใหม่ไม่ทำให้ Whisper หยุด</li>
+            <li><b>{{ t('settings.ws.b1h') }}</b> {{ t('settings.ws.b1') }}</li>
+            <li><b>{{ t('settings.ws.b2h') }}</b> {{ t('settings.ws.b2') }}</li>
+            <li><b>{{ t('settings.ws.b3h') }}</b> {{ t('settings.ws.b3') }}</li>
+            <li><b>{{ t('settings.ws.b4h') }}</b> {{ t('settings.ws.b4') }}</li>
+            <li><b>{{ t('settings.ws.b5h') }}</b> {{ t('settings.ws.b5') }} <code>start_whisper_worker.bat</code> {{ t('settings.ws.b5b') }}</li>
           </ul>
           <div class="form-check mt-2" style="font-size:.85rem;">
             <input class="form-check-input" type="checkbox" id="wsBrowserOnly">
-            <label class="form-check-label" for="wsBrowserOnly">ใช้ตัวถอดเสียงของเบราว์เซอร์เสมอ แม้ Whisper ทำงานอยู่ (มีผลเฉพาะเบราว์เซอร์นี้)</label>
+            <label class="form-check-label" for="wsBrowserOnly">{{ t('settings.ws.browser_only') }}</label>
           </div>
         </div>
-        <div id="wsMsg" style="font-size:.8rem;color:#a16207;" role="alert"></div>
+        <div id="wsMsg" style="font-size:.8rem;color:var(--amber-ink);" role="alert"></div>
       </div>
     </div>
   </div>
@@ -182,6 +383,16 @@
   const KEY = 'clylar.voice.engine.{{ current_user.id }}';
   const sw = document.getElementById('wsSwitch'), label = document.getElementById('wsSwitchLabel'), state = document.getElementById('wsState'),
         msg = document.getElementById('wsMsg'), only = document.getElementById('wsBrowserOnly');
+  const WT = {
+    modelTh: {{ t('settings.ws.model_th') | tojson }}, modelN: {{ t('settings.ws.model_n') | tojson }}, ready: {{ t('settings.ws.ready') | tojson }},
+    gpu: {{ t('settings.ws.gpu') | tojson }}, cpu: {{ t('settings.ws.cpu') | tojson }}, last: {{ t('settings.ws.last') | tojson }}, tip: {{ t('settings.ws.tip') | tojson }},
+    on: {{ t('settings.ws.on') | tojson }}, off: {{ t('settings.ws.off') | tojson }}, startingLabel: {{ t('settings.ws.starting_label') | tojson }},
+    loading: {{ t('settings.ws.loading') | tojson }}, stopped: {{ t('settings.ws.stopped') | tojson }}, notInstalled: {{ t('settings.ws.not_installed') | tojson }},
+    startFailed: {{ t('settings.ws.start_failed') | tojson }}, cannotCheck: {{ t('settings.ws.cannot_check') | tojson }}, slow: {{ t('settings.ws.slow') | tojson }},
+    stopping: {{ t('settings.ws.stopping') | tojson }}, errMissing: {{ t('settings.ws.err_missing') | tojson }}, errForbidden: {{ t('settings.ws.err_forbidden') | tojson }},
+    errStart: {{ t('settings.ws.err_start') | tojson }}, errOther: {{ t('settings.ws.err_other') | tojson }}
+  };
+  const fill = (s, v) => String(s).replace(/\{(\w+)\}/g, (m, k) => (v && k in v ? v[k] : m));
   let timer = 0, startedAt = 0;
   try { only.checked = localStorage.getItem(KEY) === 'browser'; } catch (e) { }
   only.addEventListener('change', function () {
@@ -191,28 +402,28 @@
   function show(st) {
     sw.disabled = !st.installed || st.state === 'starting';
     if (st.state === 'running') {
-      const modelName = st.model === 'thai-large' ? 'โมเดลภาษาไทย (large-v3)' : (st.model ? 'โมเดล ' + st.model : '');      // the folder name is not a name for people: the model in it is the Thai-tuned Whisper large-v3
-      state.textContent = 'พร้อมใช้งาน' + (modelName ? ' · ' + modelName : '') + ' · ' + (st.device === 'cuda' ? 'ใช้การ์ดจอ' : 'ใช้ CPU (ช้า)') + (st.last_seconds ? ' · ครั้งล่าสุด ' + st.last_seconds + ' วินาที' : '');
-      state.title = 'โมเดล: ' + (st.model || '-') + ' · อุปกรณ์: ' + (st.device || '-') + (st.compute ? ' · ' + st.compute : '');
-      state.style.color = '#166534'; sw.checked = true; label.textContent = 'เปิดอยู่';
+      const modelName = st.model === 'thai-large' ? WT.modelTh : (st.model ? fill(WT.modelN, { m: st.model }) : '');      // the folder name is not a name for people: the model in it is the Thai-tuned Whisper large-v3
+      state.textContent = WT.ready + (modelName ? ' · ' + modelName : '') + ' · ' + (st.device === 'cuda' ? WT.gpu : WT.cpu) + (st.last_seconds ? ' · ' + fill(WT.last, { s: st.last_seconds }) : '');
+      state.title = fill(WT.tip, { model: st.model || '-', device: st.device || '-', compute: st.compute ? ' · ' + st.compute : '' });
+      state.style.color = 'var(--ok-deep)'; sw.checked = true; label.textContent = WT.on;
     } else if (st.state === 'starting') {
-      state.textContent = 'กำลังเริ่ม… โหลดโมเดลประมาณ 10 ถึง 20 วินาที';
-      state.style.color = '#64748b'; sw.checked = true; label.textContent = 'กำลังเริ่ม…';
+      state.textContent = WT.loading;
+      state.style.color = 'var(--muted)'; sw.checked = true; label.textContent = WT.startingLabel;
     } else {
-      state.textContent = st.installed ? 'ไม่ได้ทำงานอยู่ · ใช้ตัวถอดเสียงของเบราว์เซอร์' : 'ยังไม่ได้ติดตั้ง Whisper ในเครื่องนี้ (ไม่พบโฟลเดอร์ clylar-whisper-lab)';
-      state.style.color = '#92400e'; sw.checked = false; label.textContent = 'ปิดอยู่';
-      if (st.error && msg.textContent === '') msg.textContent = 'เริ่มไม่สำเร็จ: ' + st.error;
+      state.textContent = st.installed ? WT.stopped : WT.notInstalled;
+      state.style.color = 'var(--amber-ink-2)'; sw.checked = false; label.textContent = WT.off;
+      if (st.error && msg.textContent === '') msg.textContent = fill(WT.startFailed, { e: st.error });
     }
   }
 
   async function refresh() {                       // never throws; while it is starting, ask again every 2 s (for at most 90 s)
     clearTimeout(timer);
     let st = { state: 'stopped', installed: true };
-    try { const r = await fetch('/api/voice/whisper/status'); if (r.ok) st = await r.json(); else { state.textContent = 'ตรวจสอบไม่ได้'; return; } }
-    catch (e) { state.textContent = 'ตรวจสอบไม่ได้'; return; }
+    try { const r = await fetch('/api/voice/whisper/status'); if (r.ok) st = await r.json(); else { state.textContent = WT.cannotCheck; return; } }
+    catch (e) { state.textContent = WT.cannotCheck; return; }
     show(st);
     if (st.state === 'starting') {
-      if (Date.now() - startedAt > 90000) { msg.textContent = 'โหลดนานผิดปกติ ดูสาเหตุในไฟล์ instance/whisper_worker.log'; return; }
+      if (Date.now() - startedAt > 90000) { msg.textContent = WT.slow; return; }
       timer = setTimeout(refresh, 2000);
     }
   }
@@ -220,14 +431,14 @@
   sw.addEventListener('change', async function () {
     const want = sw.checked;                       // true = start the program
     sw.disabled = true; msg.textContent = '';
-    state.textContent = want ? 'กำลังเริ่ม…' : 'กำลังปิด…'; state.style.color = '#64748b';
+    state.textContent = want ? WT.startingLabel : WT.stopping; state.style.color = 'var(--muted)';
     startedAt = Date.now();
     try {
       const res = await fetch('/api/voice/whisper/' + (want ? 'start' : 'stop'), { method: 'POST' });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error === 'not_installed' ? 'ไม่พบโปรแกรม Whisper ในเครื่องนี้' : res.status === 403 ? 'ไม่มีสิทธิ์ (ต้องเป็นแอดมิน)' : 'เริ่มไม่ได้ (' + (j.error || ('HTTP ' + res.status)) + ')');
+      if (!res.ok) throw new Error(j.error === 'not_installed' ? WT.errMissing : res.status === 403 ? WT.errForbidden : fill(WT.errStart, { e: j.error || ('HTTP ' + res.status) }));
     } catch (e) {
-      msg.textContent = (e && e.message) || 'ไม่สำเร็จ';
+      msg.textContent = (e && e.message) || WT.errOther;
     }
     await refresh();
   });
@@ -240,105 +451,200 @@
 {# AI switch + usage counter: admins see it, only a superadmin can change the switch. The numbers come from the GeminiCall table
    (what Google reports for every call), so they are the real usage, not an estimate. #}
 {% if ai is not none %}
-{# One key row (state, test, set, delete, and the form behind "set"). p is the id prefix: "my" = my own key, "key" = the shared key. #}
-{% macro key_block(p, title, hint, editable) %}
-<div class="mt-3 pt-3" style="border-top:1px solid #eef0f3;" id="{{ p }}Box">
-  <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
-    <div style="font-size:.9rem;">
-      <span class="fw-semibold" title="{{ hint }}">{{ title }}</span>
-      <span id="{{ p }}State" class="ms-2 text-muted" style="font-size:.85rem;"></span>
+<style>
+  /* A problem in this card is amber, not red (red means Critical); red on the dark card was only 2.7:1. */
+  #aiMsg.ai-bad, #nvdMsg.ai-bad, #modelListNote.ai-bad { color: var(--amber-ink); }
+  /* A test or save that worked is a soft green (the same green ink the dashboard uses for "good"); the words still say it worked, so colour is never the only sign. */
+  #aiMsg.ai-ok, #nvdMsg.ai-ok { color: var(--ok-deep); }
+  /* The engine control may never be wider than its row: when it wraps it fills the row and the two labels share it. */
+  #engineSeg { max-width: 100%; }
+  #engineSeg[aria-busy="true"] button { cursor: progress; opacity: .65; }
+  @media (max-width: 575.98px) {
+    #engineSeg { display: flex; width: 100%; }
+    #engineSeg button { flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding-left: 8px; padding-right: 8px; }
+  }
+  /* While the address form is open its own Test button is the one to use; the saved-settings Test hides, and the opener shows it is open. */
+  #localPanel .d-flex:has(#localEditBtn[aria-expanded="true"]) #localTestBtn { display: none; }
+  #localEditBtn[aria-expanded="true"] { background: var(--track); }
+  /* The help link next to a local-model problem, and the step-by-step dialog it opens (Ollama troubleshooting). */
+  .oh-link { border: 0; background: none; padding: 0; font-size: .8rem; color: var(--bs-link-color, #0d6efd); cursor: pointer; white-space: nowrap; }
+  .oh-link:hover { text-decoration: underline; }
+  .oh-card { --oh-tint: color-mix(in srgb, var(--bs-link-color) 16%, var(--bs-body-bg)); --oh-accent: var(--bs-link-color); --oh-surface: var(--bs-body-bg); --oh-stroke: var(--bs-gray-500); --oh-neutral: var(--bs-tertiary-bg); overflow: hidden; position: relative; border-radius: 12px; }
+  .oh-band { background: var(--oh-tint); height: 136px; display: flex; align-items: center; justify-content: center; }
+  .oh-band svg { width: 200px; height: 120px; }
+  .oh-x { position: absolute; top: 12px; right: 14px; z-index: 2; }
+  .oh-body { padding: 14px 20px 18px; }
+  .oh-kick { font-size: .75rem; color: var(--bs-secondary-color); margin: 0 0 4px; }
+  #ohStep { min-height: 108px; }
+  #ohStep h6 { font-size: .95rem; font-weight: 600; margin: 0 0 6px; }
+  #ohStep p { font-size: .85rem; line-height: 1.7; margin: 0 0 8px; color: var(--bs-secondary-color); }
+  .oh-code { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--track); border-radius: 8px; padding: 6px 6px 6px 12px; font-family: var(--bs-font-monospace, monospace); font-size: .8rem; word-break: break-all; }
+  .oh-code button { flex: none; border: 1px solid var(--nt-border); background: transparent; border-radius: 6px; font-size: .75rem; padding: 2px 10px; color: inherit; font-family: inherit; }
+  .oh-dots { display: flex; gap: 6px; align-items: center; }
+  .oh-dot { width: 8px; height: 8px; border-radius: 50%; border: 0; padding: 0; background: var(--bs-gray-400); transition: width .15s; }
+  .oh-dot[aria-current="step"] { width: 18px; border-radius: 4px; background: var(--oh-accent, currentColor); }
+  @media (prefers-reduced-motion: reduce) { .oh-dot { transition: none; } }
+</style>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<symbol id="ohs1" viewBox="0 0 200 120"><rect x="46" y="14" width="108" height="68" rx="7" fill="var(--oh-surface)" stroke="var(--oh-stroke)" stroke-width="1.5"/><rect x="90" y="82" width="20" height="9" fill="var(--oh-stroke)"/><rect x="72" y="91" width="56" height="6" rx="3" fill="var(--oh-stroke)"/><circle cx="100" cy="48" r="19" fill="var(--oh-tint)" stroke="var(--oh-accent)" stroke-width="2"/><path d="M93 40.5 A10.5 10.5 0 1 0 107 40.5" fill="none" stroke="var(--oh-accent)" stroke-width="3" stroke-linecap="round"/><line x1="100" y1="37" x2="100" y2="48" stroke="var(--oh-accent)" stroke-width="3" stroke-linecap="round"/><circle cx="160" cy="26" r="4" fill="var(--oh-accent)" opacity=".35"/><circle cx="38" cy="70" r="3" fill="var(--oh-accent)" opacity=".35"/></symbol>
+<symbol id="ohs2" viewBox="0 0 200 120"><circle cx="100" cy="54" r="36" fill="var(--oh-surface)" stroke="var(--oh-stroke)" stroke-width="1.5"/><circle cx="100" cy="54" r="30" fill="var(--oh-tint)"/><line x1="100" y1="54" x2="100" y2="32" stroke="var(--oh-accent)" stroke-width="3.5" stroke-linecap="round"/><line x1="100" y1="54" x2="116" y2="63" stroke="var(--oh-accent)" stroke-width="3.5" stroke-linecap="round"/><circle cx="100" cy="54" r="3.5" fill="var(--oh-accent)"/><rect x="58" y="100" width="84" height="7" rx="3.5" fill="var(--oh-neutral)" stroke="var(--oh-stroke)" stroke-width=".5"/><rect x="58" y="100" width="46" height="7" rx="3.5" fill="var(--oh-accent)"/></symbol>
+<symbol id="ohs3" viewBox="0 0 200 120"><rect x="44" y="16" width="112" height="76" rx="7" fill="var(--oh-surface)" stroke="var(--oh-stroke)" stroke-width="1.5"/><line x1="44" y1="32" x2="156" y2="32" stroke="var(--oh-stroke)" stroke-width="1"/><circle cx="55" cy="24" r="2.5" fill="var(--oh-stroke)"/><circle cx="64" cy="24" r="2.5" fill="var(--oh-stroke)"/><circle cx="73" cy="24" r="2.5" fill="var(--oh-stroke)"/><path d="M82 62 A18 18 0 0 1 113 49" fill="none" stroke="var(--oh-accent)" stroke-width="3.5" stroke-linecap="round"/><polygon points="115,40 122,52 108,54" fill="var(--oh-accent)"/><path d="M118 62 A18 18 0 0 1 87 75" fill="none" stroke="var(--oh-accent)" stroke-width="3.5" stroke-linecap="round"/><polygon points="85,84 78,72 92,70" fill="var(--oh-accent)"/></symbol>
+<symbol id="ohs4" viewBox="0 0 200 120"><rect x="34" y="14" width="132" height="78" rx="7" fill="#2a2b2f"/><circle cx="45" cy="24" r="2.5" fill="#6b6e76"/><circle cx="54" cy="24" r="2.5" fill="#6b6e76"/><circle cx="63" cy="24" r="2.5" fill="#6b6e76"/><text x="46" y="52" font-family="monospace" font-size="11" fill="#7fd69a">&gt;</text><text x="58" y="52" font-family="monospace" font-size="11" fill="#e6e8ec">ollama pull</text><rect x="46" y="66" width="86" height="6" rx="3" fill="#46474e"/><rect x="46" y="66" width="52" height="6" rx="3" fill="#7fd69a"/><circle cx="156" cy="88" r="16" fill="var(--oh-accent)"/><path d="M156 80 v13 m-6 -6 l6 6 l6 -6" fill="none" stroke="var(--oh-surface)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="ohs5" viewBox="0 0 200 120"><rect x="28" y="34" width="46" height="34" rx="5" fill="var(--oh-surface)" stroke="var(--oh-stroke)" stroke-width="1.5"/><rect x="126" y="34" width="46" height="34" rx="5" fill="var(--oh-tint)" stroke="var(--oh-accent)" stroke-width="1.5"/><line x1="74" y1="51" x2="126" y2="51" stroke="var(--oh-accent)" stroke-width="2.5" stroke-dasharray="5 5" stroke-linecap="round"/><circle cx="100" cy="51" r="4.5" fill="var(--oh-accent)"/><rect x="54" y="84" width="92" height="20" rx="10" fill="var(--oh-tint)"/><text x="100" y="98" text-anchor="middle" font-family="monospace" font-size="10" fill="var(--oh-accent)">127.0.0.1:11434</text></symbol>
+</svg>
+<div class="modal fade" id="ollamaHelp" tabindex="-1" aria-labelledby="ollamaHelpTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
+    <div class="modal-content oh-card">
+      <span class="visually-hidden" id="ollamaHelpTitle">{{ t('settings.ai.help_title') }}</span>
+      <button type="button" class="btn-close oh-x" data-bs-dismiss="modal" aria-label="{{ t('settings.ai.help_close') }}"></button>
+      <div class="oh-band" id="ohBand" aria-hidden="true"></div>
+      <div class="oh-body">
+        <p class="oh-kick" id="ohKick"></p>
+        <div id="ohStep" aria-live="polite"></div>
+        <div class="d-flex align-items-center justify-content-between gap-2 mt-3">
+          <div id="ohDots" class="oh-dots"></div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="ohPrev">{{ t('settings.ai.help_back') }}</button>
+            <button type="button" class="btn btn-sm btn-dark" id="ohNext">{{ t('settings.ai.help_next') }}</button>
+          </div>
+        </div>
+      </div>
     </div>
-    {% if editable %}
-    <div class="d-flex gap-2">
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}TestSavedBtn" hidden>ทดสอบคีย์ที่ใช้อยู่</button>
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}EditBtn">ตั้งค่าคีย์</button>
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}DelBtn" hidden>ลบคีย์</button>
-    </div>
-    {% endif %}
   </div>
-  {% if editable %}
-  <form id="{{ p }}Form" class="mt-2" hidden autocomplete="off" style="max-width:560px;">
-    <label for="{{ p }}Input" class="text-muted" style="font-size:.8rem;">วางคีย์ API จาก Google AI Studio</label>
-    <input type="password" id="{{ p }}Input" class="form-control form-control-sm" autocomplete="new-password" spellcheck="false" maxlength="200" placeholder="คีย์ใหม่">
-    <div class="d-flex gap-2 mt-2 flex-wrap">
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ p }}TestBtn">ทดสอบ</button>
-      <button type="submit" class="btn btn-sm btn-dark" id="{{ p }}SaveBtn">บันทึก</button>
-      <button type="button" class="btn btn-sm btn-link text-muted" id="{{ p }}CancelBtn">ยกเลิก</button>
-    </div>
-  </form>
-  {% endif %}
 </div>
-{% endmacro %}
 <div class="row g-3 mt-0">
   <div class="col-12">
     <div class="card border-0 shadow-sm">
       <div class="card-body p-4">
         <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
           <div class="d-flex align-items-center gap-3 flex-wrap">
-            <h6 class="fw-bold mb-0">ผู้ช่วย AI (Gemini)</h6>
-            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#aiInfo" aria-expanded="false" aria-controls="aiInfo"><i class="ti ti-chevron-down" aria-hidden="true"></i> รายละเอียด</button>
+            <h6 class="fw-bold mb-0">{{ t('settings.ai.title') }}</h6>
+            <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#aiInfo" aria-expanded="false" aria-controls="aiInfo"><i class="ti ti-chevron-down" aria-hidden="true"></i> {{ t('settings.more') }}</button>
           </div>
           <div class="form-check form-switch mb-0" style="font-size:1.15rem;">
             <input class="form-check-input" type="checkbox" role="switch" id="aiSwitch"
                    {% if ai.enabled %}checked{% endif %} {% if not can_change_ai %}disabled{% endif %}>
-            <label class="form-check-label" for="aiSwitch" id="aiSwitchLabel" style="font-size:.9rem;">{{ 'เปิดใช้งาน' if ai.enabled else 'ปิดอยู่' }}</label>
+            <label class="form-check-label" for="aiSwitch" id="aiSwitchLabel" style="font-size:.9rem;">{{ t('settings.ai.enabled') if ai.enabled else t('settings.ai.off') }}</label>
           </div>
         </div>
         <div class="collapse" id="aiInfo">
           <ul class="info-list text-muted pt-2" style="font-size:.82rem;max-width:720px;">
-            <li><b>เมื่อปิด:</b> ระบบไม่เรียก Gemini เลย แม้ตั้งคีย์ส่วนตัวไว้ จึงไม่ใช้โทเคน คำถามที่ระบบตอบเองไม่ได้จะไม่มีคำตอบจนกว่าจะเปิดใช้ AI</li>
-            <li><b>ที่ใช้ได้เสมอ:</b> คำสั่งที่ระบบเข้าใจเอง ทั้งคำสั่งเสียงและคำสั่งที่พิมพ์ในหน้าผู้ช่วย เช่น สั่งสแกน เปิดหน้า หรือถามจำนวนอุปกรณ์ พอร์ต และช่องโหว่</li>
-            <li><b>คีย์ที่ใช้:</b> ระบบใช้คีย์ API ของคุณก่อน (เฉพาะคำถามของบัญชีคุณ) หากไม่ได้ตั้ง จะใช้คีย์ของระบบที่ Superadmin ตั้งไว้และใช้ร่วมกัน หากยังไม่ได้ตั้งทั้งสองคีย์ จะใช้ค่า GOOGLE_API_KEY ในไฟล์ .env</li>
-            <li><b>ที่เก็บคีย์:</b> เก็บเป็นไฟล์บนเซิร์ฟเวอร์ในโฟลเดอร์ instance ไม่อยู่ในฐานข้อมูลหรือ git และจะไม่แสดงอีกหลังบันทึก</li>
-            <li><b>ข้อมูลที่ส่งออก:</b> คำถามที่ส่งให้ Gemini มีตัวเลขสรุปจากผลสแกน หากใช้คีย์ส่วนตัว ข้อมูลนี้จะส่งไปยังบัญชี Google ของเจ้าของคีย์ Superadmin จึงปิดการใช้คีย์ส่วนตัวได้</li>
-            <li><b>การนับโทเคน:</b> ตัวเลขในตารางคือโทเคนที่ Google รายงานกลับมาทุกครั้ง (รวมโทเคนที่โมเดลใช้คิด) ครั้งที่ล้มเหลวก่อนได้คำตอบจะไม่มีโทเคน ส่วนปุ่มทดสอบไม่ใช้โทเคนและไม่นับในตาราง</li>
+            <li><b>{{ t('settings.ai.b1h') }}</b> {{ t('settings.ai.b1') }}</li>
+            <li><b>{{ t('settings.ai.b2h') }}</b> {{ t('settings.ai.b2') }}</li>
+            <li><b>{{ t('settings.ai.b3h') }}</b> {{ t('settings.ai.b3') }}</li>
+            <li><b>{{ t('settings.ai.b4h') }}</b> {{ t('settings.ai.b4') }}</li>
+            <li><b>{{ t('settings.ai.b5h') }}</b> {{ t('settings.ai.b5') }}</li>
+            <li><b>{{ t('settings.ai.b6h') }}</b> {{ t('settings.ai.b6') }}</li>
+            <li><b>{{ t('settings.ai.b7h') }}</b> {{ t('settings.ai.b7') }}</li>
+            <li><b>{{ t('settings.ai.b9h') }}</b> {{ t('settings.ai.b9') }}</li>
+            <li><b>{{ t('settings.ai.b8h') }}</b> {{ t('settings.ai.b8') }}</li>
           </ul>
         </div>
-        {% if not can_change_ai %}<div class="text-muted mt-2" style="font-size:.78rem;">เฉพาะ Superadmin เท่านั้นที่เปลี่ยนค่านี้ได้</div>{% endif %}
-        <div id="aiMsg" class="mt-2" style="font-size:.8rem;" role="status"></div>
+        {% if not can_change_ai %}<div class="text-muted mt-2" style="font-size:.78rem;">{{ t('settings.ai.superadmin_only') }}</div>{% endif %}
+        <div class="d-flex align-items-baseline gap-2 flex-wrap">
+          <div id="aiMsg" class="mt-2" style="font-size:.8rem;" role="status"></div>
+          <button type="button" class="oh-link mt-2" id="localHelpBtn" hidden><i class="ti ti-help-circle" aria-hidden="true"></i> {{ t('settings.ai.help_link') }}</button>
+        </div>
 
-        {{ key_block('my', 'คีย์ API ของคุณ',
-     'ใช้กับคำถามที่คุณถามผู้ช่วยเท่านั้น และเรียก Gemini ผ่านบัญชี Google ของคุณเอง หากไม่ได้ตั้งค่า ระบบจะใช้คีย์ของระบบแทน', true) }}
-        {{ key_block('key', 'คีย์ของระบบ (ใช้ร่วมกัน)',
-     'ใช้กับผู้ดูแลระบบที่ไม่ได้ตั้งคีย์ของตนเอง ตั้งค่าได้เฉพาะ Superadmin' if not can_change_ai else 'ใช้กับผู้ดูแลระบบที่ไม่ได้ตั้งคีย์ของตนเอง หากไม่ได้ตั้งที่หน้านี้ ระบบจะใช้ค่า GOOGLE_API_KEY ในไฟล์ .env', can_change_ai) }}
+        <div class="mt-3 pt-3 d-flex align-items-center justify-content-between gap-2 flex-wrap" style="border-top:1px solid var(--nt-border);">
+          <div style="font-size:.9rem;">
+            <span class="fw-semibold">{{ t('settings.ai.engine_label') }}</span>
+            {% if not can_change_ai %}<span id="engineState" class="ms-2 text-muted" style="font-size:.85rem;"></span>{% endif %}
+          </div>
+          {% if can_change_ai %}
+          <div class="seg" role="group" aria-label="{{ t('settings.ai.engine_label') }}" id="engineSeg">
+            <button type="button" data-engine="gemini" aria-pressed="false"><i class="ti ti-cloud" aria-hidden="true"></i>{{ t('settings.ai.engine_gemini') }}</button>
+            <button type="button" data-engine="local" aria-pressed="false"><i class="ti ti-cpu" aria-hidden="true"></i>{{ t('settings.ai.engine_local') }}</button>
+          </div>
+          {% endif %}
+        </div>
+
+        <div id="geminiPanel">
+        {{ key_block('my', t('settings.ai.my_title'), t('settings.ai.my_hint'), true) }}
+        {{ key_block('key', t('settings.ai.shared_title'),
+     t('settings.ai.shared_hint_ro') if not can_change_ai else t('settings.ai.shared_hint'), can_change_ai) }}
         {% if can_change_ai %}
-        <form id="modelForm" class="d-flex align-items-center gap-2 flex-wrap mt-3" autocomplete="off">
-          <label for="modelInput" class="text-muted mb-0" style="font-size:.85rem;">โมเดล (ใช้ร่วมกัน)</label>
-          <input type="text" id="modelInput" class="form-control form-control-sm" style="max-width:230px;" list="modelList" spellcheck="false" maxlength="60">
-          <datalist id="modelList"><option value="gemini-2.5-flash"><option value="gemini-2.5-flash-lite"><option value="gemini-2.5-pro"></datalist>
-          <button type="submit" class="btn btn-sm btn-outline-secondary" id="modelSaveBtn">บันทึกโมเดล</button>
+        <form id="modelForm" class="mt-3" autocomplete="off">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <label for="modelSelect" class="text-muted mb-0" style="font-size:.85rem;">{{ t('settings.ai.model_label') }}</label>
+            <select id="modelSelect" class="form-select form-select-sm" style="max-width:300px;" aria-describedby="modelListNote"></select>
+            <input type="text" id="modelInput" class="form-control form-control-sm" style="max-width:230px;" spellcheck="false" maxlength="60" hidden
+                   aria-label="{{ t('settings.ai.model_custom_label') }}" placeholder="gemini-…">
+            <button type="submit" class="btn btn-sm btn-outline-secondary" id="modelSaveBtn">{{ t('settings.ai.model_save') }}</button>
+          </div>
+          <div id="modelListNote" class="text-muted mt-1" style="font-size:.8rem;"></div>
         </form>
         <div class="form-check form-switch mt-3 mb-0" style="font-size:.9rem;">
           <input class="form-check-input" type="checkbox" role="switch" id="personalSwitch">
-          <label class="form-check-label" for="personalSwitch" id="personalLabel">อนุญาตให้ผู้ดูแลระบบใช้คีย์ของตนเอง</label>
+          <label class="form-check-label" for="personalSwitch" id="personalLabel">{{ t('settings.ai.personal_label') }}</label>
+        </div>
+        {% endif %}
+        </div>
+
+        {% if can_change_ai %}
+        <div id="localPanel" hidden>
+          <div class="mt-3 pt-3" style="border-top:1px solid var(--nt-border);">
+            <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+              <div style="font-size:.9rem;">
+                <span class="fw-semibold">{{ t('settings.ai.local_title') }}</span>
+                <span id="localState" class="ms-2 text-muted" style="font-size:.85rem;"></span>
+              </div>
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="localTestBtn">{{ t('settings.ai.local_test') }}</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="localEditBtn" aria-expanded="false" aria-controls="localForm">{{ t('settings.ai.local_edit') }}</button>
+              </div>
+            </div>
+            <form id="localForm" class="mt-3" hidden autocomplete="off" style="max-width:560px;">
+              <div class="mb-2">
+                <label for="localUrl" class="text-muted" style="font-size:.8rem;">{{ t('settings.ai.local_url_label') }}</label>
+                <input type="text" id="localUrl" class="form-control form-control-sm" maxlength="100" spellcheck="false">
+              </div>
+              <div class="mb-2">
+                <label for="localModel" class="text-muted" style="font-size:.8rem;">{{ t('settings.ai.local_model_label') }}</label>
+                <input type="text" id="localModel" class="form-control form-control-sm" maxlength="100" spellcheck="false" list="localModelList">
+                <datalist id="localModelList"></datalist>
+              </div>
+              <div class="mb-2">
+                <label for="localLayers" class="text-muted" style="font-size:.8rem;">{{ t('settings.ai.local_layers_label') }}</label>
+                <input type="text" id="localLayers" class="form-control form-control-sm" style="max-width:140px;" maxlength="3" inputmode="numeric" spellcheck="false" aria-describedby="localLayersHint" placeholder="{{ t('settings.ai.local_layers_ph') }}">
+                <div id="localLayersHint" class="text-muted mt-1" style="font-size:.78rem;">{{ t('settings.ai.local_layers_hint', n=ai.local.default_layers if ai.local else '') }}</div>
+              </div>
+              <div class="d-flex gap-2 mt-3 flex-wrap">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="localTypedTestBtn">{{ t('settings.ai.test') }}</button>
+                <button type="submit" class="btn btn-sm btn-dark" id="localSaveBtn">{{ t('common.save') }}</button>
+                <button type="button" class="btn btn-sm btn-link text-muted" id="localCancelBtn">{{ t('common.cancel') }}</button>
+              </div>
+            </form>
+          </div>
         </div>
         {% endif %}
         <div class="mt-3">
-          <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#aiUsage" aria-expanded="false" aria-controls="aiUsage"><i class="ti ti-chevron-down" aria-hidden="true"></i> การใช้งานและสถิติ</button>
+          <button class="fab-more" type="button" data-bs-toggle="collapse" data-bs-target="#aiUsage" aria-expanded="false" aria-controls="aiUsage"><i class="ti ti-chevron-down" aria-hidden="true"></i> {{ t('settings.ai.usage_btn') }}</button>
         </div>
         <div class="collapse" id="aiUsage">
         <div class="table-responsive mt-2">
           <table class="table table-sm mb-2" style="font-size:.85rem;max-width:560px;">
             <thead>
-              <tr class="text-muted" style="font-size:.78rem;"><th class="fw-normal">การใช้งาน Gemini ทั้งระบบ</th><th class="fw-normal text-end">วันนี้</th><th class="fw-normal text-end">เดือนนี้</th></tr>
+              <tr class="text-muted" style="font-size:.78rem;"><th class="fw-normal">{{ t('settings.ai.usage_all') }}</th><th class="fw-normal text-end">{{ t('settings.ai.today') }}</th><th class="fw-normal text-end">{{ t('settings.ai.month') }}</th></tr>
             </thead>
             <tbody>
-              <tr><td>เรียกทั้งหมด (ครั้ง)</td><td class="text-end" data-k="today.calls">{{ ai.today.calls }}</td><td class="text-end" data-k="month.calls">{{ ai.month.calls }}</td></tr>
-              <tr><td class="text-muted ps-3">มาจากคำสั่งเสียง</td><td class="text-end text-muted" data-k="today.voice">{{ ai.today.voice }}</td><td class="text-end text-muted" data-k="month.voice">{{ ai.month.voice }}</td></tr>
-              <tr><td class="text-muted ps-3">ล้มเหลว</td><td class="text-end text-muted" data-k="today.failed">{{ ai.today.failed }}</td><td class="text-end text-muted" data-k="month.failed">{{ ai.month.failed }}</td></tr>
-              <tr><td>Token ที่ส่งไป (input)</td><td class="text-end" data-k="today.prompt_tokens">{{ '{:,}'.format(ai.today.prompt_tokens) }}</td><td class="text-end" data-k="month.prompt_tokens">{{ '{:,}'.format(ai.month.prompt_tokens) }}</td></tr>
-              <tr><td>Token ที่ได้กลับมา (output)</td><td class="text-end" data-k="today.output_tokens">{{ '{:,}'.format(ai.today.output_tokens) }}</td><td class="text-end" data-k="month.output_tokens">{{ '{:,}'.format(ai.month.output_tokens) }}</td></tr>
-              <tr class="fw-semibold"><td>Token รวม</td><td class="text-end" data-k="today.total_tokens">{{ '{:,}'.format(ai.today.total_tokens) }}</td><td class="text-end" data-k="month.total_tokens">{{ '{:,}'.format(ai.month.total_tokens) }}</td></tr>
+              <tr><td>{{ t('settings.ai.calls') }}</td><td class="text-end" data-k="today.calls">{{ ai.today.calls }}</td><td class="text-end" data-k="month.calls">{{ ai.month.calls }}</td></tr>
+              <tr><td class="text-muted ps-3">{{ t('settings.ai.from_voice') }}</td><td class="text-end text-muted" data-k="today.voice">{{ ai.today.voice }}</td><td class="text-end text-muted" data-k="month.voice">{{ ai.month.voice }}</td></tr>
+              <tr><td class="text-muted ps-3">{{ t('settings.ai.from_local') }}</td><td class="text-end text-muted" data-k="today.local">{{ ai.today.local }}</td><td class="text-end text-muted" data-k="month.local">{{ ai.month.local }}</td></tr>
+              <tr><td class="text-muted ps-3">{{ t('settings.ai.failed') }}</td><td class="text-end text-muted" data-k="today.failed">{{ ai.today.failed }}</td><td class="text-end text-muted" data-k="month.failed">{{ ai.month.failed }}</td></tr>
+              <tr><td>{{ t('settings.ai.tok_in') }}</td><td class="text-end" data-k="today.prompt_tokens">{{ '{:,}'.format(ai.today.prompt_tokens) }}</td><td class="text-end" data-k="month.prompt_tokens">{{ '{:,}'.format(ai.month.prompt_tokens) }}</td></tr>
+              <tr><td>{{ t('settings.ai.tok_out') }}</td><td class="text-end" data-k="today.output_tokens">{{ '{:,}'.format(ai.today.output_tokens) }}</td><td class="text-end" data-k="month.output_tokens">{{ '{:,}'.format(ai.month.output_tokens) }}</td></tr>
+              <tr class="fw-semibold"><td>{{ t('settings.ai.tok_total') }}</td><td class="text-end" data-k="today.total_tokens">{{ '{:,}'.format(ai.today.total_tokens) }}</td><td class="text-end" data-k="month.total_tokens">{{ '{:,}'.format(ai.month.total_tokens) }}</td></tr>
             </tbody>
           </table>
         </div>
         <div class="text-muted mb-1" style="font-size:.82rem;">
-          การใช้งานของคุณเอง (ทุกคีย์): วันนี้ <span data-k="mine.today.calls">0</span> ครั้ง · เดือนนี้ <span data-k="mine.month.calls">0</span> ครั้ง ·
-          โทเคนเดือนนี้ <span data-k="mine.month.total_tokens">0</span>
+          {{ t('settings.ai.mine_lead') }} <span data-k="mine.today.calls">0</span> {{ t('settings.ai.mine_month') }} <span data-k="mine.month.calls">0</span> {{ t('settings.ai.mine_tokens') }}
+          <span data-k="mine.month.total_tokens">0</span>
         </div>
         <div class="text-muted" style="font-size:.78rem;">
-          โมเดล: <span data-k="model">{{ ai.model }}</span> · เรียกทั้งหมดตั้งแต่เริ่มนับ: <span data-k="total_calls">{{ ai.total_calls }}</span> ครั้ง ·
-          ครั้งล่าสุด: <span data-k="last">{{ ai.last or '—' }}</span>
+          {{ t('settings.ai.model_word') }} <span data-k="model">{{ ai.model }}</span> · {{ t('settings.ai.total_since') }} <span data-k="total_calls">{{ ai.total_calls }}</span> {{ t('settings.ai.times') }} ·
+          {{ t('settings.ai.last') }} <span data-k="last">{{ (ai.last | ui_year) if ai.last else '—' }}</span>
         </div>
         </div>
       </div>
@@ -349,8 +655,99 @@
 (function () {
   const sw = document.getElementById('aiSwitch'), label = document.getElementById('aiSwitchLabel'), msg = document.getElementById('aiMsg');
   const CAN_EDIT = {{ 'true' if can_change_ai else 'false' }};
+  const AT = {
+    testing: {{ t('settings.ai.testing') | tojson }}, testFailed: {{ t('settings.ai.test_failed') | tojson }}, pasteFirst: {{ t('settings.ai.paste_first') | tojson }},
+    saveFailed: {{ t('settings.ai.save_failed') | tojson }}, savedThen: {{ t('settings.ai.saved_then') | tojson }}, savedBut: {{ t('settings.ai.saved_but') | tojson }},
+    deleted: {{ t('settings.ai.deleted') | tojson }}, deleteFailed: {{ t('settings.ai.delete_failed') | tojson }},
+    confirmMy: {{ t('settings.ai.confirm_my') | tojson }}, confirmShared: {{ t('settings.ai.confirm_shared') | tojson }},
+    mySet: {{ t('settings.ai.my_set') | tojson }}, myDisabled: {{ t('settings.ai.my_disabled') | tojson }}, myUnsetShared: {{ t('settings.ai.my_unset_shared') | tojson }},
+    myUnsetNone: {{ t('settings.ai.my_unset_none') | tojson }}, setKey: {{ t('settings.ai.set_key') | tojson }}, changeKey: {{ t('settings.ai.change_key') | tojson }},
+    srcSettings: {{ t('settings.ai.shared_src_settings') | tojson }}, srcEnv: {{ t('settings.ai.shared_src_env') | tojson }}, unset: {{ t('settings.ai.unset') | tojson }},
+    endsWith: {{ t('settings.ai.ends_with') | tojson }}, modelSaveFailed: {{ t('settings.ai.model_save_failed') | tojson }}, modelSaved: {{ t('settings.ai.model_saved') | tojson }},
+    personalOn: {{ t('settings.ai.personal_on') | tojson }}, personalOff: {{ t('settings.ai.personal_off') | tojson }}, changeFailed: {{ t('settings.ai.change_failed') | tojson }},
+    onDone: {{ t('settings.ai.on_done') | tojson }}, offDone: {{ t('settings.ai.off_done') | tojson }}, switchFailed: {{ t('settings.ai.switch_failed') | tojson }},
+    enabled: {{ t('settings.ai.enabled') | tojson }}, off: {{ t('settings.ai.off') | tojson }},
+    engGemini: {{ t('settings.ai.engine_gemini') | tojson }}, engLocal: {{ t('settings.ai.engine_local') | tojson }}, engineRo: {{ t('settings.ai.engine_ro') | tojson }},
+    engineSavedLocal: {{ t('settings.ai.engine_saved_local') | tojson }}, engineSavedGemini: {{ t('settings.ai.engine_saved_gemini') | tojson }},
+    engineFailed: {{ t('settings.ai.engine_failed') | tojson }}, localSummary: {{ t('settings.ai.local_summary') | tojson }},
+    layersAuto: {{ t('settings.ai.local_layers_ph') | tojson }}, localSaved: {{ t('settings.ai.local_saved') | tojson }},
+    localSaveFailed: {{ t('settings.ai.local_save_failed') | tojson }},
+    confirmGemini: {{ t('settings.ai.confirm_gemini') | tojson }}, localStarting: {{ t('settings.ai.local_starting') | tojson }},
+    durSec: {{ t('settings.ai.dur_sec') | tojson }}, durMin: {{ t('settings.ai.dur_min') | tojson }}, durMin0: {{ t('settings.ai.dur_min0') | tojson }},
+    help: {
+      done: {{ t('settings.ai.help_done') | tojson }}, next: {{ t('settings.ai.help_next') | tojson }}, step: {{ t('settings.ai.help_step') | tojson }},
+      copy: {{ t('settings.ai.help_copy') | tojson }}, copied: {{ t('settings.ai.help_copied') | tojson }}, noModel: {{ t('settings.ai.help_no_model') | tojson }},
+      steps: [
+        { icon: 'ti-power', t: {{ t('settings.ai.help_s1_t') | tojson }}, b: {{ t('settings.ai.help_s1_b') | tojson }} },
+        { icon: 'ti-clock', t: {{ t('settings.ai.help_s2_t') | tojson }}, b: {{ t('settings.ai.help_s2_b') | tojson }} },
+        { icon: 'ti-refresh', t: {{ t('settings.ai.help_s3_t') | tojson }}, b: {{ t('settings.ai.help_s3_b') | tojson }} },
+        { icon: 'ti-terminal-2', t: {{ t('settings.ai.help_s4_t') | tojson }}, b: {{ t('settings.ai.help_s4_b') | tojson }}, cmd: true },
+        { icon: 'ti-link', t: {{ t('settings.ai.help_s5_t') | tojson }}, b: {{ t('settings.ai.help_s5_b') | tojson }} }
+      ]
+    },
+    modelEnv: {{ t('settings.ai.model_env') | tojson }}, modelCustom: {{ t('settings.ai.model_custom') | tojson }}, modelNotListed: {{ t('settings.ai.model_not_listed') | tojson }},
+    modelsLoading: {{ t('settings.ai.models_why.loading') | tojson }}, modelsGoogle: {{ t('settings.ai.models_google') | tojson }},
+    modelsBuiltin: {{ t('settings.ai.models_builtin') | tojson }}, modelMissing: {{ t('settings.ai.model_missing') | tojson }},
+    modelsWhy: {
+      no_key: {{ t('settings.ai.models_why.no_key') | tojson }}, invalid: {{ t('settings.ai.models_why.invalid') | tojson }}, forbidden: {{ t('settings.ai.models_why.forbidden') | tojson }},
+      leaked: {{ t('settings.ai.models_why.leaked') | tojson }}, quota: {{ t('settings.ai.models_why.quota') | tojson }}, network: {{ t('settings.ai.models_why.network') | tojson }},
+      empty: {{ t('settings.ai.models_why.empty') | tojson }}, other: {{ t('settings.ai.models_why.other') | tojson }}
+    }
+  };
+  const fill = (s, v) => String(s).replace(/\{(\w+)\}/g, (m, k) => (v && k in v ? v[k] : m));
   const modelInput = document.getElementById('modelInput');
-  const note = (text, bad) => { msg.className = 'mt-2 ' + (bad ? 'text-danger' : 'text-muted'); msg.textContent = text; };
+  const geminiPanel = document.getElementById('geminiPanel'), localPanel = document.getElementById('localPanel'), engineSeg = document.getElementById('engineSeg');
+  const engineState = document.getElementById('engineState'), localState = document.getElementById('localState'), localForm = document.getElementById('localForm');
+  const localUrl = document.getElementById('localUrl'), localModel = document.getElementById('localModel'), localLayers = document.getElementById('localLayers');
+  let lastSummary = null;
+  // The model dropdown: Google's own list for the shared key (GET /api/ai/models), a short built-in list when Google cannot be asked.
+  // `modelInput` stays the single place that holds the chosen name (the save button and the key test read it); the select only fills it.
+  const modelSelect = document.getElementById('modelSelect'), modelNote = document.getElementById('modelListNote');
+  const MODEL_FALLBACK = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'].map(id => ({ id: id, name: id, preview: false }));
+  let modelChoices = null, modelMeta = null, modelLoading = false, lastKeyId = null;
+  function syncModelSelect() {
+    if (!modelSelect || document.activeElement === modelSelect || document.activeElement === modelInput) return;
+    const cur = modelInput.value.trim();
+    modelSelect.textContent = '';
+    const add = (value, text, title) => { const o = document.createElement('option'); o.value = value; o.textContent = text; if (title) o.title = title; modelSelect.appendChild(o); };
+    add('', AT.modelEnv);
+    let found = cur === '';
+    (modelChoices || []).forEach(m => { add(m.id, m.id + (m.preview ? ' · preview' : ''), m.name); if (m.id === cur) found = true; });
+    // a model Google still lists but the dropdown does not suggest (a Pro model, say) is shown plainly; only a name Google does not list is flagged
+    const known = !!(modelMeta && modelMeta.source === 'google' && (modelMeta.known || []).indexOf(cur) >= 0);
+    if (!found) add(cur, modelChoices && !known ? fill(AT.modelNotListed, { model: cur }) : cur);
+    add('__custom', AT.modelCustom);
+    modelSelect.value = cur;
+    modelInput.hidden = true;
+    if (!modelNote) return;
+    if (!modelMeta) { modelNote.textContent = modelLoading ? AT.modelsLoading : ''; modelNote.className = 'text-muted mt-1'; return; }
+    let text, bad = false;
+    if (modelMeta.source === 'google') {
+      text = fill(AT.modelsGoogle, { n: (modelMeta.models || []).length });
+      if (cur && !found && !known) { text = fill(AT.modelMissing, { model: cur }); bad = true; }
+    } else {
+      text = fill(AT.modelsBuiltin, { why: AT.modelsWhy[modelMeta.status] || AT.modelsWhy.other });
+    }
+    modelNote.textContent = text;
+    modelNote.className = (bad ? 'ai-bad' : 'text-muted') + ' mt-1';
+  }
+  async function loadModels() {
+    if (modelLoading) return;
+    modelLoading = true; syncModelSelect();
+    try {
+      const res = await fetch('/api/ai/models');
+      const d = await res.json();
+      modelChoices = Array.isArray(d.models) ? d.models : MODEL_FALLBACK; modelMeta = d;
+    } catch (e) { modelChoices = MODEL_FALLBACK; modelMeta = { source: 'builtin', status: 'network' }; }
+    modelLoading = false; syncModelSelect();
+  }
+  // `help` is a local-test status (timeout, unreachable, model_missing, not_ollama): the "how to fix it" link shows next to the message and opens the guide at that step
+  const helpBtn = document.getElementById('localHelpBtn');
+  const HELP_STEP = { unreachable: 0, timeout: 1, model_missing: 3, not_ollama: 4 };
+  const note = (text, bad, help) => {
+    msg.className = 'mt-2 ' + (bad === 'ok' ? 'ai-ok' : bad ? 'ai-bad' : 'text-muted'); msg.textContent = text;       // bad: true = a problem (amber), 'ok' = it worked (green)
+    if (helpBtn) { helpBtn.hidden = !Object.prototype.hasOwnProperty.call(HELP_STEP, help); helpBtn.dataset.status = help || ''; }
+  };
   async function post(url, body) {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
     let data = null; try { data = await res.json(); } catch (e) {}
@@ -365,9 +762,9 @@
     if (!form) return api;                                  // read-only row (not editable by this person)
     const closeForm = () => { form.hidden = true; input.value = ''; };
     async function runTest(useTyped) {
-      note('กำลังทดสอบ...');
+      note(AT.testing);
       const r = await post(urls.test, { key: useTyped ? input.value.trim() : '', model: modelInput ? modelInput.value.trim() : '' });
-      note((r.data && r.data.message) || 'ทดสอบไม่สำเร็จ', !(r.data && r.data.ok));
+      note((r.data && r.data.message) || AT.testFailed, r.data && r.data.ok ? 'ok' : true);
       return r.data && r.data.ok;
     }
     el.editBtn.addEventListener('click', function () { form.hidden = !form.hidden; if (!form.hidden) input.focus(); });
@@ -375,22 +772,22 @@
     form.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeForm(); el.editBtn.focus(); } });
     el.testSaved.addEventListener('click', async function () { this.disabled = true; try { await runTest(false); } finally { this.disabled = false; } });
     $('TestBtn').addEventListener('click', async function () {
-      if (!input.value.trim()) { note('กรุณาวางคีย์ก่อน', true); return; }
+      if (!input.value.trim()) { note(AT.pasteFirst, true); return; }
       this.disabled = true; try { await runTest(true); } finally { this.disabled = false; }
     });
     form.addEventListener('submit', async function (e) {
       e.preventDefault();
       const btn = $('SaveBtn');
-      if (!input.value.trim()) { note('กรุณาวางคีย์ก่อน', true); return; }
+      if (!input.value.trim()) { note(AT.pasteFirst, true); return; }
       btn.disabled = true;
       try {
         const r = await post(urls.save, { key: input.value.trim() });
-        if (!r.ok) { note((r.data && r.data.message) || 'บันทึกคีย์ไม่สำเร็จ', true); return; }
+        if (!r.ok) { note((r.data && r.data.message) || AT.saveFailed, true); return; }
         closeForm(); show(r.data);
         const good = await runTest(false);
-        if (good) note('บันทึกคีย์แล้ว ' + msg.textContent);
-        else note('บันทึกคีย์แล้ว แต่' + msg.textContent, true);
-      } catch (err) { note('บันทึกคีย์ไม่สำเร็จ', true); } finally { btn.disabled = false; }
+        if (good) note(fill(AT.savedThen, { msg: msg.textContent }), 'ok');
+        else note(fill(AT.savedBut, { msg: msg.textContent }), true);
+      } catch (err) { note(AT.saveFailed, true); } finally { btn.disabled = false; }
     });
     el.delBtn.addEventListener('click', async function () {
       if (!confirm(urls.confirm)) return;
@@ -398,32 +795,32 @@
       try {
         const r = await post(urls.clear);
         if (!r.ok) throw new Error('HTTP');
-        show(r.data); note('ลบคีย์แล้ว');
-      } catch (err) { note('ลบคีย์ไม่สำเร็จ', true); } finally { this.disabled = false; }
+        show(r.data); note(AT.deleted);
+      } catch (err) { note(AT.deleteFailed, true); } finally { this.disabled = false; }
     });
     return api;
   }
-  const AMBER = '#92400e';
+  const AMBER = 'var(--amber-ink-2)';
   const panels = [
     keyPanel('my', { save: '/api/ai/my-key', clear: '/api/ai/my-key/clear', test: '/api/ai/my-key/test',
-                     confirm: 'ลบคีย์ของคุณ ระบบจะกลับไปใช้คีย์ของระบบ (ถ้ามี)' }, function (s, el) {
+                     confirm: AT.confirmMy }, function (s, el) {
       let t, warn = false;
       if (s.my_key_set) {
-        t = 'ตั้งค่าแล้ว · ลงท้ายด้วย ' + s.my_key_tail;
-        if (!s.personal_allowed) { t += ' · ถูกปิดการใช้งาน ขณะนี้ใช้คีย์ของระบบ'; warn = true; }
-      } else if (s.key_set) { t = 'ยังไม่ได้ตั้งค่า · ขณะนี้ใช้คีย์ของระบบ'; }
-      else { t = 'ยังไม่ได้ตั้งค่า · ผู้ช่วย AI จะใช้ไม่ได้จนกว่าจะตั้งค่า'; warn = true; }
+        t = fill(AT.mySet, { tail: s.my_key_tail });
+        if (!s.personal_allowed) { t += AT.myDisabled; warn = true; }
+      } else if (s.key_set) { t = AT.myUnsetShared; }
+      else { t = AT.myUnsetNone; warn = true; }
       el.state.textContent = t; el.state.style.color = warn ? AMBER : '';
-      if (el.editBtn) { el.editBtn.textContent = s.my_key_set ? 'เปลี่ยนคีย์' : 'ตั้งค่าคีย์'; el.editBtn.disabled = !s.personal_allowed; }
+      if (el.editBtn) { el.editBtn.textContent = s.my_key_set ? AT.changeKey : AT.setKey; el.editBtn.disabled = !s.personal_allowed; }
       if (el.delBtn) el.delBtn.hidden = !s.my_key_set;
       if (el.testSaved) el.testSaved.hidden = !s.key_in_use;
     }),
     keyPanel('key', { save: '/api/ai/key', clear: '/api/ai/key/clear', test: '/api/ai/key/test',
-                      confirm: 'ลบคีย์ของระบบที่ตั้งไว้ที่หน้านี้ ระบบจะกลับไปใช้ค่าในไฟล์ .env (ถ้ามี)' }, function (s, el) {
-      const src = { settings: 'ตั้งค่าไว้ที่หน้านี้', env: 'ใช้ค่าจากไฟล์ .env' }[s.key_source];
-      if (!s.key_set) { el.state.textContent = 'ยังไม่ได้ตั้งค่า'; el.state.style.color = AMBER; }
-      else { el.state.textContent = src + (s.key_tail ? ' · ลงท้ายด้วย ' + s.key_tail : ''); el.state.style.color = ''; }
-      if (el.editBtn) el.editBtn.textContent = s.key_set ? 'เปลี่ยนคีย์' : 'ตั้งค่าคีย์';
+                      confirm: AT.confirmShared }, function (s, el) {
+      const src = { settings: AT.srcSettings, env: AT.srcEnv }[s.key_source];
+      if (!s.key_set) { el.state.textContent = AT.unset; el.state.style.color = AMBER; }
+      else { el.state.textContent = src + (s.key_tail ? fill(AT.endsWith, { tail: s.key_tail }) : ''); el.state.style.color = ''; }
+      if (el.editBtn) el.editBtn.textContent = s.key_set ? AT.changeKey : AT.setKey;
       if (el.delBtn) el.delBtn.hidden = s.key_source !== 'settings';
       if (el.testSaved) el.testSaved.hidden = !s.key_set;
     })
@@ -434,32 +831,171 @@
     document.querySelectorAll('[data-k]').forEach(el => {
       let v = get(summary, el.dataset.k);
       if (typeof v === 'number' && /tokens$/.test(el.dataset.k)) v = v.toLocaleString('en-US');
+      if (el.dataset.k === 'last' && typeof v === 'string') v = fmtStamp(v);
       el.textContent = (v === null || v === undefined || v === '') ? '—' : v;
     });
     sw.checked = !!summary.enabled;
-    label.textContent = summary.enabled ? 'เปิดใช้งาน' : 'ปิดอยู่';
+    label.textContent = summary.enabled ? AT.enabled : AT.off;
     panels.forEach(p => p.render(summary));
     if (personalSwitch) personalSwitch.checked = !!summary.personal_allowed;
-    if (modelInput && document.activeElement !== modelInput) modelInput.value = summary.model || '';
+    if (modelInput && document.activeElement !== modelInput && document.activeElement !== modelSelect) modelInput.value = summary.model || '';
+    if (CAN_EDIT) {                                                   // the list depends on the shared key: a new, changed or deleted key means ask Google again
+      const keyId = [summary.key_set, summary.key_source, summary.key_tail].join(':');
+      if (lastKeyId !== null && keyId !== lastKeyId) { modelChoices = null; modelMeta = null; }
+      lastKeyId = keyId;
+    }
+    if (CAN_EDIT && summary.engine !== 'local' && modelChoices === null) loadModels(); else syncModelSelect();
+    lastSummary = summary;
+    const isLocal = summary.engine === 'local';
+    if (geminiPanel) geminiPanel.hidden = isLocal;                    // the Gemini keys and model do nothing while the local model answers
+    if (localPanel) localPanel.hidden = !isLocal;
+    if (engineSeg) engineSeg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.engine === summary.engine)));
+    if (engineState) engineState.textContent = fill(AT.engineRo, { name: isLocal ? AT.engLocal + ' · ' + summary.local_model : AT.engGemini + ' · ' + summary.model });
+    if (localState && summary.local) localState.textContent = fill(AT.localSummary, { model: summary.local_model, layers: summary.local.gpu_layers === null ? AT.layersAuto : summary.local.gpu_layers });
   }
   show({{ ai|tojson }});
   if (CAN_EDIT) {
+    modelSelect.addEventListener('change', function () {
+      if (modelSelect.value === '__custom') { modelInput.hidden = false; modelInput.focus(); modelInput.select(); return; }
+      modelInput.hidden = true; modelInput.value = modelSelect.value;
+    });
     document.getElementById('modelForm').addEventListener('submit', async function (e) {
       e.preventDefault();
       const btn = document.getElementById('modelSaveBtn'); btn.disabled = true;
       try {
         const r = await post('/api/ai/model', { model: modelInput.value.trim() });
-        if (!r.ok) { note((r.data && r.data.message) || 'บันทึกโมเดลไม่สำเร็จ', true); return; }
-        modelInput.blur(); show(r.data); note('บันทึกโมเดลแล้ว กด "ทดสอบคีย์ที่ใช้อยู่" เพื่อตรวจว่าโมเดลนี้ใช้ได้');
-      } catch (err) { note('บันทึกโมเดลไม่สำเร็จ', true); } finally { btn.disabled = false; }
+        if (!r.ok) { note((r.data && r.data.message) || AT.modelSaveFailed, true); return; }
+        modelInput.blur(); modelSelect.blur(); show(r.data); note(AT.modelSaved);
+      } catch (err) { note(AT.modelSaveFailed, true); } finally { btn.disabled = false; }
+    });
+    // Which engine answers. Switching to the local model also tests it at once, so a server that is not running shows up here and not in the chat.
+    // Ollama does not answer for up to about 95 s while it starts (it checks the graphics card), and a test gives up after 6 s: so a test that TIMED OUT
+    // is repeated, every 4 s for about two minutes, with a line that says it is still starting. Any other result (found, not found, refused, not Ollama) ends it
+    // at once, and a newer test (another press, switching engine) stops an older one.
+    // The step-by-step guide behind the "how to fix it" link (Bootstrap modal #ollamaHelp). Opens at the step that fits the failed test (HELP_STEP).
+    const ohEl = document.getElementById('ollamaHelp');
+    if (ohEl && helpBtn) {
+      const H = AT.help, ohStep = document.getElementById('ohStep'), ohDots = document.getElementById('ohDots');
+      const ohBand = document.getElementById('ohBand'), ohKick = document.getElementById('ohKick');
+      const ohPrev = document.getElementById('ohPrev'), ohNext = document.getElementById('ohNext');
+      const modal = { show: () => bootstrap.Modal.getOrCreateInstance(ohEl).show(), hide: () => bootstrap.Modal.getOrCreateInstance(ohEl).hide() };      // Bootstrap's script loads after this one, so ask for it when the link is used
+      let ohI = 0;
+      const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+      async function ohCopy(text, btn) {
+        try { await navigator.clipboard.writeText(text); }
+        catch (e) {
+          const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px';
+          document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e2) {} ta.remove();
+        }
+        btn.textContent = H.copied; setTimeout(() => { btn.textContent = H.copy; }, 1500);
+      }
+      function ohDraw() {
+        const s = H.steps[ohI], last = ohI === H.steps.length - 1;
+        ohBand.innerHTML = '<svg viewBox="0 0 200 120" aria-hidden="true" focusable="false"><use href="#ohs' + (ohI + 1) + '"/></svg>';      // a fixed drawing per step: no scan data goes into this string
+        ohKick.textContent = fill(H.step, { n: ohI + 1, max: H.steps.length });
+        ohStep.textContent = '';
+        const body = ohStep; body.appendChild(mk('h6', '', s.t)); body.appendChild(mk('p', '', s.b));
+        if (s.cmd) {                                              // the command with the model name the page uses (typed text, never markup)
+          const model = (lastSummary && lastSummary.local_model) || H.noModel, cmd = 'ollama pull ' + model;
+          const box = mk('div', 'oh-code'); box.appendChild(mk('span', '', cmd));
+          const cp = mk('button', '', H.copy); cp.type = 'button'; cp.addEventListener('click', () => ohCopy(cmd, cp)); box.appendChild(cp);
+          body.appendChild(box);
+        }
+        ohDots.textContent = '';
+        H.steps.forEach((x, k) => {
+          const d = mk('button', 'oh-dot'); d.type = 'button'; d.setAttribute('aria-label', fill(H.step, { n: k + 1, max: H.steps.length }));
+          if (k === ohI) d.setAttribute('aria-current', 'step');
+          d.addEventListener('click', () => { ohI = k; ohDraw(); });
+          ohDots.appendChild(d);
+        });
+        ohPrev.disabled = false; ohPrev.style.visibility = ohI === 0 ? 'hidden' : 'visible';
+        ohNext.textContent = last ? H.done : H.next;
+      }
+      ohPrev.addEventListener('click', () => { if (ohI > 0) { ohI--; ohDraw(); } });
+      ohNext.addEventListener('click', () => { if (ohI < H.steps.length - 1) { ohI++; ohDraw(); } else modal.hide(); });
+      ohEl.addEventListener('keydown', e => {
+        if (e.key === 'ArrowRight' && ohI < H.steps.length - 1) { ohI++; ohDraw(); }
+        else if (e.key === 'ArrowLeft' && ohI > 0) { ohI--; ohDraw(); }
+      });
+      ohEl.addEventListener('shown.bs.modal', () => ohNext.focus());
+      helpBtn.addEventListener('click', () => { ohI = HELP_STEP[helpBtn.dataset.status] || 0; ohDraw(); modal.show(); });
+    }
+    let localTestRun = 0;
+    const LOCAL_RETRIES = 12, LOCAL_PAUSE_MS = 4000;
+    async function runLocalTest(typed, prefix) {
+      const run = ++localTestRun;
+      let d = {};
+      // while it waits, the line says how long it has waited and the longest it will wait (each try takes about 6 s plus the pause), and counts up every second
+      const t0 = Date.now();
+      const dur = s => s < 60 ? fill(AT.durSec, { s: s }) : (s % 60 ? fill(AT.durMin, { m: Math.floor(s / 60), s: s % 60 }) : fill(AT.durMin0, { m: s / 60 }));
+      const waitNote = () => note(fill(AT.localStarting, { t: dur(Math.round((Date.now() - t0) / 1000)), max: dur(LOCAL_RETRIES * 10) }), false, 'timeout');
+      let tick = null;
+      try {
+      for (let n = 1; n <= LOCAL_RETRIES; n++) {
+        if (n === 1) note(AT.testing);
+        else { waitNote(); if (!tick) tick = setInterval(() => { if (run === localTestRun) waitNote(); }, 1000); }
+        const r = await post('/api/ai/local/test', typed ? { url: localUrl.value.trim(), model: localModel.value.trim() } : {});
+        if (run !== localTestRun) return false;
+        d = r.data || {};
+        if (Array.isArray(d.models)) {
+          const list = document.getElementById('localModelList'); list.textContent = '';
+          d.models.forEach(m => { const o = document.createElement('option'); o.value = m; list.appendChild(o); });
+        }
+        if (d.status !== 'timeout' || n === LOCAL_RETRIES) break;
+        await new Promise(res => setTimeout(res, LOCAL_PAUSE_MS));
+        if (run !== localTestRun) return false;
+      }
+      } finally { if (tick) clearInterval(tick); }
+      note((prefix ? prefix.replace(/\.$/, '') + ' · ' : '') + (d.message || AT.testFailed), d.ok ? 'ok' : true, d.ok ? '' : d.status);      // no full stop before the " · " (English)
+      return d.ok;
+    }
+    engineSeg.addEventListener('click', async function (e) {
+      const b = e.target.closest('button[data-engine]');
+      if (!b || b.getAttribute('aria-pressed') === 'true' || engineSeg.getAttribute('aria-busy') === 'true') return;
+      if (b.dataset.engine === 'gemini' && !confirm(AT.confirmGemini)) return;       // questions to Gemini leave this computer: ask first
+      engineSeg.setAttribute('aria-busy', 'true');      // not `disabled`: a disabled button drops the keyboard focus
+      try {
+        const r = await post('/api/ai/engine', { engine: b.dataset.engine });
+        if (!r.ok) throw new Error('HTTP');
+        show(r.data);
+        if (b.dataset.engine === 'local') await runLocalTest(false, AT.engineSavedLocal);
+        else note(AT.engineSavedGemini);
+      } catch (err) { note(AT.engineFailed, true); } finally { engineSeg.removeAttribute('aria-busy'); }
+    });
+    const editBtn = document.getElementById('localEditBtn');
+    function closeLocalForm() { localForm.hidden = true; editBtn.setAttribute('aria-expanded', 'false'); }
+    editBtn.addEventListener('click', function () {
+      localForm.hidden = !localForm.hidden;
+      editBtn.setAttribute('aria-expanded', String(!localForm.hidden));
+      if (localForm.hidden) return;
+      if (lastSummary && lastSummary.local) {
+        localUrl.value = lastSummary.local.url; localModel.value = lastSummary.local_model;
+        localLayers.value = lastSummary.local.gpu_layers === null ? '' : String(lastSummary.local.gpu_layers);
+      }
+      localUrl.focus();
+      if (!document.getElementById('localModelList').children.length) runLocalTest(true);          // fills the list of installed models
+    });
+    document.getElementById('localCancelBtn').addEventListener('click', function () { closeLocalForm(); editBtn.focus(); });
+    localForm.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeLocalForm(); editBtn.focus(); } });
+    document.getElementById('localTestBtn').addEventListener('click', async function () { this.disabled = true; try { await runLocalTest(false); } finally { this.disabled = false; } });
+    document.getElementById('localTypedTestBtn').addEventListener('click', async function () { this.disabled = true; try { await runLocalTest(true); } finally { this.disabled = false; } });
+    localForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const btn = document.getElementById('localSaveBtn'); btn.disabled = true;
+      try {
+        const r = await post('/api/ai/local', { url: localUrl.value.trim(), model: localModel.value.trim(), gpu_layers: localLayers.value.trim() });
+        if (!r.ok) { note((r.data && r.data.message) || AT.localSaveFailed, true); return; }
+        closeLocalForm(); show(r.data);
+        await runLocalTest(false, AT.localSaved);
+      } catch (err) { note(AT.localSaveFailed, true); } finally { btn.disabled = false; }
     });
     personalSwitch.addEventListener('change', async function () {
       const want = personalSwitch.checked; personalSwitch.disabled = true;
       try {
         const r = await post('/api/ai/personal', { allowed: want });
         if (!r.ok) throw new Error('HTTP');
-        show(r.data); note(want ? 'อนุญาตให้ผู้ดูแลระบบใช้คีย์ของตนเองแล้ว' : 'ปิดการใช้คีย์ส่วนตัวแล้ว ทุกคนจะใช้คีย์ของระบบ');
-      } catch (err) { personalSwitch.checked = !want; note('เปลี่ยนค่าไม่สำเร็จ', true); } finally { personalSwitch.disabled = false; }
+        show(r.data); note(want ? AT.personalOn : AT.personalOff);
+      } catch (err) { personalSwitch.checked = !want; note(AT.changeFailed, true); } finally { personalSwitch.disabled = false; }
     });
   }
   sw.addEventListener('change', async function () {
@@ -471,11 +1007,11 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       show(await res.json());
       msg.className = 'mt-2 text-muted';
-      msg.textContent = want ? 'เปิดใช้ AI แล้ว' : 'ปิดการใช้ AI แล้ว ระบบจะไม่เรียก Gemini';
+      msg.textContent = want ? AT.onDone : AT.offDone;
     } catch (e) {
       sw.checked = !want;
-      msg.className = 'mt-2 text-danger';
-      msg.textContent = 'เปลี่ยนค่าไม่สำเร็จ (ต้องเป็น Superadmin)';
+      msg.className = 'mt-2 ai-bad';
+      msg.textContent = AT.switchFailed;
     } finally {
       sw.disabled = {{ 'false' if can_change_ai else 'true' }};
     }
@@ -483,5 +1019,8 @@
 })();
 </script>
 {% endif %}
+
+{# Room under the last card: the floating button sits in the bottom right corner and would cover the buttons of the last card (the Reports page does the same). #}
+<div aria-hidden="true" style="height: 5rem;"></div>
 
 {% endblock %}

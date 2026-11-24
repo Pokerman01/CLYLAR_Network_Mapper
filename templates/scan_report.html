@@ -6,24 +6,35 @@
     sit alone on a page.
     Shown on screen at /scan/<id>/report and printed to PDF by headless Edge / Chrome (report_pdf.py) for the Export PDF button.
     Variables: r (report_builder.build_report), scan_data (the stored hosts, for the diagram), system_gateway, print_mode, asset(path).
-    Everything that comes from a scan is printed through Jinja's autoescape or `tojson`, never as raw HTML. -#}
-<html lang="th" style='--rh-left: "{{ r.running_head | css_str }}"; --rh-right: "{{ r.running_date | css_str }}"; --rf-left: "{{ r.system_name | css_str }} | Scan Job #{{ r.job_number }} | {{ r.title | css_str }}";'>
+    Everything that comes from a scan is printed through Jinja's autoescape or `tojson`, never as raw HTML.
+    2026-11-17: TWO layouts of the same report, chosen by `orientation` (app.py, from ?orientation=): 'portrait' (A4 portrait, the default: a cover, a contents page, then the five
+    sections in a 178 mm column) and 'landscape' (the older A4 landscape page, no cover or contents, unchanged). Everything the orientation changes goes through `portrait` below:
+    the @page size and margins, the sheet widths on screen, the fit script's geometry, the diagram frame and the table columns. The data is the same for both (report_builder.build_report).
+    2026-11-22: the risk badge is the owner's pick "E" (docs/design-options/report-badge/mockup-2.html): the overall level is a rating scale (macro risk_scale, five square cells, the scan's level filled), the
+    level chips (.rk) are filled square tags and a chip that is alone in a table cell fills the cell (td.fill); no capsule, no dot, no tinted card. The words come from ap.levels, never from this file.
+    2026-11-23: the same for the round shapes left in the legends (docs/design-options/report-badge/mockup-3.html): the swatches (.sevleg i, .how .lv-row i, .stk-leg i), the boxes 1 2 3
+    (.top3 .no) and the ends of the two stacked bars (.sevbar, .stack) are square. The legend dots of the diagram (.lg i) stay round, like the port dots the diagram draws. -#}
+{% set portrait = (orientation | default('portrait')) != 'landscape' %}
+{% if portrait %}<html lang="th" style='--rh-left: "ระบบ {{ r.system_name | css_str }} · {{ r.cover.title_flat | css_str }}"; --rh-right: "งาน #{{ r.job_number }} · {{ r.running_target | css_str }}"; --rf-left: "{{ r.created_text | css_str }}";'>
+{% else %}<html lang="th" style='--rh-left: "{{ r.running_head | css_str }}"; --rh-right: "{{ r.running_date | css_str }}"; --rf-left: "{{ r.system_name | css_str }} | งาน #{{ r.job_number }} | {{ r.title | css_str }}";'>
+{% endif %}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ r.title }} - Scan Job #{{ r.job_number }}</title>
+<title>{{ r.title }} - งาน #{{ r.job_number }}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <script src="{{ asset('js/subnet-topology.js') }}"></script>
 <script src="{{ asset('js/topology-icons.js') }}"></script>
+<script src="{{ asset('js/report-diagram-svg.js') }}"></script>
 <style>
 :root{
   --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781; --hair:#e1e0d9; --base:#c3c2b7;
   --navy:#16365f; --navy-2:#2b4f7e; --navy-tint:#eef2f8;
   --paper:#ffffff; --desk:#e6e5e0; --soft:#f7f7f5;
   --crit:#9b1c1c; --high:#d03b3b; --med:#ec835a; --low:#fab219; --none:#0ca30c; --unknown:#a8a7a0;
+  --fill-none:#0b8f0b; --fill-unknown:#7d7c75;            /* the darker green and grey that white text can sit on (level chips, the rating scale, filled cells) */
   --series:#2a78d6;
   --sans:"Sarabun", Tahoma, "Leelawadee UI", "Segoe UI", sans-serif;
   --mono:"JetBrains Mono", Consolas, monospace;
@@ -40,16 +51,34 @@ h3{font-size:13.5px;margin:0 0 8px;font-weight:700;break-after:avoid}
 .panel{border:1px solid var(--hair);border-radius:8px;padding:12px 14px;background:#fff}
 .panel.soft{background:var(--soft)}
 
-/* risk pill (the five host levels, and the CVE severities: Critical is the dark red) */
-.rk{display:inline-flex;align-items:center;gap:5px;padding:0 8px 0 6px;height:19px;border:1px solid var(--hair);border-radius:999px;font-size:11px;font-weight:600;background:#fff;white-space:nowrap;color:var(--ink);vertical-align:middle}
-.rk i{width:8px;height:8px;border-radius:50%;background:var(--c)}
-.rk.crit{--c:var(--crit)} .rk.high{--c:var(--high)} .rk.med{--c:var(--med)} .rk.low{--c:var(--low)} .rk.none{--c:var(--none)} .rk.unknown{--c:var(--unknown)}
+/* The level of a host or of a CVE (the five host levels, and the CVE severities: Critical is the dark red). 2026-11-22, the owner's pick "E" of docs/design-options/report-badge:
+   a plain filled rectangle with square corners and no dot, like the severity cells of a scanner report. The level itself carries the colour (--c is the fill, --ft the text:
+   white, except dark ink on the two light fills, Medium and Low). Inline in text, a chart label or a cell with other lines: the small tag .rk. The only thing in a table cell:
+   the whole cell is filled (td.fill). The overall level of the scan is the strip .rscale below. */
+.rk,.rs-c,.tbl td.fill{--ft:#fff}
+.rk.crit,.tbl td.fill.crit{--c:var(--crit)}
+.rk.high,.rs-c.high,.tbl td.fill.high{--c:var(--high)}
+.rk.med,.rs-c.med,.tbl td.fill.med{--c:var(--med);--ft:var(--ink)}
+.rk.low,.rs-c.low,.tbl td.fill.low{--c:var(--low);--ft:var(--ink)}
+.rk.none,.rs-c.none,.tbl td.fill.none{--c:var(--fill-none)}
+.rk.unknown,.rs-c.unknown,.tbl td.fill.unknown{--c:var(--fill-unknown)}
+.rk{display:inline-flex;align-items:center;justify-content:center;padding:0 7px;height:19px;border:0;border-radius:0;font-size:11px;font-weight:600;background:var(--c);color:var(--ft);white-space:nowrap;vertical-align:middle}
+.tbl td.fill{background:var(--c);color:var(--ft);font-weight:600;text-align:center;vertical-align:middle;white-space:nowrap}
 /* "ถูกโจมตีจริง": CISA lists the CVE as exploited. Soft amber, never red (red is for Critical) */
-.kev{display:inline-block;padding:0 7px;border-radius:999px;background:#fdf3d7;color:#7a5a12;border:1px solid #f0d58c;font-size:10.5px;font-weight:600;line-height:1.5;white-space:nowrap}
+.kev{display:inline-block;padding:0 7px;border-radius:0;background:#fdf3d7;color:#7a5a12;border:1px solid #f0d58c;font-size:10.5px;font-weight:600;line-height:1.5;white-space:nowrap}
+/* the overall level (page 1, the cover): a title with a navy rule, then the rating scale: equal square cells, the scan's level filled, the others white with muted text.
+   "ยังไม่ทราบ" stands apart (a gap) because it is not a step on the scale. Under it the bold reason and the lead sentence, as plain text. */
+.rs-t{font-size:12.5px;font-weight:700;color:var(--navy);line-height:1.3;padding-bottom:1mm;border-bottom:1.5px solid var(--navy);margin-bottom:2.2mm}
+.rs-row{display:flex;height:7mm;margin-bottom:2.2mm}
+.rs-c{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;margin-left:-1px;border:1px solid #b9bcc4;background:#fff;color:var(--muted);font-size:12px;line-height:1.2;white-space:nowrap}
+.rs-c:first-child{margin-left:0}
+.rs-c.sep{margin-left:7mm}
+.rs-c.on{background:var(--c);color:var(--ft);border-color:var(--c);font-weight:700;font-size:13.5px;position:relative;z-index:1}
+.rb-head{display:block;font-size:12.5px;font-weight:700;line-height:1.45;color:var(--ink)}
 
 /* ---- page frame ---- */
 .page{background:var(--paper);position:relative}
-@media screen{
+{% if not portrait %}@media screen{
   .wrap{padding:16px 16px 40px;overflow-x:auto}
   .page{width:297mm;margin:0 auto 18px;padding:11mm 13mm 16mm;box-shadow:0 1px 2px rgba(0,0,0,.08),0 6px 24px rgba(0,0,0,.08)}
   .pg-sum,.pg-find,.pg-inv,.pg-app{min-height:210mm}
@@ -83,6 +112,7 @@ h3{font-size:13.5px;margin:0 0 8px;font-weight:700;break-after:avoid}
   @bottom-right{content:"หน้า " counter(page) " / " counter(pages);font:10.5px/1.2 "Sarabun",Tahoma,sans-serif;color:#898781;vertical-align:top;text-align:right;white-space:nowrap;border-top:1px solid #e1e0d9;padding-top:5px;width:18%}
 }
 @page :first{ margin-top:11mm; @top-left{content:none;border:0} @top-right{content:none;border:0} }
+{% endif %}
 
 /* ---- page 1: the summary ---- */
 .band{background:var(--navy);color:#fff;border-radius:8px;padding:12px 18px;display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:9px}
@@ -92,23 +122,14 @@ h3{font-size:13.5px;margin:0 0 8px;font-weight:700;break-after:avoid}
 .notice{margin:0 0 8px;padding:4px 12px;border-radius:8px;background:#fffbe9;border:1px solid #ecdca4;color:#3d3a2c;font-size:12px;line-height:1.35}
 .sum{display:grid;grid-template-columns:1.9fr 1fr;gap:10px}
 .sum > *{min-width:0}
-.badge-row{display:flex;align-items:center;gap:12px;margin-bottom:6px}
-.badge-row .why{font-size:12px;color:var(--ink-2);min-width:0}
-.big{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 16px 0 12px;border-radius:999px;border:1px solid var(--bc);background:var(--bg);font-size:18px;font-weight:700;color:var(--fg);white-space:nowrap;flex:none}
-.big i{width:13px;height:13px;border-radius:50%;background:var(--c)}
-.big.high{--bc:#efc5c5;--bg:#fdf1f1;--fg:#8a2323;--c:var(--high)}
-.big.med{--bc:#f4cfbf;--bg:#fdf3ee;--fg:#8a4a2a;--c:var(--med)}
-.big.low{--bc:#f3dfa6;--bg:#fffbea;--fg:#7a5a00;--c:var(--low)}
-.big.none{--bc:#b7dfb7;--bg:#f0faf0;--fg:#146014;--c:var(--none)}
-.big.unknown{--bc:#d9d8d1;--bg:#f4f4f1;--fg:#52514e;--c:var(--unknown)}
 .lead{font-size:13px;line-height:1.55}
-.sevbar{display:flex;height:16px;border-radius:5px;overflow:hidden;margin:9px 0 5px;border:1px solid var(--hair)}
+.sevbar{display:flex;height:16px;border-radius:0;overflow:hidden;margin:9px 0 5px;border:1px solid var(--hair)}
 .sevbar span{display:block;height:100%}
 .sevleg{display:flex;flex-wrap:wrap;gap:3px 16px;font-size:11.5px;color:var(--ink-2)}
 .sevleg b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
 .sevleg .z,.sevleg .z b{color:var(--muted)}
 .sevleg .z b{font-weight:500}
-.sevleg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;background:var(--c)}
+.sevleg i{display:inline-block;width:9px;height:9px;border-radius:0;margin-right:5px;background:var(--c)}
 .sevleg .kevline{margin-left:auto}
 .s-crit{--c:var(--crit);background:var(--crit)} .s-high{--c:var(--high);background:var(--high)} .s-med{--c:var(--med);background:var(--med)} .s-low{--c:var(--low);background:var(--low)} .s-unknown{--c:var(--unknown);background:var(--unknown)}
 .sevleg i.s-crit,.sevleg i.s-high,.sevleg i.s-med,.sevleg i.s-low,.sevleg i.s-unknown{background:var(--c)}
@@ -133,7 +154,7 @@ h3{font-size:13.5px;margin:0 0 8px;font-weight:700;break-after:avoid}
 .two > *{min-width:0}
 .top3 .it{display:grid;grid-template-columns:22px 1fr;gap:8px;padding:6px 0;border-bottom:1px solid var(--hair)}
 .top3 .it:last-of-type{border-bottom:0}
-.top3 .no{width:20px;height:20px;border-radius:50%;background:var(--navy-tint);color:var(--navy);font-weight:700;font-size:11.5px;display:flex;align-items:center;justify-content:center}
+.top3 .no{width:20px;height:20px;border-radius:0;background:var(--navy-tint);color:var(--navy);font-weight:700;font-size:11.5px;display:flex;align-items:center;justify-content:center}
 .top3 .l1{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-weight:600;font-size:12.5px}
 .top3 .l2{font-size:11.5px;color:var(--ink-2);margin-top:1px;overflow-wrap:anywhere}
 .note{font-size:11px;color:var(--ink-2);margin-top:5px}
@@ -169,11 +190,14 @@ table{border-collapse:collapse;width:100%}
 .tbl .ports{font-family:var(--mono);font-size:10.5px;line-height:1.5}
 .tbl .ports .v{font-family:var(--sans);color:var(--ink-2);font-size:10.5px}
 .tbl .ports .more,.tbl .risk .more{font-family:var(--sans);color:var(--muted);font-size:10.5px}
-.tbl .ports .nopen{display:block;line-height:1.4}      /* the ports that are not open: one muted line under the open ones */
+.tbl .ports .nopen{display:block;line-height:1.3}      /* the ports that are not open (and the ones nmap could not tell): muted lines under the open ones; the leading is 1.3 (was 1.4) so that
+                                                          the separate "not open" and "open or filtered" lines of a UDP scan do not cost a page of their own (a 14-host UDP scan: 8 pages with 1.4, 7 with 1.3) */
 .tbl .risk .rk{margin-bottom:2px}
 .tbl .risk .d{display:block;font-size:10.5px;color:var(--ink-2)}
 .tbl .risk .d b{color:var(--ink);font-weight:600}
 .nw{white-space:nowrap}
+/* one word of the printed nmap command: it moves to the next line as a whole (a line never breaks inside "-PS22,23,..." after a hyphen); a word longer than the cell still wraps (max-width) */
+.tk{display:inline-block;max-width:100%}
 .type{display:inline-block;padding:0 7px;border-radius:4px;background:var(--soft);border:1px solid var(--hair);font-size:11px;font-weight:600;line-height:1.5}
 /* The footnotes are the LAST ROW of the table (not a block after it): a row can be told to stay with the one before it, so the footnote can never
    be pushed alone onto a page of its own when the rows end exactly at the bottom of a page. */
@@ -204,7 +228,6 @@ table{border-collapse:collapse;width:100%}
 .hs-tail{font-size:11.5px;color:var(--ink-2);margin-top:6px}
 .tbl.hs td{padding:2px 8px}
 .tbl.hs th{padding-top:4px;padding-bottom:4px}
-.tbl.hs .rk{height:16px;font-size:10.5px}
 .tbl.hs .s{font-size:10px;line-height:1.3}
 
 /* ---- page 4: the two bar charts ---- */
@@ -216,7 +239,7 @@ table{border-collapse:collapse;width:100%}
 .dash .rk{height:16px;font-size:10.5px}
 .bar-row .lbl{font-size:12px;display:flex;align-items:center;gap:6px}
 .bar-row .track{height:10px;position:relative;border-left:1px solid var(--base)}
-.bar-row .bar{position:absolute;left:0;top:0;bottom:0;background:var(--series);border-radius:0 4px 4px 0}
+.bar-row .bar{position:absolute;left:0;top:0;bottom:0;background:var(--series);border-radius:0}
 .bar-row .bar.high{background:var(--high)} .bar-row .bar.med{background:var(--med)} .bar-row .bar.low{background:var(--low)} .bar-row .bar.none{background:var(--none)} .bar-row .bar.unknown{background:var(--unknown)}
 .bar-row:hover .bar{filter:brightness(.9)}
 .bar-row .val{font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
@@ -242,6 +265,190 @@ table{border-collapse:collapse;width:100%}
 .lv{margin:0;font-size:11.8px;line-height:1.5}
 .lv dt{margin-top:4px}
 .lv dd{margin:0;color:var(--ink-2);font-size:11.5px}
+/* the on-screen orientation switch (the PDF has no toolbar) */
+@media screen{.toolbar .seg{display:inline-flex;border:1px solid var(--base);border-radius:6px;overflow:hidden}.toolbar .seg a{border:0;border-radius:0;padding:4px 12px}.toolbar .seg a + a{border-left:1px solid var(--base)}.toolbar .seg a.on{background:var(--navy);color:#fff;font-weight:600}.toolbar a.rp-pdf-btn{display:inline-flex;align-items:center;gap:6px}.toolbar a.rp-pdf-btn.is-busy{pointer-events:none;opacity:.75}.rp-spin{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:rp-spin .7s linear infinite}.rp-spin[hidden]{display:none}@keyframes rp-spin{to{transform:rotate(360deg)}}.rp-tb-err{max-width:210mm;margin:10px auto 0;padding:8px 14px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:13px}}
+{% if portrait %}
+/* =====================================================================================================================================
+   A4 PORTRAIT (210 x 297 mm), the default layout. Look: docs/design-options/report-portrait/mockup.html (the owner's pick). Page content box in print:
+   178 x 256 mm (margins 22 / 16 / 19 mm). The cover has no margin (its band runs to the sheet's edges) and so no running header or footer.
+   Rules that decide a section's length (tables, rows, charts) are NOT inside a media query, so the contents page can measure them on screen.
+   ===================================================================================================================================== */
+:root{--gold:#e6a700;--gold-tint:#fff7dd}
+body{font-size:11px;line-height:1.5}
+h2{font-size:21px;line-height:1.25;margin:0 0 3mm;display:flex;align-items:baseline;gap:8px;padding-top:7px}
+h2 .no{display:inline-block;min-width:26px;height:26px;border-radius:6px;background:var(--navy);color:#fff;font-size:14px;text-align:center;line-height:26px;font-weight:600;margin:0;transform:translateY(-2px);flex:none}
+h3{font-size:13px;color:var(--navy);margin:5mm 0 2mm;padding-left:8px;border-left:3px solid var(--gold);line-height:1.25;font-weight:700}
+.sub{font-size:11px;margin:0 0 3mm;color:var(--ink-2)}
+.mono{font-size:10px}
+.panel{border:0;border-radius:0;padding:0;background:none}
+.panel.soft{background:var(--soft);border-radius:8px;padding:3mm 3.5mm}
+.panel.soft h3{margin-top:0}
+.rk{height:18px;font-size:10.5px}
+.notice{font-size:10.5px;padding:2mm 3.5mm;margin:0 0 3mm}
+
+/* the cover */
+.pg-cover{display:flex;flex-direction:column;position:relative;background:#fff}
+.cv-band{background:var(--navy);color:#fff;height:112mm;flex:none;position:relative}
+.cv-band::after{content:"";position:absolute;left:16mm;bottom:0;width:34mm;height:2.4mm;background:var(--gold)}
+.cv-brand{position:absolute;left:16mm;top:16mm;display:flex;align-items:center;gap:9px;font-weight:700;font-size:16px;letter-spacing:.2px}
+.cv-brand i{width:22px;height:22px;border-radius:5px;background:var(--gold);display:inline-block}
+.cv-brand small{font-weight:400;opacity:.75;font-size:11px;margin-left:4px}
+.cv-title{position:absolute;left:16mm;right:16mm;top:46mm;padding-top:3px}
+.cv-title .kicker{font-size:12px;letter-spacing:.5px;opacity:.85;margin-bottom:3mm;overflow-wrap:anywhere}
+.cv-title .t{font-size:34px;line-height:1.25;font-weight:700}
+.cv-title .scan{font-size:15px;margin-top:5mm;opacity:.92;overflow-wrap:anywhere;line-height:1.4}
+.cv-meta{padding:16mm 16mm 0;flex:none}
+.kv{display:grid;grid-template-columns:38mm 1fr;border-top:1px solid var(--hair);font-size:11.5px}
+.kv > div{padding:2mm 0;border-bottom:1px solid var(--hair);min-width:0;overflow-wrap:anywhere}
+.kv > div:nth-child(odd){color:var(--muted)}
+.cv-risk{margin-top:8mm}
+.cv-risk .rb-lead{display:block;font-size:10.5px;color:var(--ink-2);overflow-wrap:anywhere;min-width:0}
+.cv-notice{margin:auto 16mm 24mm;font-size:10px;color:var(--ink-2);background:var(--soft);border-radius:6px;padding:3.5mm 4mm}
+.cv-notice b{color:var(--navy)}
+.cv-status{margin:4mm 0 0}
+
+/* the contents page and "about this report" */
+.toc{margin-top:4mm}
+.toc .row{display:flex;align-items:baseline;gap:6px;padding:1.5mm 0}
+.toc .row .t{font-weight:600;color:var(--navy);font-size:12.5px}
+.toc .row.s .t{font-weight:400;color:var(--ink-2);font-size:11px;padding-left:9mm}
+.toc .dots{flex:1;border-bottom:1.5px dotted #c7cad1;transform:translateY(-3px)}
+.toc .pg{color:var(--ink-2);min-width:6mm;text-align:right}
+.toc:not(.nums) .dots,.toc:not(.nums) .pg,.toc .row.nopg .dots,.toc .row.nopg .pg{visibility:hidden}   /* a number only when the page script measured every one of them */
+.pg-toc .about-h{margin-top:8mm}
+.pg-toc p{margin:0 0 2.5mm;font-size:11px}
+.how{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-top:3mm}
+.how > div{background:var(--soft);border-radius:8px;padding:3mm 3.5mm;font-size:10.5px}
+.how b{display:block;color:var(--navy);margin-bottom:1mm;font-size:11px}
+.how .lv-row{display:flex;gap:3mm;flex-wrap:wrap;margin-top:2mm}
+.how .lv-row i{display:inline-block;width:8px;height:8px;border-radius:0;margin-right:4px;background:var(--c)}
+.how .lv-row .high{--c:var(--high)} .how .lv-row .med{--c:var(--med)} .how .lv-row .low{--c:var(--low)} .how .lv-row .none{--c:var(--none)} .how .lv-row .unknown{--c:var(--unknown)}
+
+/* section 1 */
+.rbadge{min-width:0}
+.rbadge .lead{display:block;font-size:11px;line-height:1.5}
+.tiles{gap:3mm;margin:3.5mm 0}
+.tile{padding:2.5mm 3mm;border-radius:8px}
+.t-l{font-size:10px;color:var(--muted)}
+.t-v{font-size:24px;font-weight:700;color:var(--navy);line-height:1.15;margin:0}
+.t-v.na{color:var(--muted)}
+.t-v small{font-size:11px;font-weight:400;color:var(--muted)}
+.t-s{font-size:9.5px;color:var(--ink-2)}
+.t-sev{font-size:9.5px;gap:0 8px}
+.sevbar{height:9px;margin:2mm 0 1.5mm}
+.sevleg{font-size:10.5px}
+.pg-sum h3{margin-top:4.5mm}
+.two{grid-template-columns:1fr 1fr;gap:6mm}
+.top3 .it{padding:1.5mm 0}
+.top3 .l1{font-size:11.5px}
+.top3 .l2,.note{font-size:10.5px}
+.top3 .rk{min-width:15mm}
+.facts{font-size:11px;gap:0 3mm;grid-template-columns:24mm 1fr}
+.facts dt,.facts dd{padding:1.3mm 0;border-bottom:1px solid var(--hair)}
+.facts dt{color:var(--muted)}
+.facts.wide{margin-top:3mm;border-top:1px solid var(--hair)}
+.warnbox{margin-top:4mm;background:var(--gold-tint);border:1px solid #f0d58c;padding:3mm 4.5mm}
+.warnbox h3{border:0;padding:0;margin:0 0 1mm;color:#7a5a12;font-size:12px}
+.warnbox ul{font-size:11px;color:var(--ink);padding-left:4.5mm}
+
+/* tables */
+.tbl th{font-size:10.5px;padding:4px 7px}
+.tbl td{font-size:10.5px;padding:4px 7px;line-height:1.4}
+.tbl .mono{font-size:10px}
+.tbl .s{font-size:9.5px}
+.tbl .ports,.tbl .ports .v,.tbl .ports .more,.tbl .risk .more{font-size:10px}
+.tbl .risk .d{font-size:9.5px}
+.tbl tr.grp td{font-size:11px;padding:4px 7px}
+.tbl tr.fnrow td{font-size:10px}
+.tbl tr.morerow td{font-size:10.5px}
+.find td.cve{font-size:10px}
+.find td.desc,.find tr.drow td{color:var(--ink-2);font-size:10px}
+.find tr.hasd > td{border-bottom:0;padding-bottom:0}
+.find tr.hasd > td.fill{padding-top:0}
+.find tr.drow{break-before:avoid}
+.find tr.drow td{padding-top:0}
+.hs-wrap{grid-template-columns:1fr;gap:4mm;margin-top:0}
+.hs-wrap p{font-size:11px}
+.sm th{font-size:10px;background:var(--navy);color:#fff;border-bottom:0}.sm td{font-size:10.5px}
+.hs-h{margin:5mm 0 2mm}
+.tbl.hs td{padding:3px 7px}.tbl.hs th{padding:4px 7px}
+.hs-tail,.pnote,.note{font-size:10px}
+
+/* the diagram */
+.diagram{height:auto;flex:1 1 0;min-height:0;border-radius:8px}
+.legend{grid-template-columns:1fr;gap:2mm;margin-top:3mm;font-size:10px;flex:none}
+
+/* the charts (stacked bars, after the inventory) */
+.stack{display:flex;height:9px;border-radius:0;overflow:hidden;margin:2mm 0 1.5mm;border:1px solid var(--hair)}
+.stack i{display:block;height:100%;background:var(--c)}
+.stk-leg{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:10.5px;color:var(--ink-2)}
+.stk-leg b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.stk-leg .z,.stk-leg .z b{color:var(--muted)}
+.stk-leg i{display:inline-block;width:8px;height:8px;border-radius:0;margin-right:4px;background:var(--c)}
+.dash2{display:grid;grid-template-columns:1fr 1fr;gap:6mm;break-inside:avoid;margin-top:1mm}
+.dash2 > div{min-width:0}
+.dash2 .cap{font-size:10.5px;color:var(--ink-2)}
+.t0{--c:#16365f} .t1{--c:#2b4f7e} .t2{--c:#6f93c0} .t3{--c:#b7c6dc} .t4{--c:#8d9bb0} .t5{--c:#4f6d94} .t6{--c:#a3b6d3} .t7{--c:#3a5a87} .t8{--c:#c9d3e4}
+.high{--c:var(--high)} .med{--c:var(--med)} .low{--c:var(--low)} .none{--c:var(--none)} .unknown{--c:var(--unknown)}
+
+/* the appendix: two columns, C and D across */
+.cols3{grid-template-columns:1fr 1fr;gap:0 7mm}
+.cols3 > div{display:contents}
+.cols3 > div:nth-child(1) > .panel:nth-child(1){grid-column:1;grid-row:1 / span 2}      /* A on the left, B and E on the right; C, D and F across the page */
+.cols3 > div:nth-child(1) > .panel:nth-child(2){grid-column:2;grid-row:1}
+.cols3 > div:nth-child(3) > .panel:nth-child(1){grid-column:2;grid-row:2}
+.cols3 > div:nth-child(2) > .panel,.cols3 > div:nth-child(3) > .panel:nth-child(2){grid-column:1 / -1}
+.cols3 .panel{margin-bottom:0}
+.steps,.ap-t,.lv,.chg,.chg-inline{font-size:11px}
+.chg-h{font-size:11px}
+.lv dd{font-size:10.5px}
+.scale td,.scale th{font-size:10.5px}
+.scale th{background:#fff;color:var(--ink-2)}
+.lv{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:start}
+.lv dt{margin:0}
+.lv dd{padding-top:1px}
+
+/* the page frame in print and on screen */
+@page{
+  size:A4 portrait; margin:22mm 16mm 19mm;
+  @top-left{content:var(--rh-left);font:9.5px/1.2 "Sarabun",Tahoma,sans-serif;color:#898781;vertical-align:bottom;padding-bottom:4.2mm;width:70%;background:linear-gradient(#e1e0d9,#e1e0d9) left bottom 3.4mm / 100% 1px no-repeat}
+  @top-right{content:var(--rh-right);font:9.5px/1.2 "Sarabun",Tahoma,sans-serif;color:#898781;vertical-align:bottom;text-align:right;white-space:nowrap;padding-bottom:4.2mm;width:30%;background:linear-gradient(#e1e0d9,#e1e0d9) left bottom 3.4mm / 100% 1px no-repeat}
+  @bottom-left{content:var(--rf-left);font:9.5px/1.2 "Sarabun",Tahoma,sans-serif;color:#898781;vertical-align:top;padding-top:4.2mm;width:80%;background:linear-gradient(#e1e0d9,#e1e0d9) left top 3.4mm / 100% 1px no-repeat}
+  @bottom-right{content:"หน้า " counter(page) " / " counter(pages);font:9.5px/1.2 "Sarabun",Tahoma,sans-serif;color:#898781;vertical-align:top;text-align:right;white-space:nowrap;padding-top:4.2mm;width:20%;background:linear-gradient(#e1e0d9,#e1e0d9) left top 3.4mm / 100% 1px no-repeat}
+}
+/* the cover: no margin (the band reaches the edges of the sheet), so no running header or footer and no page number on it */
+@page :first{ margin:0; @top-left{content:none;background:none;padding:0} @top-right{content:none;background:none;padding:0} @bottom-left{content:none;background:none;padding:0} @bottom-right{content:none;background:none;padding:0} }
+@media screen{
+  .wrap{padding:16px 16px 40px;overflow-x:auto}
+  .page{width:210mm;margin:0 auto 18px;padding:22mm 16mm 19mm;box-shadow:0 1px 2px rgba(0,0,0,.08),0 6px 24px rgba(0,0,0,.08)}
+  .pg-cover{padding:0;height:297mm;overflow:hidden}
+  .pg-toc,.pg-diag{height:297mm}
+  .pg-sum,.pg-find,.pg-inv,.pg-app{min-height:297mm}
+  .pg-diag{display:flex;flex-direction:column;overflow:hidden}
+  .toolbar{max-width:210mm;margin:16px auto 0;padding:10px 14px;background:#fff;border:1px solid var(--hair);border-radius:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px}
+  .toolbar a,.toolbar button{font:inherit;color:var(--navy);background:#fff;border:1px solid var(--base);border-radius:6px;padding:4px 12px;text-decoration:none;cursor:pointer}
+  .toolbar a:hover,.toolbar button:hover{background:var(--navy-tint)}
+  .toolbar .grow{flex:1}
+  .shead{position:absolute;left:16mm;right:16mm;top:9mm;display:flex;justify-content:space-between;gap:8px;font-size:9.5px;color:var(--muted);border-bottom:1px solid var(--hair);padding-bottom:3mm}
+  .sfoot{position:absolute;left:16mm;right:16mm;bottom:8mm;display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--hair);padding-top:2.5mm;font-size:9.5px;color:var(--muted)}
+}
+@media print{
+  body{background:#fff}
+  .toolbar,.shead,.sfoot{display:none !important}
+  .page{margin:0;padding:0;box-shadow:none}
+  /* the cover is one sheet with no margin; the contents page, section 1, the diagram and the appendix are one page each (the fit script zooms the content down if it is taller
+     than the page box); findings and inventory flow */
+  .pg-cover{width:210mm;height:296mm;overflow:hidden;break-after:page}
+  .pg-toc{break-after:page}
+  .pg-sum{break-after:page}
+  .pg-find{break-after:page}
+  .pg-diag{height:254mm;display:flex;flex-direction:column;overflow:hidden;break-after:page}
+  .pg-inv{break-after:page}
+}
+/* what the contents page measures: a copy of a flowing section laid out in a box as big as the page content (no frame, no running head) */
+.measure{width:100% !important;height:auto !important;min-height:0 !important;margin:0 !important;padding:0 !important;box-shadow:none !important;break-after:auto !important}
+.measure .shead,.measure .sfoot{display:none !important}
+{% endif %}
 </style>
 </head>
 <body>
@@ -250,16 +457,186 @@ table{border-collapse:collapse;width:100%}
 <div class="toolbar">
   <a href="{{ url_for('scan_detail', scan_id=r.job_id) }}">← กลับไปหน้าผลสแกน</a>
   <span class="grow muted">หน้ารายงาน (ตัวอย่างก่อนพิมพ์ / บันทึกเป็น PDF)</span>
-  <a href="{{ url_for('export_pdf', scan_id=r.job_id) }}">ดาวน์โหลด PDF</a>
+  <span class="seg" role="group" aria-label="แนวกระดาษ"><a href="{{ url_for('scan_report', scan_id=r.job_id, orientation='portrait') }}"{% if portrait %} class="on" aria-current="true"{% endif %}>แนวตั้ง (A4)</a><a href="{{ url_for('scan_report', scan_id=r.job_id, orientation='landscape') }}"{% if not portrait %} class="on" aria-current="true"{% endif %}>แนวนอน (A4)</a></span>
+  <a id="rpToolbarPdf" class="rp-pdf-btn" href="{{ url_for('export_pdf', scan_id=r.job_id, orientation='portrait' if portrait else 'landscape') }}"><span class="rp-spin" hidden aria-hidden="true"></span><span class="rp-pdf-lbl">ดาวน์โหลด PDF</span></a>
   <button type="button" onclick="window.print()">พิมพ์ (Ctrl+P)</button>
 </div>
+<div id="rpToolbarErr" class="rp-tb-err" role="alert" hidden></div>
+<script>
+(function () {
+  var btn = document.getElementById('rpToolbarPdf'), err = document.getElementById('rpToolbarErr');
+  if (!btn) return;
+  var busy = false, spin = btn.querySelector('.rp-spin'), lbl = btn.querySelector('.rp-pdf-lbl');
+  function setBusy(on) {
+    busy = on;
+    btn.classList.toggle('is-busy', on);
+    btn.setAttribute('aria-busy', on ? 'true' : 'false');
+    btn.setAttribute('aria-disabled', on ? 'true' : 'false');
+    if (spin) spin.hidden = !on;
+    if (lbl) lbl.textContent = on ? 'กำลังสร้าง PDF…' : 'ดาวน์โหลด PDF';
+  }
+  function pickName(r, fb) {
+    var cd = r.headers.get('Content-Disposition') || '';
+    var m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    if (m) { try { return decodeURIComponent(m[1]); } catch (e) {} }
+    m = /filename="?([^";]+)"?/i.exec(cd);
+    return m ? m[1] : fb;
+  }
+  btn.addEventListener('click', async function (e) {
+    if (e.button || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    if (busy) return;
+    if (err) { err.hidden = true; err.textContent = ''; }
+    setBusy(true);
+    try {
+      var r = await fetch(btn.href, { credentials: 'same-origin' });
+      var ct = (r.headers.get('Content-Type') || '').toLowerCase();
+      if (!r.ok || !ct.includes('pdf')) throw new Error('HTTP ' + r.status);
+      var blob = await r.blob(), objUrl = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = objUrl; a.download = pickName(r, 'report.pdf');
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(objUrl); }, 10000);
+    } catch (ex) {
+      if (err) { err.textContent = 'สร้าง PDF ไม่สำเร็จ กรุณาลองอีกครั้ง'; err.hidden = false; }
+    } finally {
+      setBusy(false);
+    }
+  });
+})();
+</script>
 {% endif %}
 
 <div class="wrap">
 {% set sm = r.summary %}
 {% set f = r.findings %}
 {% set ap = r.appendix %}
+{#- a printed command, one box per space-separated word: autoescape stays on for every word, the spaces between the words are plain spaces (the copied text is the command exactly) -#}
+{% macro cmd(text) %}{% for w in text.split(' ') %}<span class="tk">{{ w }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% endmacro %}
 
+{#- the overall level, as a rating scale: the five levels come from the report's own list (report_builder.LEVELS, in ap.levels), the scan's level is filled and the rest stay white.
+    "ยังไม่ทราบ" gets a gap before it because it is not a step on the scale. Nothing here decides a level: `key` is the badge's own key (section 1) or the cover's. -#}
+{% macro risk_scale(key) %}<div class="rscale"><div class="rs-t">ระดับความเสี่ยงโดยรวม</div><div class="rs-row">{% for x in ap.levels %}<span class="rs-c {{ x.key }}{{ ' on' if x.key == key }}{{ ' sep' if x.key == 'unknown' }}"{% if x.key == key %} aria-current="true"{% endif %}>{{ x.label }}</span>{% endfor %}</div></div>{% endmacro %}
+
+{% macro sec_h(n, title) %}<h2><span class="no">{{ n }}{{ '' if portrait else '.' }}</span>{{ title }}</h2>{% endmacro %}
+{#- the screen-only running header and footer of a portrait page (in print the @page margin boxes do this job and these are display:none) -#}
+{% macro shead() %}<div class="shead"><span><b>ระบบ {{ r.system_name }}</b> · {{ r.cover.title_flat }}</span><span>งาน #{{ r.job_number }} · {{ r.running_target }}</span></div>{% endmacro %}
+{% macro sfoot_p() %}<div class="sfoot"><span>{{ r.created_text }}</span><span>{{ r.system_name }} | งาน #{{ r.job_number }}</span></div>{% endmacro %}
+{% macro tiles_block() %}
+  {% set t = r.tiles %}
+  <div class="tiles">
+    <div class="tile"><div class="t-l">อุปกรณ์ที่พบ</div>
+      <div class="t-v">{{ t.hosts.value }}{% if t.hosts.of %}<small>/ {{ t.hosts.of }} IP</small>{% endif %}</div>
+      <div class="t-s">{{ t.hosts.sub }}</div></div>
+    <div class="tile"><div class="t-l">พอร์ตที่เปิด</div>
+      {% if t.ports.value is none %}<div class="t-v na">—</div>{% else %}<div class="t-v">{{ t.ports.value }}</div>{% endif %}
+      <div class="t-s">{{ t.ports.sub }}</div></div>
+    <div class="tile"><div class="t-l">อุปกรณ์ความเสี่ยงสูง</div>
+      {% if t.high.value is none %}<div class="t-v na">—</div>{% else %}<div class="t-v">{{ t.high.value }}</div>{% endif %}
+      <div class="t-s">{{ t.high.sub }}</div></div>
+    <div class="tile"><div class="t-l">CVE ที่พบ (จับคู่จาก NVD)</div>
+      {% if t.cves.value is none %}<div class="t-v na">—</div>{% else %}<div class="t-v">{{ t.cves.value }}</div>{% endif %}
+      <div class="t-s">{{ t.cves.sub }}</div>
+      {% if t.cves.breakdown %}<div class="t-sev">{% for b in t.cves.breakdown %}<span class="{{ 'z' if not b.n }}{{ ' crit' if b.key == 'critical' and b.n }}">{{ b.label }} <b>{{ b.n }}</b></span> {% endfor %}</div>{% endif %}</div>
+  </div>
+{% endmacro %}
+
+{% if portrait %}
+<!-- ===================== ปก ===================== -->
+<section class="page pg-cover">
+  <div class="cv-band">
+    <div class="cv-brand"><i></i>ระบบ {{ r.system_name }} <small>Network Scanner</small></div>
+    <div class="cv-title">
+      <div class="kicker">{{ r.cover.kicker }}</div>
+      <div class="t">{% for l in r.cover.title %}{{ l }}{% if not loop.last %}<br>{% endif %}{% endfor %}</div>
+      {% if r.cover.scan_line %}<div class="scan">{{ r.cover.scan_line }}</div>{% endif %}
+    </div>
+  </div>
+  <div class="cv-meta">
+    <div class="kv">{% for x in r.cover.rows %}<div>{{ x.k }}</div><div{% if x.mono %} class="mono"{% endif %}>{{ x.v }}</div>{% endfor %}</div>
+    {% set cr = r.cover.risk %}
+    <div class="cv-risk rbadge">{% if cr.pill %}{{ risk_scale(cr.key) }}{% else %}<div class="rs-t">ระดับความเสี่ยงโดยรวม</div>{% endif %}<b class="rb-head">{{ cr.title }}</b><span class="rb-lead">{{ cr.text }}</span></div>
+    {% if r.notice or r.error %}<div class="notice cv-status">{% if r.notice %}{{ r.notice }}{% endif %}{% if r.notice and r.error %}<br>{% endif %}{% if r.error %}ข้อความจากการสแกน: {{ r.error }}{% endif %}</div>{% endif %}
+  </div>
+  <div class="cv-notice"><b>{{ r.cover.notice.lead }}</b> {{ r.cover.notice.text }}</div>
+</section>
+
+<!-- ===================== สารบัญ และเกี่ยวกับรายงานนี้ ===================== -->
+<section class="page pg-toc">
+  {{ shead() }}
+  <h2>สารบัญ</h2>
+  <div class="toc" id="toc">
+    {% for e in r.contents %}
+    <div class="row" data-key="{{ e.key }}"><span class="t">{% if e.num %}{{ e.num }} {% endif %}{{ e.title }}</span><span class="dots"></span><span class="pg">{{ e.page or '' }}</span></div>
+    {% for sb in e.subs %}<div class="row s{{ '' if (sb.anchor or sb.page) else ' nopg' }}" data-sec="{{ e.key }}"{% if sb.anchor %} data-anchor="{{ sb.anchor }}"{% endif %}><span class="t">{{ sb.title }}</span><span class="dots"></span><span class="pg">{{ sb.page or '' }}</span></div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+  <h2 class="about-h">เกี่ยวกับรายงานนี้</h2>
+  {% for para in r.about %}<p>{{ para }}</p>{% endfor %}
+  <div class="how">
+    <div><b>ระดับความเสี่ยงของแต่ละอุปกรณ์</b><div class="lv-row">{% for x in ap.levels %}<span><i class="{{ x.key }}"></i>{{ x.label }}</span>{% endfor %}</div></div>
+    <div><b>การอ้างอิงภายในรายงาน</b>เนื้อหาของรายงานอ้างอิงถึงส่วนอื่นด้วยเลขหัวข้อ เช่น &quot;หัวข้อ 2&quot; แทนเลขหน้า เพราะตารางอาจยาวต่อไปหลายหน้า</div>
+  </div>
+  {{ sfoot_p() }}
+</section>
+
+<!-- ===================== หัวข้อ 1 สรุปผลโดยย่อ (แนวตั้ง) ===================== -->
+<section class="page pg-sum">
+  {{ shead() }}
+  {{ sec_h(1, 'สรุปผลโดยย่อ') }}
+  {% if r.notice or r.error %}<div class="notice">{% if r.notice %}{{ r.notice }}{% endif %}{% if r.notice and r.error %}<br>{% endif %}{% if r.error %}ข้อความจากการสแกน: {{ r.error }}{% endif %}</div>{% endif %}
+  <div class="rbadge">{{ risk_scale(sm.badge.key) }}
+    <b class="rb-head">{{ sm.badge.detail }}</b><span class="lead">{% for p in sm.lead %}{% if p.bold %}<b>{{ p.text }}</b>{% else %}{{ p.text }}{% endif %}{% if not loop.last %} {% endif %}{% endfor %}</span>
+  </div>
+
+  {{ tiles_block() }}
+
+  {% if sm.sev or sm.kev %}
+  <h3>CVE ที่พบ แยกตามความรุนแรง</h3>
+  {% if sm.sev %}<div class="sevbar" role="img" aria-label="จำนวน CVE ตามความรุนแรง">{% for s in sm.sev if s.n %}<span class="s-{{ s.key }}" style="width:{{ s.pct }}%"></span>{% endfor %}</div>{% endif %}
+  <div class="sevleg">
+    {% for s in sm.sev %}<span{% if not s.n %} class="z"{% endif %}><i class="s-{{ s.key }}"></i>{{ s.label }} <b>{{ s.n }}</b></span>{% endfor %}
+    {% if sm.kev %}<span class="kevline">อยู่ในรายการ CISA Known Exploited: {% if sm.kev.n %}<span class="kev">ถูกโจมตีจริง</span> {% endif %}<b>{{ sm.kev.n }}</b> จาก {{ sm.kev.of }} ที่มีข้อมูลนี้</span>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="two">
+    <div class="top3">
+      <h3>ควรตรวจสอบก่อน</h3>
+      {% for x in sm.top %}
+      <div class="it"><div class="no">{{ x.n }}</div><div>
+        <div class="l1"><span class="rk {{ x.sev_key }}">{{ x.sev_label }}{% if x.score is not none %} {{ '%.1f' % x.score }}{% endif %}</span> {{ x.cve_id }}{% if x.kev %} <span class="kev">ถูกโจมตีจริง</span>{% endif %}</div>
+        {% if x.where %}<div class="l2">{{ x.where }}</div>{% endif %}
+      </div></div>
+      {% endfor %}
+      {% if sm.top %}<div class="note">{{ sm.top_note }}</div>
+      {% else %}<div class="empty">{{ sm.top_empty }}</div>{% endif %}
+    </div>
+    <div>
+      <h3>ข้อมูลการสแกน</h3>
+      <dl class="facts">
+        <dt>ประเภท</dt><dd>{{ r.source_label }}<span class="tag">{{ r.source_tag }}</span></dd>
+        <dt>เป้าหมาย</dt><dd class="mono">{{ r.target or '—' }}</dd>
+        <dt>เริ่ม</dt><dd>{{ r.started_text or 'ไม่ได้บันทึกไว้' }}</dd>
+        {% if r.finished_text %}<dt>เสร็จ</dt><dd>{{ r.finished_text }}{% if r.duration_text %} ({{ r.duration_text }}){% endif %}</dd>{% endif %}
+        {% if r.run_summary %}<dt>ผลการตรวจ</dt><dd>{{ r.run_summary }}</dd>{% endif %}
+        {% if r.nmap_version %}<dt>เครื่องมือ</dt><dd>nmap {{ r.nmap_version }}</dd>{% endif %}
+        {% if r.who_text %}<dt>ผู้สั่งสแกน</dt><dd>{{ r.who_text }}</dd>{% endif %}
+      </dl>
+    </div>
+  </div>
+  <dl class="facts wide">
+    <dt>คำสั่ง</dt>{% if r.command %}<dd class="mono">{{ cmd(r.command) }}</dd>{% else %}<dd>{{ r.command_note }}</dd>{% endif %}
+    {% if r.command_udp %}<dt>คำสั่งรอบที่ 2</dt><dd class="mono">{{ cmd(r.command_udp) }}</dd>{% endif %}
+  </dl>
+
+  <div class="warnbox">
+    <h3>ข้อจำกัดของผลนี้</h3>
+    <ul>{% for x in sm.limits %}<li>{{ x }}</li>{% endfor %}</ul>
+  </div>
+  {{ sfoot_p() }}
+</section>
+{% else %}
 <!-- ===================== หัวข้อ 1 สรุปผลโดยย่อ ===================== -->
 <section class="page pg-sum">
   <header class="band">
@@ -278,7 +655,8 @@ table{border-collapse:collapse;width:100%}
   <div class="sum">
     <div class="panel">
       <h3>1. สรุปผลโดยย่อ</h3>
-      <div class="badge-row"><span class="big {{ sm.badge.key }}"><i></i>{{ sm.badge.label }}</span><span class="why">{{ sm.badge.detail }}</span></div>
+      {{ risk_scale(sm.badge.key) }}
+      <b class="rb-head">{{ sm.badge.detail }}</b>
       <div class="lead">{% for p in sm.lead %}{% if p.bold %}<b>{{ p.text }}</b>{% else %}{{ p.text }}{% endif %}{% if not loop.last %} {% endif %}{% endfor %}</div>
       {% if sm.sev %}
       <div class="sevbar" role="img" aria-label="จำนวน CVE ตามความรุนแรง">{% for s in sm.sev if s.n %}<span class="s-{{ s.key }}" style="width:{{ s.pct }}%"></span>{% endfor %}</div>
@@ -299,7 +677,8 @@ table{border-collapse:collapse;width:100%}
         {% if r.finished_text %}<dt>เสร็จ</dt><dd>{{ r.finished_text }}{% if r.duration_text %} ({{ r.duration_text }}){% endif %}</dd>{% endif %}
         {% if r.run_summary %}<dt>ผลการตรวจ</dt><dd>{{ r.run_summary }}</dd>{% endif %}
         {% if r.nmap_version %}<dt>เครื่องมือ</dt><dd>nmap {{ r.nmap_version }}</dd>{% endif %}
-        <dt>คำสั่ง</dt>{% if r.command %}<dd class="mono">{{ r.command }}</dd>{% else %}<dd>{{ r.command_note }}</dd>{% endif %}
+        <dt>คำสั่ง</dt>{% if r.command %}<dd class="mono">{{ cmd(r.command) }}</dd>{% else %}<dd>{{ r.command_note }}</dd>{% endif %}
+        {% if r.command_udp %}<dt>คำสั่งรอบที่ 2</dt><dd class="mono">{{ cmd(r.command_udp) }}</dd>{% endif %}
         {% if r.who_text %}<dt>ผู้สั่งสแกน</dt><dd>{{ r.who_text }}</dd>{% endif %}
       </dl>
     </div>
@@ -307,13 +686,13 @@ table{border-collapse:collapse;width:100%}
 
   {% set t = r.tiles %}
   <div class="tiles">
-    <div class="tile"><div class="t-l">Host ที่พบ</div>
+    <div class="tile"><div class="t-l">อุปกรณ์ที่พบ</div>
       <div class="t-v">{{ t.hosts.value }}{% if t.hosts.of %}<small>/ {{ t.hosts.of }} IP</small>{% endif %}</div>
       <div class="t-s">{{ t.hosts.sub }}</div></div>
     <div class="tile"><div class="t-l">พอร์ตที่เปิด</div>
       {% if t.ports.value is none %}<div class="t-v na">—</div>{% else %}<div class="t-v">{{ t.ports.value }}</div>{% endif %}
       <div class="t-s">{{ t.ports.sub }}</div></div>
-    <div class="tile"><div class="t-l">Host ความเสี่ยงสูง</div>
+    <div class="tile"><div class="t-l">อุปกรณ์ความเสี่ยงสูง</div>
       {% if t.high.value is none %}<div class="t-v na">—</div>{% else %}<div class="t-v">{{ t.high.value }}</div>{% endif %}
       <div class="t-s">{{ t.high.sub }}</div></div>
     <div class="tile"><div class="t-l">CVE ที่พบ (จับคู่จาก NVD)</div>
@@ -327,7 +706,7 @@ table{border-collapse:collapse;width:100%}
       <h3>ควรตรวจสอบก่อน</h3>
       {% for x in sm.top %}
       <div class="it"><div class="no">{{ x.n }}</div><div>
-        <div class="l1"><span class="rk {{ x.sev_key }}"><i></i>{{ x.sev_label }}{% if x.score is not none %} {{ '%.1f' % x.score }}{% endif %}</span> {{ x.cve_id }}{% if x.kev %} <span class="kev">ถูกโจมตีจริง</span>{% endif %}</div>
+        <div class="l1"><span class="rk {{ x.sev_key }}">{{ x.sev_label }}{% if x.score is not none %} {{ '%.1f' % x.score }}{% endif %}</span> {{ x.cve_id }}{% if x.kev %} <span class="kev">ถูกโจมตีจริง</span>{% endif %}</div>
         {% if x.where %}<div class="l2">{{ x.where }}</div>{% endif %}
       </div></div>
       {% endfor %}
@@ -340,15 +719,18 @@ table{border-collapse:collapse;width:100%}
     </div>
   </div>
 
-  <div class="sfoot">{{ r.system_name }} | Scan Job #{{ r.job_number }} | {{ r.title }}</div>
+  {% if portrait %}{{ sfoot_p() }}{% else %}<div class="sfoot">{{ r.system_name }} | งาน #{{ r.job_number }} | {{ r.title }}</div>{% endif %}
 </section>
+{% endif %}
 
 <!-- ===================== หัวข้อ 2 สรุปผลที่พบ ===================== -->
-<section class="page pg-find">
-  <h2><span class="no">2.</span>สรุปผลที่พบ (Findings)</h2>
+<section class="page pg-find"{% if portrait %} id="toc-s2"{% endif %}>
+  {% if portrait %}{{ shead() }}{% endif %}
+  {{ sec_h(2, 'สรุปผลที่พบ (Findings)') }}
   {% if f.sub %}<p class="sub">{{ f.sub }}</p>{% endif %}
 
   {% if f.rows %}
+  {% if not portrait %}
   {% set cols = 8 if f.show_host else 7 %}
   <table class="tbl find">
     <colgroup>
@@ -361,7 +743,7 @@ table{border-collapse:collapse;width:100%}
       {% for x in f.rows %}
       <tr>
         <td class="n">{{ x.n }}</td>
-        <td><span class="rk {{ x.sev_key }}"><i></i>{{ x.sev_label }}</span></td>
+        <td class="fill {{ x.sev_key }}">{{ x.sev_label }}</td>
         <td class="cvss">{% if x.score is not none %}{{ '%.1f' % x.score }}{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="cve">{{ x.cve_id }}{% if x.kev %}<br><span class="kev">ถูกโจมตีจริง</span>{% endif %}</td>
         {% if f.show_host %}<td><span class="mono">{{ x.ip }}</span>{% if x.hostname %}<span class="s">{{ x.hostname }}</span>{% endif %}</td>{% endif %}
@@ -374,6 +756,41 @@ table{border-collapse:collapse;width:100%}
     </tbody>
   </table>
   {% else %}
+  {% set cols = 7 if f.show_host else 6 %}
+  <table class="tbl find" id="toc-find">
+    <colgroup>
+      {#- The two fixed-width columns that hold an identifier on ONE line (measured in the real PDF, JetBrains Mono 10px = 6.0px a character, cell padding 7 + 7):
+          the device column holds an IPv4 address of up to 15 characters = 90 + 14 = 104px (255.255.255.255, 192.168.183.132; 98px wrapped it as "192.168.183.13" / "2"),
+          the CVE column holds an id of up to 16 characters = 96 + 14 = 110px (CVE-2017-1000117; 108px wrapped it). Both have 6px to spare. The row number holds 3 digits (every Critical and High row is
+          shown, so a scan can reach row 100 and more; at 24px the third digit touched the colour cell) and 4 digits still inside the cell: 34px. The weakness column (the last one, no width) takes what is left. -#}
+      <col style="width:34px"><col style="width:70px"><col style="width:38px"><col style="width:116px">{% if f.show_host %}<col style="width:110px">{% endif %}<col style="width:{{ '120px' if f.show_host else '200px' }}"><col>
+    </colgroup>
+    <thead>
+      <tr><th>#</th><th>ความรุนแรง</th><th>CVSS</th><th>CVE</th>{% if f.show_host %}<th>อุปกรณ์</th>{% endif %}<th>พอร์ต / บริการที่จับคู่</th><th>ประเภทจุดอ่อน (CWE)</th></tr>
+    </thead>
+    <tbody>
+      {% for x in f.rows %}
+      <tr{% if x.description %} class="hasd"{% endif %}>
+        <td class="n">{{ x.n }}</td>
+        <td class="fill {{ x.sev_key }}">{{ x.sev_label }}</td>
+        <td class="cvss">{% if x.score is not none %}{{ '%.1f' % x.score }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="cve">{{ x.cve_id }}{% if x.kev %}<br><span class="kev">ถูกโจมตีจริง</span>{% endif %}</td>
+        {% if f.show_host %}<td><span class="mono">{{ x.ip }}</span>{% if x.hostname %}<span class="s">{{ x.hostname }}</span>{% endif %}</td>{% endif %}
+        <td>{{ x.port }}{% if x.service %} {{ x.service }}{% endif %}{% if x.product %}<span class="s muted">{{ x.product }}</span>{% endif %}</td>
+        {#- The weakness column is the narrowest text column left, so "(CWE-352)" must move to the next line as a whole, never break after its hyphen ("(CWE-" / "352)").
+            ONLY a real CWE id is held together: "Name (CWE-n)" or "Name (NVD-CWE-x)" with n or x 1 to 8 ASCII letters or digits (CWE-352, CWE-1021, NVD-CWE-Other, NVD-CWE-noinfo), so the held part is at most
+            18 characters and can never be wider than the cell. Any other text in brackets (a stored label with odd text, wide letters, no closing bracket) stays free to wrap: an unbreakable span wider than its
+            cell makes Chromium shrink EVERY page of the report by about 3% (found with "Wide letters (WWWWWWWWWWWWWWWWWWWWWW)"). Both parts stay autoescaped. -#}
+        {% set wk = x.weakness or '—' %}{% set wk_cut = wk.rsplit(' (', 1) %}{% set wk_id = wk_cut[1][:-1] if wk.endswith(')') and wk_cut | length == 2 else '' %}{% set wk_num = wk_id[8:] if wk_id.startswith('NVD-CWE-') else (wk_id[4:] if wk_id.startswith('CWE-') else '') %}
+        <td>{% if wk_num and wk_num | length <= 8 and wk_num.isascii() and wk_num.isalnum() %}{{ wk_cut[0] }} <span class="nw">({{ wk_cut[1] }}</span>{% else %}{{ wk }}{% endif %}</td>
+      </tr>
+      {% if x.description %}<tr class="drow"><td></td><td colspan="{{ cols - 1 }}">{{ x.description }}</td></tr>{% endif %}
+      {% endfor %}
+      {% if f.hidden %}<tr class="morerow"><td colspan="{{ cols }}">และอีก {{ f.hidden }} รายการ ({{ f.hidden_text }}) ดูครบทุกรายการได้ในหน้ารายงานผลสแกนในระบบ</td></tr>{% endif %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% else %}
   <div class="panel soft">{{ f.empty }}</div>
   {% endif %}
 
@@ -381,7 +798,7 @@ table{border-collapse:collapse;width:100%}
       {% for x in hosts %}
       <tr>
         <td><span class="mono">{{ x.ip }}</span>{% if x.hostname or x.local %}<span class="s muted">{{ x.hostname }}{% if x.hostname and x.local %} · {% endif %}{% if x.local %}เครื่องที่ใช้สแกน{% endif %}</span>{% endif %}</td>
-        <td><span class="rk {{ x.risk }}"><i></i>{{ x.risk_label }}</span></td>
+        <td class="fill {{ x.risk }}">{{ x.risk_label }}</td>
         {% if x.counts_known %}
         <td class="cnt">{% if x.c %}<b>{{ x.c }}</b>{% else %}<span class="muted">0</span>{% endif %}</td>
         <td class="cnt">{% if x.h %}<b>{{ x.h }}</b>{% else %}<span class="muted">0</span>{% endif %}</td>
@@ -398,7 +815,7 @@ table{border-collapse:collapse;width:100%}
   {% set any_u = f.hosts | selectattr('u') | list | length > 0 %}
   {% set hs_cols = 8 if any_u else 7 %}
   {% macro host_head(any_u) %}
-      <tr><th>อุปกรณ์</th><th>ระดับสูงสุด</th><th class="cnt" title="Critical">C</th><th class="cnt" title="High">H</th><th class="cnt" title="Medium">M</th><th class="cnt" title="Low">L</th>{% if any_u %}<th class="cnt" title="ไม่ทราบระดับ">U</th>{% endif %}<th>ประเมินได้</th></tr>
+      <tr><th>อุปกรณ์</th><th>ระดับสูงสุด</th><th class="cnt" title="วิกฤต">C</th><th class="cnt" title="สูง">H</th><th class="cnt" title="ปานกลาง">M</th><th class="cnt" title="ต่ำ">L</th>{% if any_u %}<th class="cnt" title="ไม่ทราบระดับ">U</th>{% endif %}<th>ประเมินได้</th></tr>
   {% endmacro %}
   {% macro host_cols(any_u) %}
       <colgroup><col style="width:{{ '170px' if any_u else '180px' }}"><col style="width:86px"><col style="width:30px"><col style="width:30px"><col style="width:30px"><col style="width:30px">{% if any_u %}<col style="width:30px">{% endif %}<col></colgroup>
@@ -409,13 +826,13 @@ table{border-collapse:collapse;width:100%}
   {# few hosts: the table and the match note side by side, as in the design; the block is kept whole #}
   <div class="hs-wrap{{ '' if f.match_notes else ' one' }}">
     <div class="panel">
-      <h3>สรุปตามอุปกรณ์</h3>
+      <h3{% if portrait %} id="toc-hosts"{% endif %}>สรุปตามอุปกรณ์</h3>
       <table class="tbl sm hs">
         {{ host_cols(any_u) }}
         <thead>{{ host_head(any_u) }}</thead>
         <tbody>{{ host_rows(f.hosts, any_u) }}</tbody>
       </table>
-      <div class="note">{% if f.looked %}จำนวน CVE ที่ไม่ซ้ำกันในแต่ละ host (C = Critical, H = High, M = Medium, L = Low{% if any_u %}, U = ไม่ทราบระดับ{% endif %}) &quot;—&quot; = ยังประเมินไม่ได้ ไม่ใช่ 0{% else %}การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่ทราบจำนวน (&quot;—&quot; ไม่ใช่ 0){% endif %}</div>
+      <div class="note">{% if f.looked %}จำนวน CVE ที่ไม่ซ้ำกันในแต่ละอุปกรณ์ (C = วิกฤต, H = สูง, M = ปานกลาง, L = ต่ำ{% if any_u %}, U = ไม่ทราบระดับ{% endif %}) &quot;—&quot; = ยังประเมินไม่ได้ ไม่ใช่ 0{% else %}การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่ทราบจำนวน (&quot;—&quot; ไม่ใช่ 0){% endif %}</div>
     </div>
     {% if f.match_notes %}
     <div class="panel soft">
@@ -426,33 +843,34 @@ table{border-collapse:collapse;width:100%}
   </div>
   {% else %}
   {# many hosts: one full-width table that flows over pages, its note as the last row #}
-  <h3 class="hs-h">สรุปตามอุปกรณ์</h3>
+  <h3 class="hs-h"{% if portrait %} id="toc-hosts"{% endif %}>สรุปตามอุปกรณ์</h3>
   <table class="tbl hs">
     {{ host_cols(any_u) }}
     <thead>{{ host_head(any_u) }}</thead>
     <tbody>
       {{ host_rows(f.hosts, any_u) }}
-      {% if f.hosts_more %}<tr class="morerow"><td colspan="{{ hs_cols }}">และอีก {{ f.hosts_more }} host (ดูครบทุกเครื่องในรายการอุปกรณ์ หัวข้อ 4) แสดง {{ f.hosts | length }} host ที่ควรดูก่อน</td></tr>{% endif %}
+      {% if f.hosts_more %}<tr class="morerow"><td colspan="{{ hs_cols }}">และอีก {{ f.hosts_more }} เครื่อง (ดูครบทุกเครื่องในรายการอุปกรณ์ หัวข้อ 4) แสดง {{ f.hosts | length }} เครื่องที่ควรดูก่อน</td></tr>{% endif %}
       <tr class="fnrow"><td colspan="{{ hs_cols }}">
-        <p>{% if f.looked %}จำนวน CVE ที่ไม่ซ้ำกันในแต่ละ host (C = Critical, H = High, M = Medium, L = Low{% if any_u %}, U = ไม่ทราบระดับ{% endif %}) &quot;—&quot; = ยังประเมินไม่ได้ ไม่ใช่ 0{% else %}การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่ทราบจำนวน (&quot;—&quot; ไม่ใช่ 0){% endif %}</p>
+        <p>{% if f.looked %}จำนวน CVE ที่ไม่ซ้ำกันในแต่ละอุปกรณ์ (C = วิกฤต, H = สูง, M = ปานกลาง, L = ต่ำ{% if any_u %}, U = ไม่ทราบระดับ{% endif %}) &quot;—&quot; = ยังประเมินไม่ได้ ไม่ใช่ 0{% else %}การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่ทราบจำนวน (&quot;—&quot; ไม่ใช่ 0){% endif %}</p>
         {% for n in f.match_notes %}<p>{{ n }}</p>{% endfor %}
       </td></tr>
     </tbody>
   </table>
   {% endif %}
   {% endif %}
-  <div class="sfoot">{{ r.system_name }} | Scan Job #{{ r.job_number }} | {{ r.title }}</div>
+  {% if portrait %}{{ sfoot_p() }}{% else %}<div class="sfoot">{{ r.system_name }} | งาน #{{ r.job_number }} | {{ r.title }}</div>{% endif %}
 </section>
 
 <!-- ===================== หัวข้อ 3 แผนภาพ ===================== -->
-<section class="page pg-diag">
-  <h2><span class="no">3.</span>แผนภาพเครือข่าย (Network Diagram)</h2>
+<section class="page pg-diag"{% if portrait %} id="toc-s3"{% endif %}>
+  {% if portrait %}{{ shead() }}{% endif %}
+  {{ sec_h(3, 'แผนภาพเครือข่าย (Network Diagram)') }}
   <p class="sub">แผนภาพเดียวกับหน้าผลสแกนในระบบ จัดกลุ่มตาม subnet /24 Router แสดงเฉพาะเมื่อมีหลักฐานว่าเป็น router</p>
 
   {% if r.host_count %}
   <div class="diagram"><div id="diagram-canvas"></div></div>
   {% else %}
-  <div class="diagram none">ไม่มี host ให้วาดแผนภาพ</div>
+  <div class="diagram none">ไม่มีอุปกรณ์ให้วาดแผนภาพ</div>
   {% endif %}
 
   <div class="legend">
@@ -465,18 +883,22 @@ table{border-collapse:collapse;width:100%}
     <div class="lg-note">
       <ul>
         <li>สีของจุดหน้า IP บอกจำนวนพอร์ตที่เปิด ไม่ได้บอกระดับความเสี่ยง</li>
+        {% if r.dot_note %}<li>{{ r.dot_note }}</li>{% endif %}
+        <li id="lg-bubbles" hidden></li>
         <li>ไม่มีหลักฐานเส้นทางจริง (เช่น traceroute) เส้นเชื่อมจึงเป็นเพียงการจัดกลุ่มตาม subnet ไม่ได้ยืนยันว่าเครือข่ายต่อกันอย่างไร</li>
       </ul>
     </div>
   </div>
-  <div class="sfoot">{{ r.system_name }} | Scan Job #{{ r.job_number }} | {{ r.title }}</div>
+  {% if portrait %}{{ sfoot_p() }}{% else %}<div class="sfoot">{{ r.system_name }} | งาน #{{ r.job_number }} | {{ r.title }}</div>{% endif %}
 </section>
 
 <!-- ===================== หัวข้อ 4 รายการอุปกรณ์ ===================== -->
-<section class="page pg-inv">
-  <h2><span class="no">4.</span>รายการอุปกรณ์ที่พบ (Asset Inventory)</h2>
+<section class="page pg-inv"{% if portrait %} id="toc-s4"{% endif %}>
+  {% if portrait %}{{ shead() }}{% endif %}
+  {{ sec_h(4, 'รายการอุปกรณ์ที่พบ (Asset Inventory)') }}
   <p class="sub">{{ r.notes | join(' | ') }}</p>
 
+  {% if not portrait %}
   <div class="dash">
     <div class="panel">
       <h3>ประเภทอุปกรณ์</h3>
@@ -486,28 +908,31 @@ table{border-collapse:collapse;width:100%}
         <div class="bar-row" data-t="{{ d.label }}" data-hosts="{{ d.hosts }}"><span class="lbl">{{ d.label }}</span><span class="track"><span class="bar" style="width:{{ d.pct }}%"></span></span><span class="val">{{ d.count }}</span></div>
         {% endfor %}
       </div>
-      {% else %}<div class="empty">ไม่มี host ให้จัดประเภท</div>{% endif %}
+      {% else %}<div class="empty">ไม่มีอุปกรณ์ให้จัดประเภท</div>{% endif %}
       <div class="pnote">ประเภทเดาจาก OS, ผู้ผลิต MAC, พอร์ตที่เปิดและชื่อบริการ ไม่ใช่ข้อเท็จจริง</div>
     </div>
 
     <div class="panel">
-      <h3>จำนวน host ตามระดับความเสี่ยง</h3>
+      <h3>จำนวนอุปกรณ์ตามระดับความเสี่ยง</h3>
       <div class="bars">
         {% for l in r.risk_levels %}
-        <div class="bar-row" data-t="{{ l.label }}" data-hosts="{{ l.hosts }}"><span class="lbl"><span class="rk {{ l.key }}"><i></i>{{ l.label }}</span></span><span class="track"><span class="bar {{ l.key }}" style="width:{{ l.pct }}%"></span></span><span class="val">{{ l.count }}</span></div>
+        <div class="bar-row" data-t="{{ l.label }}" data-hosts="{{ l.hosts }}"><span class="lbl"><span class="rk {{ l.key }}">{{ l.label }}</span></span><span class="track"><span class="bar {{ l.key }}" style="width:{{ l.pct }}%"></span></span><span class="val">{{ l.count }}</span></div>
         {% endfor %}
       </div>
       <div class="pnote">&quot;ยังไม่ทราบ&quot; = ประเมินไม่ได้ ไม่ได้แปลว่าปลอดภัย (ความหมายของแต่ละระดับอยู่ในภาคผนวก F)</div>
+      {% if r.risk_note %}<div class="pnote">{{ r.risk_note }}</div>{% endif %}
     </div>
   </div>
+  {% endif %}
 
   {% if r.groups %}
+  {% if not portrait %}
   <table class="tbl">
     <colgroup>
       <col style="width:40px"><col style="width:11.5%"><col style="width:15%"><col style="width:13.5%"><col style="width:12%"><col style="width:21%"><col>
     </colgroup>
     <thead>
-      <tr><th>#</th><th>IP / Hostname</th><th>MAC / ผู้ผลิต</th><th>OS</th><th>ประเภท (เดา)</th><th>พอร์ตที่เปิด / บริการ</th><th>ความเสี่ยง / ช่องโหว่</th></tr>
+      <tr><th>#</th><th>IP / ชื่อโฮสต์</th><th>MAC / ผู้ผลิต</th><th>OS</th><th>ประเภท (เดา)</th><th>พอร์ตที่เปิด / บริการ</th><th>ความเสี่ยง / ช่องโหว่</th></tr>
     </thead>
     <tbody>
       {% for g in r.groups %}
@@ -518,14 +943,14 @@ table{border-collapse:collapse;width:100%}
         <td><span class="mono">{{ h.ip }}</span>{% if h.hostname %}<span class="s">{{ h.hostname }}</span>{% endif %}{% if h.local %}<span class="s">เครื่องที่ใช้สแกน</span>{% endif %}</td>
         <td>{% if h.mac %}<span class="mono">{{ h.mac }}</span>{% if h.mac_vendor %}<span class="s">{{ h.mac_vendor }}</span>{% endif %}{% else %}<span class="muted">ไม่มีข้อมูล MAC</span>{% endif %}</td>
         <td>{% if h.os %}{{ h.os }}{% if h.os_confidence is not none %}<span class="s">nmap มั่นใจ {{ h.os_confidence }}%</span>{% endif %}{% else %}<span class="muted">ไม่ทราบ</span>{% endif %}</td>
-        <td><span class="type">{{ h.type_name }}{% if h.type_likely %} <span class="nw">(น่าจะ)</span>{% endif %}</span></td>
-        <td class="ports">{% if h.ports %}{% for p in h.ports %}{{ p.text }}{% if p.product %} <span class="v">{{ p.product }}</span>{% endif %}<br>{% endfor %}{% if h.ports_more %}<span class="more">+{{ h.ports_more }} พอร์ต</span>{% endif %}{% elif h.ports_known %}<span class="more">ไม่พบพอร์ตที่เปิด</span>{% else %}<span class="more">ไม่ได้สแกนพอร์ต</span>{% endif %}{% if h.not_open_text %}<span class="more nopen">{{ h.not_open_text }}</span>{% endif %}</td>
+        <td><span class="type">{{ h.type_name }}{% if h.type_likely %} <span class="nw">(คาดเดา)</span>{% endif %}</span></td>
+        <td class="ports">{% if h.ports %}{% for p in h.ports %}{{ p.text }}{% if p.product %} <span class="v">{{ p.product }}</span>{% endif %}<br>{% endfor %}{% if h.ports_more %}<span class="more">+{{ h.ports_more }} พอร์ต</span>{% endif %}{% elif h.timed_out %}<span class="more">{{ h.timed_out_text }}</span>{% elif h.ports_known %}{% if not h.unlisted_text %}<span class="more">ไม่พบพอร์ตที่เปิด</span>{% endif %}{% else %}<span class="more">ไม่ได้สแกนพอร์ต</span>{% endif %}{% if h.unlisted_text %}<span class="more nopen">{{ h.unlisted_text }}</span>{% endif %}{% if h.not_open_text %}<span class="more nopen">{{ h.not_open_text }}</span>{% endif %}{% if h.unsure_text %}<span class="more nopen">{{ h.unsure_text }}</span>{% endif %}{% if h.udp_note %}<span class="more nopen">{{ h.udp_note }}</span>{% endif %}</td>
         <td class="risk">
-          <span class="rk {{ h.risk }}"><i></i>{{ h.risk_label }}</span>
+          <span class="rk {{ h.risk }}">{{ h.risk_label }}</span>
           {% if h.cve_total %}
           {% set sc = h.sev_counts %}
           <span class="d"><b>{{ h.cve_total }} CVE</b> · สูงสุด {{ h.max_text }}</span>
-          <span class="d muted">C {{ sc.critical }} · H {{ sc.high }} · M {{ sc.medium }} · L {{ sc.low }}{% if sc.unknown %} · Unknown {{ sc.unknown }}{% endif %}</span>
+          <span class="d muted">C {{ sc.critical }} · H {{ sc.high }} · M {{ sc.medium }} · L {{ sc.low }}{% if sc.unknown %} · ไม่ทราบ {{ sc.unknown }}{% endif %}</span>
           <span class="d muted">{{ h.eval_text }} · ดูรายละเอียดหัวข้อ 2{% if f.hidden %} (แสดงไม่ครบ){% endif %}</span>
           {% elif h.risk_reason %}<span class="d">{{ h.risk_reason }}</span>{% endif %}
         </td>
@@ -536,14 +961,65 @@ table{border-collapse:collapse;width:100%}
     </tbody>
   </table>
   {% else %}
+  {#- portrait: five columns (the MAC and its vendor sit under the address, the number column is gone) and the two charts AFTER the table, as stacked bars -#}
+  <table class="tbl inv">
+    <colgroup>
+      <col style="width:128px"><col style="width:100px"><col style="width:90px"><col style="width:172px"><col>
+    </colgroup>
+    <thead>
+      <tr><th>IP / ชื่อโฮสต์ / MAC</th><th>ประเภท (เดา)</th><th>OS</th><th>พอร์ตที่เปิด / บริการ</th><th>ความเสี่ยง / ช่องโหว่</th></tr>
+    </thead>
+    <tbody>
+      {% for g in r.groups %}
+      <tr class="grp" id="toc-g{{ loop.index0 }}"><td colspan="5">{{ g.title }}<span>{{ g.subtitle }}</span></td></tr>
+      {% for h in g.rows %}
+      <tr{% if h.n == 1 %} class="firstrow"{% endif %}>
+        <td><span class="mono">{{ h.ip }}</span>{% if h.hostname %}<span class="s">{{ h.hostname }}</span>{% endif %}{% if h.local %}<span class="s">เครื่องที่ใช้สแกน</span>{% endif %}{% if h.mac %}<span class="s mono">{{ h.mac }}</span>{% if h.mac_vendor %}<span class="s">{{ h.mac_vendor }}</span>{% endif %}{% else %}<span class="s muted">ไม่มีข้อมูล MAC</span>{% endif %}</td>
+        <td><span class="type">{{ h.type_name }}{% if h.type_likely %} <span class="nw">(คาดเดา)</span>{% endif %}</span></td>
+        <td>{% if h.os %}{{ h.os }}{% if h.os_confidence is not none %}<span class="s">nmap มั่นใจ {{ h.os_confidence }}%</span>{% endif %}{% else %}<span class="muted">ไม่ทราบ</span>{% endif %}</td>
+        <td class="ports">{% if h.ports %}{% for p in h.ports %}{{ p.text }}{% if p.product %} <span class="v">{{ p.product }}</span>{% endif %}<br>{% endfor %}{% if h.ports_more %}<span class="more">+{{ h.ports_more }} พอร์ต</span>{% endif %}{% elif h.timed_out %}<span class="more">{{ h.timed_out_text }}</span>{% elif h.ports_known %}{% if not h.unlisted_text %}<span class="more">ไม่พบพอร์ตที่เปิด</span>{% endif %}{% else %}<span class="more">ไม่ได้สแกนพอร์ต</span>{% endif %}{% if h.unlisted_text %}<span class="more nopen">{{ h.unlisted_text }}</span>{% endif %}{% if h.not_open_text %}<span class="more nopen">{{ h.not_open_text }}</span>{% endif %}{% if h.unsure_text %}<span class="more nopen">{{ h.unsure_text }}</span>{% endif %}{% if h.udp_note %}<span class="more nopen">{{ h.udp_note }}</span>{% endif %}</td>
+        <td class="risk">
+          <span class="rk {{ h.risk }}">{{ h.risk_label }}</span>
+          {% if h.cve_total %}
+          {% set sc = h.sev_counts %}
+          <span class="d"><b>{{ h.cve_total }} CVE</b> · สูงสุด {{ h.max_text }}</span>
+          <span class="d muted">C {{ sc.critical }} · H {{ sc.high }} · M {{ sc.medium }} · L {{ sc.low }}{% if sc.unknown %} · ไม่ทราบ {{ sc.unknown }}{% endif %}</span>
+          <span class="d muted">{{ h.eval_text }} · ดูรายละเอียดหัวข้อ 2{% if f.hidden %} (แสดงไม่ครบ){% endif %}</span>
+          {% elif h.risk_reason %}<span class="d">{{ h.risk_reason }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      {% if r.footnotes %}<tr class="fnrow"><td colspan="5"><ul>{% for n in r.footnotes %}<li>{{ n }}</li>{% endfor %}</ul></td></tr>{% endif %}
+    </tbody>
+  </table>
+  <h3>สัดส่วนอุปกรณ์</h3>
+  <div class="dash2">
+    <div>
+      <div class="cap">ตามระดับความเสี่ยง (จำนวนเครื่อง)</div>
+      <div class="stack">{% for l in r.risk_levels if l.count %}<i class="{{ l.key }}" style="width:{{ (l.count * 100 / r.host_count) | round(2) }}%"></i>{% endfor %}</div>
+      <div class="stk-leg">{% for l in r.risk_levels %}<span class="{{ l.key }}{{ '' if l.count else ' z' }}"><i></i>{{ l.label }} <b>{{ l.count }}</b></span>{% endfor %}</div>
+      <div class="pnote">&quot;ยังไม่ทราบ&quot; = ประเมินไม่ได้ ไม่ได้แปลว่าปลอดภัย (ความหมายของแต่ละระดับอยู่ในภาคผนวก F)</div>
+      {% if r.risk_note %}<div class="pnote">{{ r.risk_note }}</div>{% endif %}
+    </div>
+    <div>
+      <div class="cap">ตามประเภทอุปกรณ์ (เดา)</div>
+      <div class="stack">{% for d in r.device_types %}<i class="t{{ loop.index0 % 9 }}" style="width:{{ (d.count * 100 / r.host_count) | round(2) }}%"></i>{% endfor %}</div>
+      <div class="stk-leg">{% for d in r.device_types %}<span class="t{{ loop.index0 % 9 }}"><i></i>{{ d.label }} <b>{{ d.count }}</b></span>{% endfor %}</div>
+      <div class="pnote">ประเภทเดาจาก OS, ผู้ผลิต MAC, พอร์ตที่เปิดและชื่อบริการ ไม่ใช่ข้อเท็จจริง</div>
+    </div>
+  </div>
+  {% endif %}
+  {% else %}
   <div class="empty">ไม่พบอุปกรณ์ในผลสแกนนี้</div>
   {% endif %}
-  <div class="sfoot">{{ r.system_name }} | Scan Job #{{ r.job_number }} | {{ r.title }}</div>
+  {% if portrait %}{{ sfoot_p() }}{% else %}<div class="sfoot">{{ r.system_name }} | งาน #{{ r.job_number }} | {{ r.title }}</div>{% endif %}
 </section>
 
 <!-- ===================== หัวข้อ 5 ภาคผนวก ===================== -->
-<section class="page pg-app">
-  <h2><span class="no">5.</span>ภาคผนวก: วิธีการ เกณฑ์ และข้อจำกัด</h2>
+<section class="page pg-app"{% if portrait %} id="toc-s5"{% endif %}>
+  {% if portrait %}{{ shead() }}{% endif %}
+  {{ sec_h(5, 'ภาคผนวก: วิธีการ เกณฑ์ และข้อจำกัด') }}
   <p class="sub">ข้อมูลที่ผู้อ่านต้องใช้ตีความรายงานนี้</p>
   <div class="cols3">
     <div>
@@ -596,17 +1072,17 @@ table{border-collapse:collapse;width:100%}
         <h3>E. ระดับความรุนแรง (CVSS)</h3>
         <table class="tbl sm scale">
           <thead><tr><th>ระดับ</th><th>คะแนน CVSS</th></tr></thead>
-          <tbody>{% for x in ap.scale %}<tr><td><span class="rk {{ x.key }}"><i></i>{{ x.label }}</span></td><td>{{ x.range }}</td></tr>{% endfor %}</tbody>
+          <tbody>{% for x in ap.scale %}<tr><td class="fill {{ x.key }}">{{ x.label }}</td><td>{{ x.range }}</td></tr>{% endfor %}</tbody>
         </table>
         <div class="note">เกณฑ์ของ FIRST (CVSS v3.1) {{ ap.scale_note }}</div>
       </div>
       <div class="panel">
-        <h3>F. ระดับความเสี่ยงของ host</h3>
-        <dl class="lv">{% for x in ap.levels %}<dt><span class="rk {{ x.key }}"><i></i>{{ x.label }}</span></dt><dd>{{ x.text }}</dd>{% endfor %}</dl>
+        <h3>F. ระดับความเสี่ยงของอุปกรณ์</h3>
+        <dl class="lv">{% for x in ap.levels %}<dt><span class="rk {{ x.key }}">{{ x.label }}</span></dt><dd>{{ x.text }}</dd>{% endfor %}</dl>
       </div>
     </div>
   </div>
-  <div class="sfoot">{{ r.system_name }} | Scan Job #{{ r.job_number }} | {{ r.title }}</div>
+  {% if portrait %}{{ sfoot_p() }}{% else %}<div class="sfoot">{{ r.system_name }} | งาน #{{ r.job_number }} | {{ r.title }}</div>{% endif %}
 </section>
 
 </div>
@@ -619,7 +1095,7 @@ table{border-collapse:collapse;width:100%}
   document.querySelectorAll('.bar-row').forEach(function (r) {
     r.addEventListener('mouseenter', function () {
       tip.textContent = '';
-      var b = document.createElement('b'); b.textContent = r.dataset.t + ': ' + r.querySelector('.val').textContent + ' host';
+      var b = document.createElement('b'); b.textContent = r.dataset.t + ': ' + r.querySelector('.val').textContent + ' เครื่อง';
       var d = document.createElement('div'); d.textContent = r.dataset.hosts;
       tip.appendChild(b); tip.appendChild(d); tip.hidden = false;
     });
@@ -628,13 +1104,13 @@ table{border-collapse:collapse;width:100%}
   });
 })();
 
-/* the diagram: the same building blocks as the scan report page (static/js/subnet-topology.js + the shared icons), drawn once and left still */
+/* the diagram: the same layout and icons as the scan report page (static/js/subnet-topology.js + the shared icons), drawn once and left still, as vector (see the diagram script at the end) */
 window.__reportReady = false;
 {% if print_mode %}
 /* Pages 1 (summary) and 5 (appendix) must stay ONE page each whatever the scan says (a long command, several notices, a long name, many changes).
    Measure how tall the content really is; if it is taller than the page, zoom it down until it fits. Page 1 may go down to 60%; the appendix never
    below 80% (smaller text is not readable: the builder keeps its lists short instead). Findings and inventory are not fitted: they flow. */
-function fitFixedPage(p, limitMm, minZoom, lastResort) {
+function fitFixedPage(p, limitMm, minZoom, lastResort, sheetMm, sideMm) {
   if (!p) return;
   var limit = limitMm * 3.7795;                               // in CSS px
   function lastBox() {                                        // the last child that takes part in the layout (the screen footer is display:none when printing)
@@ -649,13 +1125,31 @@ function fitFixedPage(p, limitMm, minZoom, lastResort) {
     if (!c) return 0;
     return c.getBoundingClientRect().bottom - p.getBoundingClientRect().top - parseFloat(getComputedStyle(p).paddingTop) * z;
   }
+  /* The page is MEASURED on screen, where .page has a fixed width (297mm, zoomed with the rest, so a zoomed page wraps its text exactly as before) but it is PRINTED with an
+     automatic width: there a zoomed page keeps its full width on the sheet, so its own width is 1/zoom wider, the text wraps less and the content is much shorter than
+     the screen says (a summary measured 301mm tall at zoom 0.6 printed 132mm tall). Measuring with the screen layout therefore zoomed far too much (5 pt text on a
+     page that would have held 6.5 pt). So the width a zoomed page gets on paper (the sheet's content width / zoom, plus the screen padding) is set while measuring,
+     and taken away again at the end so the print layout decides. */
+  var SHEET_MM = sheetMm || 297, SIDE_MM = sideMm || 13;      // the sheet's width and the page's left and right margin (@page), in mm: A4 landscape 297 / 13, A4 portrait 210 / 16
+  function fitsAt(z) {
+    p.style.zoom = z;
+    p.style.width = ((SHEET_MM - 2 * SIDE_MM) / z + 2 * SIDE_MM) + 'mm';
+    var ok = visualHeight() <= limit;
+    p.style.width = '';
+    return ok;
+  }
+  /* Look for the largest zoom that fits: minZoom is tried first (if even that is too tall nothing fits), then the zoom is searched between minZoom (fits) and 1 (does not
+     fit), and the result is the biggest zoom measured to fit. The text re-wraps as the zoom changes, so one proportional step is not reliable. */
   function shrink() {
-    for (var i = 0; i < 5; i++) {
-      var h = visualHeight();
-      if (h <= limit) return true;
-      p.style.zoom = Math.max(minZoom, (parseFloat(p.style.zoom) || 1) * limit / h * 0.99);
+    p.style.zoom = '';
+    if (visualHeight() <= limit) return true;
+    if (!fitsAt(minZoom)) return false;                       // too tall even at the smallest zoom the page may have; the zoom stays there
+    var lo = minZoom, hi = 1;                                 // lo fits, hi does not
+    for (var i = 0; i < 12 && hi - lo > 0.004; i++) {
+      var mid = (lo + hi) / 2;
+      if (fitsAt(mid)) lo = mid; else hi = mid;
     }
-    return visualHeight() <= limit;
+    return fitsAt(lo);
   }
   if (shrink()) return;
   if (lastResort) {                                           // still too tall at the smallest allowed zoom: cut content (never shrink the text further), then fit again
@@ -668,13 +1162,84 @@ function fitFixedPage(p, limitMm, minZoom, lastResort) {
   var z = parseFloat(p.style.zoom) || 1;
   p.style.minHeight = '0'; p.style.height = (limit / z) + 'px'; p.style.overflow = 'hidden';
 }
+function lastResortAppendix() {
+  var cut = document.querySelector('.ap-b-cut');
+  document.querySelectorAll('.chg-items').forEach(function (e) { e.style.display = 'none'; });          // the item lists go, the five headings with their true counts stay
+  if (cut) cut.hidden = false;
+}
 function fitFixedPages() {
-  fitFixedPage(document.querySelector('.pg-sum'), 181, 0.6);       // the page offers 183mm under its 11mm top margin
-  fitFixedPage(document.querySelector('.pg-app'), 177, 0.8, function () {        // the page offers 179mm under the running header
-    var cut = document.querySelector('.ap-b-cut');
-    document.querySelectorAll('.chg-items').forEach(function (e) { e.style.display = 'none'; });          // the item lists go, the five headings with their true counts stay
-    if (cut) cut.hidden = false;
+{% if portrait %}  // A4 portrait: the page box is 178 x 256 mm (margins 22 / 16 / 19 mm), so a fixed page offers 256mm and 254 is used (2mm to spare, like landscape)
+  fitFixedPage(document.querySelector('.pg-toc'), 254, 0.7, null, 210, 16);
+  fitFixedPage(document.querySelector('.pg-sum'), 254, 0.6, null, 210, 16);
+  fitFixedPage(document.querySelector('.pg-app'), 254, 0.8, lastResortAppendix, 210, 16);
+{% else %}  fitFixedPage(document.querySelector('.pg-sum'), 181, 0.6);       // the page offers 183mm under its 11mm top margin
+  fitFixedPage(document.querySelector('.pg-app'), 177, 0.8, lastResortAppendix);        // the page offers 179mm under the running header
+{% endif %}}
+{% endif %}
+{% if portrait %}
+/* The contents page. Cover = page 1, contents = page 2, section 1 = page 3 (all fixed, one page each). The sections that FLOW (2 and 4) take as many pages as their rows need, so
+   their length is MEASURED, never guessed: a copy of the section is laid out in a box exactly as big as the page content (178 x 256 mm) as ONE column of fixed height (extra columns are
+   made to its right, one per page), which breaks it with the same fragmentation rules as the printer (rows that do not split, repeated header row, "keep with previous" footnote row), and the number of pages in that box, and the page each
+   marked element (id="toc-...") lands on, are the numbers written in. Section 3 (the diagram) and 5 (the appendix) are one page each. If anything cannot be measured for sure, NO
+   number is shown (the list keeps its titles): a wrong page number is worse than none. */
+function fillContents() {
+  var toc = document.getElementById('toc');
+  if (!toc) return;
+  var MM = 96 / 25.4, W = 178 * MM, H = 256 * MM;
+  function measure(sec) {
+    if (!sec) return null;
+    var holder = document.createElement('div');
+    holder.style.cssText = 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px;columns:' + W + 'px;column-gap:0;column-fill:auto;overflow:hidden;visibility:hidden;pointer-events:none';
+    var c = sec.cloneNode(true);
+    c.classList.add('measure'); c.removeAttribute('id');
+    holder.appendChild(c);
+    document.body.appendChild(holder);
+    try {
+      var left0 = holder.getBoundingClientRect().left;
+      function colOf(el) { return Math.floor((el.getBoundingClientRect().left - left0 + 0.5) / W); }
+      /* A column does not repeat a table's header row at its top, the printer does (a page that continues a table starts with its header), so every page after the first loses the
+         header's height. Put that height back: walk the rows in order and, where a row starts a new column while the row before it (same table) is in the one before, put a spacer
+         as tall as that table's header, forced to the top of the new column. The columns before it are not touched by it, so one pass in document order settles every column. */
+      var bad = false;
+      c.querySelectorAll('table').forEach(function (tb) {
+        var head = tb.tHead, hh = head ? head.getBoundingClientRect().height : 0;
+        if (!head || !tb.tBodies.length) return;
+        var rows = Array.prototype.slice.call(tb.tBodies[0].rows);
+        for (var k = 1; k < rows.length; k++) {
+          var r = rows[k], rect = r.getBoundingClientRect();
+          if (rect.width > W + 2) { bad = true; return; }                 // a row that is cut between two pages: the spacer rule below cannot place it, give up
+          if (colOf(r) > colOf(rows[k - 1])) {
+            var sp = document.createElement('tr'), td = document.createElement('td');
+            sp.className = 'sp'; sp.style.breakBefore = 'column';
+            td.colSpan = r.cells.length; td.style.cssText = 'height:' + hh + 'px;padding:0;border:0;background:none';
+            sp.appendChild(td); r.parentNode.insertBefore(sp, r);
+          }
+        }
+      });
+      if (bad) return null;
+      var pages = holder.scrollWidth / W, n = Math.round(pages);
+      if (n < 1 || Math.abs(pages - n) > 0.02) return null;            // not a whole number of pages: the box did not paginate, do not trust it
+      var where = {};
+      c.querySelectorAll('[id^="toc-"]').forEach(function (e) { where[e.id] = colOf(e); });
+      return { n: n, where: where };
+    } finally { holder.remove(); }
+  }
+  var m2 = measure(document.getElementById('toc-s2')), m4 = measure(document.getElementById('toc-s4'));
+  if (!m2 || !m4) return;
+  var s2 = 4, s3 = s2 + m2.n, s4 = s3 + 1, s5 = s4 + m4.n;             // section 1 is page 3, so section 2 starts on page 4
+  var main = { s2: s2, s3: s3, s4: s4, s5: s5 }, ok = true;
+  toc.querySelectorAll('.row').forEach(function (row) {
+    if (row.classList.contains('nopg')) return;
+    var key = row.getAttribute('data-key'), sec = row.getAttribute('data-sec'), anchor = row.getAttribute('data-anchor'), v = null;
+    if (key === 'about') v = 2; else if (key === 's1') v = 3; else if (key) v = main[key];
+    else if (sec === 's1') v = 3;
+    else if (anchor === 'toc-s5') v = s5;
+    else if (anchor && sec === 's2' && m2.where[anchor] !== undefined) v = s2 + m2.where[anchor];
+    else if (anchor && sec === 's4' && m4.where[anchor] !== undefined) v = s4 + m4.where[anchor];
+    if (typeof v !== 'number' || !isFinite(v)) { ok = false; return; }
+    row.querySelector('.pg').textContent = String(v);
   });
+  if (ok) { toc.setAttribute('data-total', String(s5)); toc.classList.add('nums'); }
 }
 {% endif %}
 (function () {
@@ -683,7 +1248,8 @@ function fitFixedPages() {
     if (finished) return;
     finished = true;
 {% if print_mode %}    try { fitFixedPages(); } catch (e) { }
-{% endif %}    window.__reportReady = true;
+{% if portrait %}    try { fillContents(); } catch (e) { }
+{% endif %}{% endif %}    window.__reportReady = true;
   }
   // measure only once the fonts are in (the fallback font has other metrics, so a page that fits with it may not fit with Sarabun)
   function whenFontsReady() {
@@ -691,60 +1257,136 @@ function fitFixedPages() {
   }
   var host = document.getElementById('diagram-canvas');
   if (!host) { whenFontsReady(); return; }
-  try {
-    var SCAN_DATA = {{ scan_data | tojson }};
-    var SYSTEM_GATEWAY = {{ (system_gateway or {}) | tojson }};
-    var T = window.TopologyIcons;
-    var nodes = [], edges = [];
+  /* THE DIAGRAM IS VECTOR (2026-11-22). The layout is still the app's own (SubnetTopology.apply gives every node its place, the same evidence rules name a router), but it is
+     written as SVG by static/js/report-diagram-svg.js instead of being painted on a vis-network canvas: a canvas is printed as one bitmap, so a 500-device diagram was a blur that
+     stayed a blur when zoomed in the PDF viewer. SVG icons, lines and IP / router labels stay sharp at any zoom and the labels are real text (selectable, searchable).
+     SAFETY NET: if the vector path throws for ANY reason (a script that did not load, a bug, a damaged icon) the old canvas drawing below is used instead, so the report never fails
+     because of the diagram. vis-network is therefore loaded only when that happens (loadVis), not for every export. */
+  var SCAN_DATA = [], SYSTEM_GATEWAY = {};
+  try { SCAN_DATA = {{ scan_data | tojson }}; SYSTEM_GATEWAY = {{ (system_gateway or {}) | tojson }}; } catch (e) { }
+  var T = window.TopologyIcons, NL = String.fromCharCode(10);
+  var VIS_URL = 'https://unpkg.com/vis-network/standalone/umd/vis-network.min.js';
+  // More devices than this are not drawn one by one: the biggest /24 subnets become one numbered bubble each (the full list is in section 4). 3,000 is where it was measured to be fine: the 3,000-device
+  // diagram page is 1.5 MB of PDF (500 devices 0.23 MB, 1,000 0.5 MB), opens in under 2 s in pdf.js and every one of its IPs is text; the old bitmap took 166 s to export at that size, the vector page 19 s.
+  var DRAW_LIMIT = 3000;
+  // The dot in front of an IP: green / yellow / red by the number of ports whose state is exactly "open". A host that has no port list at all
+  // (every host of a Discovery scan: it never looks at ports) gets a GREY dot, because "0 open" is not known there; a host with a port list and
+  // none open is a real 0 and stays green.
+  var DOT_UNKNOWN = '#9ca3af';
+  function unlistedOpen(device) {                       // how many open ports nmap collapsed into one line without naming them (a positive whole number, else 0: the builder reads it the same way)
+    var n = device && device.ports_unlisted && device.ports_unlisted.open;
+    return (typeof n === 'number' && isFinite(n) && n > 0 && Math.floor(n) === n) ? n : 0;
+  }
+  function openPortCount(device) {                      // null = the scan has no port list for this host, or nmap did not name all of its open ports
+    if (!device || !Array.isArray(device.ports)) return null;
+    if (unlistedOpen(device)) return null;              // the count of the listed ports is not the count
+    return device.ports.filter(function (p) { return p && String(p.state || '').toLowerCase() === 'open'; }).length;
+  }
+  function dotColor(count) { return count === null ? DOT_UNKNOWN : T.portDotColor(count); }
+  /* The nodes and edges of the diagram (what both drawings need). `collapsed` = { '<subnet key>': true } for the subnets drawn as one bubble (vector path only): their devices get no
+     node of their own and the layout leaves no room for them. Each node also carries `_lines`, the label as plain text (the vector drawing never parses the HTML labels the canvas uses). */
+  function buildData(collapsed) {
+    var nodes = [], edges = [], anyUnknownDot = false, hasBubbles = !!collapsed && Object.keys(collapsed).length > 0;
     nodes.push({ id: 0, label: 'Internet', image: T.CORE_NETWORK_ICON, shape: 'image', size: 40,
                  font: { color: '#212529', size: 12, face: 'monospace', bold: true, vadjust: 6, multi: 'html' },
-                 shadow: { enabled: true, color: 'rgba(33,37,41,0.22)', size: 12 }, fixed: true, x: 0, y: -330, _device: null, _isGateway: false });
-    // The dot in front of an IP: green / yellow / red by the number of ports whose state is exactly "open". A host that has no port list at all
-    // (every host of a Discovery scan: it never looks at ports) gets a GREY dot, because "0 open" is not known there; a host with a port list and
-    // none open is a real 0 and stays green.
-    var DOT_UNKNOWN = '#9ca3af';
-    function openPortCount(device) {                      // null = the scan has no port list for this host
-      if (!device || !Array.isArray(device.ports)) return null;
-      return device.ports.filter(function (p) { return p && String(p.state || '').toLowerCase() === 'open'; }).length;
-    }
-    function dotColor(count) { return count === null ? DOT_UNKNOWN : T.portDotColor(count); }
+                 shadow: { enabled: true, color: 'rgba(33,37,41,0.22)', size: 12 }, fixed: true, x: 0, y: -330, _device: null, _isGateway: false, _lines: [{ text: 'Internet' }] });
     SCAN_DATA.forEach(function (device, i) {
+      if (hasBubbles && collapsed[SubnetTopology.groupKey(device.ip, 24)]) return;      // inside a bubble: no node of its own
       var iconKey = T.vmIconKey(device, T.osIconKey(device.os || device.status));
       var portCnt = openPortCount(device);
       nodes.push({ id: i + 1, label: '<b>●</b> ' + device.ip, image: T.ICON_URI[iconKey], shape: 'image', size: 34,
                    font: { color: device.ip === '127.0.0.1' ? '#6c757d' : '#343a40', size: 12, face: 'monospace', vadjust: 6, multi: 'html',
                            bold: { color: dotColor(portCnt), size: 13, face: 'monospace', mod: 'bold' } },
-                   shadow: { enabled: true, color: '#00000018', size: 8 }, _device: device, _portCnt: portCnt || 0, _dotUnknown: portCnt === null });
+                   shadow: { enabled: true, color: '#00000018', size: 8 }, _device: device, _portCnt: portCnt || 0, _dotUnknown: portCnt === null,
+                   _lines: [{ text: String(device.ip), dot: dotColor(portCnt) }] });
     });
-    var subnets = SubnetTopology.apply(nodes, edges, SCAN_DATA, 24, {
+    var config = {
       gatewayIcon: T.ICON_URI['gateway'],
       gatewayForGroup: function (hosts, subnet) { return SubnetTopology.detectGateway(hosts, SYSTEM_GATEWAY, subnet); }
-    });
+    };
+    if (hasBubbles) config.collapsed = collapsed;       // only then: with this option the engine also spaces the subnets by their own width, which the plain report does not want
+    var subnets = SubnetTopology.apply(nodes, edges, SCAN_DATA, 24, config);
     // SubnetTopology.apply() labels a subnet's router "Router / <ip>" with no dot and removes the router host's own node, so a router that is a
     // scanned host would lose its dot. Put the same dot back in front of its IP (the word "Router" stays; the shared code's label backing and
     // outline stay too). A router known only from this computer's routing table has no scanned host behind it (_device is null): nothing is
     // known about its ports, so it gets no dot.
-    var NL = String.fromCharCode(10), anyUnknownDot = false;
     nodes.forEach(function (n) {
-      if (n._isGateway && n._device) {
+      var isHub = n._subnet !== undefined;
+      if (n._isGateway && n._device && !n._collapsed) {
         var cnt = openPortCount(n._device);
         n.label = 'Router' + NL + '<b>●</b> ' + n._gwIp;
         n.font = Object.assign({}, n.font, { multi: 'html', bold: { color: dotColor(cnt), size: 13, face: 'monospace', mod: 'bold' } });
         n._dotUnknown = cnt === null;
+        n._lines = [{ text: 'Router' }, { text: String(n._gwIp), dot: dotColor(cnt) }];
+      } else if (isHub) {
+        n._lines = String(n.label || '').split(NL).filter(function (t) { return t; }).map(function (t) { return { text: t }; });
+        if (n._collapsed) n._lines.push({ text: n._count.toLocaleString('en-US') + ' เครื่อง', mono: false });      // a bubble says how many devices it holds
       }
       if (n._dotUnknown) anyUnknownDot = true;
     });
-    // the legend names the grey dot only when the diagram really draws one (and takes its colour from the same constant)
+    return { nodes: nodes, edges: edges, subnets: subnets, anyUnknownDot: anyUnknownDot };
+  }
+  // the legend names the grey dot only when the diagram really draws one (and takes its colour from the same constant)
+  function updateLegend(anyUnknownDot) {
     var lgGrey = document.getElementById('lg-noports');
-    if (lgGrey) { lgGrey.querySelector('i').style.background = DOT_UNKNOWN; lgGrey.hidden = !anyUnknownDot; }
-    var opts = SubnetTopology.visOptions(24);
-    var network = new vis.Network(host, { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) }, opts);
-    SubnetTopology.attachRegions(network, function () { return subnets; });
-    network.setOptions({ interaction: { dragNodes: false, dragView: false, zoomView: false, hover: false, selectable: false } });
-    setTimeout(function () { SubnetTopology.fit(network, false); setTimeout(whenFontsReady, 700); }, 300);
+    if (lgGrey) {
+      lgGrey.querySelector('i').style.background = DOT_UNKNOWN; lgGrey.hidden = !anyUnknownDot;
+      // a grey dot is "the ports of this host are not known": "not scanned" for a Discovery host, but a host that ran out of time or whose open ports nmap did not name was scanned
+      if (SCAN_DATA.some(function (d) { return d && ((d.timed_out === true && !Array.isArray(d.ports)) || unlistedOpen(d)); })) lgGrey.lastChild.textContent = 'ไม่ทราบพอร์ต';
+    }
+  }
+  function drawVector() {
+    var R = window.ReportDiagramSvg, t0 = Date.now();
+    if (!R || !T || !window.SubnetTopology) throw new Error('the vector diagram code is not loaded');
+    var plan = R.planCollapse(SCAN_DATA, function (ip) { return SubnetTopology.groupKey(ip, 24); }, DRAW_LIMIT);
+    var data = buildData(plan.bubbles ? plan.collapsed : null);
+    var L = R.layout({ nodes: data.nodes, edges: data.edges, frameW: host.clientWidth, frameH: host.clientHeight, maxScale: 1 });
+    var svg = R.render(host, L, { ariaLabel: 'แผนภาพเครือข่ายของอุปกรณ์ ' + SCAN_DATA.length.toLocaleString('en-US') + ' เครื่อง' });
+    if (svg.getBBox) svg.getBBox();                     // lay the text out now, so the fonts it uses are requested before we wait for them
+    // what was drawn, for the checks (a test reads window.__diagram: the vector path and the canvas fallback report the same node, line and dot counts)
+    window.__diagram = { engine: 'svg', nodes: L.stats.nodes, edges: L.stats.edges, bubbles: L.stats.bubbles, dots: L.stats.dots, scale: L.scale, drawn: plan.drawn, total: plan.total, ms: Date.now() - t0 };
+    var note = document.getElementById('lg-bubbles');
+    if (note && plan.bubbles) {
+      note.textContent = 'เครือข่ายย่อย ' + plan.bubbles.toLocaleString('en-US') + ' เครือข่าย รวม ' + plan.hidden.toLocaleString('en-US') + ' เครื่อง แสดงเป็นวงกลมพร้อมจำนวนเครื่อง เพราะแผนภาพแสดงอุปกรณ์แยกรายเครื่องได้ไม่เกิน ' + DRAW_LIMIT.toLocaleString('en-US') + ' เครื่อง ดูรายชื่อทุกเครื่องในรายการอุปกรณ์ หัวข้อ 4';
+      note.hidden = false;
+    }
+    updateLegend(data.anyUnknownDot);
+  }
+  function loadVis(cb) {
+    if (window.vis) { cb(); return; }
+    var s = document.createElement('script');
+    s.src = VIS_URL; s.onload = function () { cb(); }; s.onerror = function () { cb(new Error('vis-network did not load')); };
+    document.head.appendChild(s);
+  }
+  // the old drawing: a vis-network canvas (printed as a bitmap). Only used when the vector drawing failed.
+  function drawCanvas() {
+    loadVis(function (err) {
+      try {
+        if (err) throw err;
+        var data = buildData(null);
+        updateLegend(data.anyUnknownDot);
+        var opts = SubnetTopology.visOptions(24);
+        host.textContent = '';
+        var network = new vis.Network(host, { nodes: new vis.DataSet(data.nodes), edges: new vis.DataSet(data.edges) }, opts);
+        SubnetTopology.attachRegions(network, function () { return data.subnets; });
+        network.setOptions({ interaction: { dragNodes: false, dragView: false, zoomView: false, hover: false, selectable: false } });
+        var dots = {};      // the same counts the vector path reports, so the two drawings can be compared (a test reads window.__diagram)
+        data.nodes.forEach(function (n) { if (String(n.label).indexOf('<b>●</b>') >= 0 && n.font && n.font.bold && n.font.bold.color) dots[n.font.bold.color] = (dots[n.font.bold.color] || 0) + 1; });
+        window.__diagram = { engine: 'canvas', nodes: data.nodes.length, edges: data.edges.length, dots: dots };
+        setTimeout(function () { SubnetTopology.fit(network, false); setTimeout(whenFontsReady, 700); }, 300);
+      } catch (e) {
+        host.textContent = 'วาดแผนภาพไม่สำเร็จ: ' + e.message;
+        whenFontsReady();
+      }
+    });
+  }
+  try {
+    drawVector();
+    setTimeout(whenFontsReady, 250);
   } catch (e) {
-    host.textContent = 'วาดแผนภาพไม่สำเร็จ: ' + e.message;
-    whenFontsReady();
+    try { console.warn('[report] the vector diagram failed, drawing the canvas one instead: ' + e.message); } catch (e2) { }
+    host.textContent = '';
+    drawCanvas();
   }
   setTimeout(done, 15000);      // never leave the PDF job waiting for ever
 })();

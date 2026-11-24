@@ -1,26 +1,28 @@
 {% extends 'base.html' %}
 
+{% block title %}{{ t('top.user_mgmt') }} · CLYLAR Network Scanner{% endblock %}
+
 {% block content %}
 
 <div class="d-flex align-items-center justify-content-between mb-4">
     <div>
-        <h4 class="mb-0">User Management</h4>
+        <h4 class="mb-0">{{ t('top.user_mgmt') }}</h4>
         <small class="text-muted">
             {% if current_user.role == 'superadmin' %}
-                <span class="badge bg-danger me-1">Super Admin</span> จัดการ Admin และ User ได้ทั้งหมด
+                <span class="badge me-1 um-chip um-chip-super">{{ t('nav.role.superadmin') }}</span> {{ t('users.sub_superadmin') }}
             {% else %}
-                <span class="badge bg-primary me-1">Admin</span> จัดการ User ใต้สังกัดของคุณ
+                <span class="badge me-1 um-chip um-chip-admin">{{ t('nav.role.admin') }}</span> {{ t('users.sub_admin') }}
             {% endif %}
         </small>
     </div>
     <div class="d-flex gap-2">
         {% if current_user.role == 'superadmin' %}
-        <button class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#createAdminModal">
-            + เพิ่ม Admin
+        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#createAdminModal">
+            <i class="ti ti-plus" aria-hidden="true"></i> {{ t('users.add_admin') }}
         </button>
         {% endif %}
         <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createUserModal">
-            + เพิ่ม User
+            <i class="ti ti-plus" aria-hidden="true"></i> {{ t('users.add_user') }}
         </button>
     </div>
 </div>
@@ -30,7 +32,7 @@
         {% for category, message in messages %}
         <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
             {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{{ t('common.close') }}"></button>
         </div>
         {% endfor %}
     {% endif %}
@@ -40,39 +42,55 @@
 {# ── ADMIN TABLE (superadmin เท่านั้น) ── #}
 {% if current_user.role == 'superadmin' %}
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-danger text-white d-flex align-items-center justify-content-between">
-        <h6 class="mb-0">Admin ในระบบ ({{ admins|length }} คน)</h6>
-        <small class="opacity-75">สร้างโดย Super Admin เท่านั้น</small>
+    <div class="card-header d-flex align-items-center justify-content-between um-head">
+        <h6 class="mb-0">{{ t('users.admins_title', n=admins|length) }}</h6>
+        <small class="text-muted">{{ t('users.admins_note') }}</small>
     </div>
+    <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
         <thead class="table-light">
             <tr>
                 <th>#</th>
-                <th>Username</th>
-                <th>Role</th>
-                <th>Create at</th>
-                <th>User ใต้สังกัด</th>
-                <th>Actions</th>
+                <th>{{ t('users.col.username') }}</th>
+                <th>{{ t('users.col.role') }}</th>
+                <th class="text-nowrap">{{ t('users.col.created') }}</th>
+                <th>{{ t('users.col.subordinates') }}</th>
+                <th>{{ t('users.col.actions') }}</th>
             </tr>
         </thead>
         <tbody>
             {% for u in admins %}
             <tr>
                 <td class="text-muted">{{ u.id }}</td>
-                <td class="fw-bold">{{ u.username }}</td>
-                <td><span class="badge bg-warning text-dark">Admin</span></td>
-                <td class="small text-muted">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
-                <td class="small text-muted">{{ u.subordinates|length }} คน</td>
-                <td>
+                <td class="fw-bold um-name">{{ u.username }}{% if u.is_suspended %} <span class="badge um-chip um-chip-susp" title="{{ t('users.suspended_tip') }}">{{ t('users.suspended') }}</span>{% endif %}</td>
+                <td><span class="badge um-chip um-chip-admin">{{ t('nav.role.admin') }}</span></td>
+                <td class="small text-muted text-nowrap">{{ u.created_at | fdt('%Y-%m-%d') if u.created_at else '—' }}</td>
+                <td class="small text-muted">{{ t('users.n_people', n=u.subordinates|length) }}</td>
+                <td class="um-act-cell">
+                    <div class="um-actions um-actions-3">
                     <button class="btn btn-sm btn-outline-secondary"
                             data-bs-toggle="modal"
-                            data-bs-target="#resetPwModal{{ u.id }}">
-                            Reset PW
+                            data-bs-target="#resetPwModal{{ u.id }}"
+                            aria-label="{{ t('users.reset_aria', name=u.username) }}">
+                            {{ t('users.reset_pw') }}
                     </button>
-                    <form method="POST" action="/users/{{ u.id }}/delete" class="d-inline"
-                          onsubmit="return confirm('ลบ Admin {{ u.username }} และ User ใต้สังกัดทั้งหมด?')">
-                        <button class="btn btn-sm btn-outline-danger">🗑 ลบ</button>
+                    <form method="POST" action="/users/{{ u.id }}/{{ 'unsuspend' if u.is_suspended else 'suspend' }}" class="um-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                aria-label="{{ t('users.unsuspend_aria' if u.is_suspended else 'users.suspend_aria', name=u.username) }}"
+                                title="{{ t('users.unsuspend_tip' if u.is_suspended else 'users.suspend_tip') }}">
+                            <i class="ti {{ 'ti-player-play' if u.is_suspended else 'ti-player-pause' }}" aria-hidden="true"></i> {{ t('users.unsuspend' if u.is_suspended else 'users.suspend') }}
+                        </button>
                     </form>
+                    <form method="POST" action="/users/{{ u.id }}/delete" class="um-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="button" class="btn btn-sm um-btn-del" data-um-delete
+                                data-kind="admin" data-name="{{ u.username }}" data-count="{{ u.subordinates|length }}"
+                                aria-label="{{ t('users.delete_aria', name=u.username) }}">
+                            <i class="ti ti-trash" aria-hidden="true"></i> {{ t('users.delete') }}
+                        </button>
+                    </form>
+                    </div>
                 </td>
             </tr>
 
@@ -81,18 +99,19 @@
                 <div class="modal-dialog modal-sm">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h6 class="modal-title">Reset Password — {{ u.username }}</h6>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            <h6 class="modal-title">{{ t('users.reset_title', name=u.username) }}</h6>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"></button>
                         </div>
                         <form method="POST" action="/users/{{ u.id }}/reset_password">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <div class="modal-body">
-                                <label class="form-label">Password ใหม่</label>
+                                <label class="form-label">{{ t('users.new_pw') }}</label>
                                 <input type="password" name="new_password" class="form-control"
-                                       placeholder="กรอก password ใหม่" required>
+                                       placeholder="{{ t('users.new_pw_ph') }}" required>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
-                                <button type="submit" class="btn btn-warning btn-sm">บันทึก</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">{{ t('common.cancel') }}</button>
+                                <button type="submit" class="btn btn-primary btn-sm">{{ t('common.save') }}</button>
                             </div>
                         </form>
                     </div>
@@ -100,68 +119,86 @@
             </div>
             {% else %}
             <tr>
-                <td colspan="6" class="text-center text-muted py-3">ยังไม่มี Admin ในระบบ</td>
+                <td colspan="6" class="text-center text-muted py-3">{{ t('users.no_admins') }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endif %}
 
 
 {# ── USER TABLE ── #}
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-dark text-white d-flex align-items-center justify-content-between">
-        <h6 class="mb-0">User
+    <div class="card-header d-flex align-items-center justify-content-between um-head">
+        <h6 class="mb-0">
             {% if current_user.role == 'superadmin' %}
-                ทั้งหมด ({{ users|length }} คน)
+                {{ t('users.users_all', n=users|length) }}
             {% else %}
-                ใต้สังกัดของคุณ ({{ users|length }} คน)
+                {{ t('users.users_mine', n=users|length) }}
             {% endif %}
         </h6>
     </div>
+    <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
         <thead class="table-light">
             <tr>
                 <th>#</th>
-                <th>Username</th>
-                {% if current_user.role == 'superadmin' %}<th>สังกัด Admin</th>{% endif %}
-                <th>Create at</th>
-                <th>Actions</th>
+                <th>{{ t('users.col.username') }}</th>
+                {% if current_user.role == 'superadmin' %}<th>{{ t('users.col.owner') }}</th>{% endif %}
+                <th class="text-nowrap">{{ t('users.col.created') }}</th>
+                <th>{{ t('users.col.actions') }}</th>
             </tr>
         </thead>
         <tbody>
             {% for u in users %}
             <tr>
                 <td class="text-muted">{{ u.id }}</td>
-                <td class="fw-bold">{{ u.username }}</td>
+                <td class="fw-bold um-name">{{ u.username }}{% if u.is_suspended %} <span class="badge um-chip um-chip-susp" title="{{ t('users.suspended_tip') }}">{{ t('users.suspended') }}</span>{% endif %}</td>
                 {% if current_user.role == 'superadmin' %}
                 <td class="small text-muted">
                     {% if u.creator %}
-                        <span class="badge bg-warning text-dark">{{ u.creator.username }}</span>
+                        <span class="badge um-chip um-chip-admin">{{ u.creator.username }}</span>
                     {% else %}
                         <span class="text-muted">—</span>
                     {% endif %}
                 </td>
                 {% endif %}
-                <td class="small text-muted">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
-                <td>
+                <td class="small text-muted text-nowrap">{{ u.created_at | fdt('%Y-%m-%d') if u.created_at else '—' }}</td>
+                <td class="um-act-cell">
+                    <div class="um-actions um-actions-{{ 4 if current_user.role == 'superadmin' else 3 }}">
+                    {% if current_user.role == 'superadmin' %}
                     <button class="btn btn-sm btn-outline-secondary"
                             data-bs-toggle="modal"
-                            data-bs-target="#resetPwModal{{ u.id }}">
-                            Reset PW
-                    </button>
-                    {% if current_user.role == 'superadmin' %}
-                    <button class="btn btn-sm btn-outline-warning"
-                            data-bs-toggle="modal"
-                            data-bs-target="#reassignModal{{ u.id }}">
-                        🔄 ย้าย Admin
+                            data-bs-target="#reassignModal{{ u.id }}"
+                            aria-label="{{ t('users.move_aria', name=u.username) }}">
+                        <i class="ti ti-arrows-exchange" aria-hidden="true"></i> {{ t('users.move') }}
                     </button>
                     {% endif %}
-                    <form method="POST" action="/users/{{ u.id }}/delete" class="d-inline"
-                          onsubmit="return confirm('ลบ user {{ u.username }} ?')">
-                        <button class="btn btn-sm btn-outline-danger">🗑 ลบ</button>
+                    <button class="btn btn-sm btn-outline-secondary"
+                            data-bs-toggle="modal"
+                            data-bs-target="#resetPwModal{{ u.id }}"
+                            aria-label="{{ t('users.reset_aria', name=u.username) }}">
+                            {{ t('users.reset_pw') }}
+                    </button>
+                    <form method="POST" action="/users/{{ u.id }}/{{ 'unsuspend' if u.is_suspended else 'suspend' }}" class="um-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                aria-label="{{ t('users.unsuspend_aria' if u.is_suspended else 'users.suspend_aria', name=u.username) }}"
+                                title="{{ t('users.unsuspend_tip' if u.is_suspended else 'users.suspend_tip') }}">
+                            <i class="ti {{ 'ti-player-play' if u.is_suspended else 'ti-player-pause' }}" aria-hidden="true"></i> {{ t('users.unsuspend' if u.is_suspended else 'users.suspend') }}
+                        </button>
                     </form>
+                    <form method="POST" action="/users/{{ u.id }}/delete" class="um-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="button" class="btn btn-sm um-btn-del" data-um-delete
+                                data-kind="user" data-name="{{ u.username }}" data-owner="{{ u.creator.username if u.creator else '' }}"
+                                aria-label="{{ t('users.delete_aria', name=u.username) }}">
+                            <i class="ti ti-trash" aria-hidden="true"></i> {{ t('users.delete') }}
+                        </button>
+                    </form>
+                    </div>
                 </td>
             </tr>
 
@@ -170,19 +207,20 @@
             <div class="modal fade" id="reassignModal{{ u.id }}" tabindex="-1">
                 <div class="modal-dialog modal-sm">
                     <div class="modal-content">
-                        <div class="modal-header border-warning">
-                            <h6 class="modal-title">🔄 ย้ายสังกัด — {{ u.username }}</h6>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        <div class="modal-header">
+                            <h6 class="modal-title">{{ t('users.move_title', name=u.username) }}</h6>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"></button>
                         </div>
                         <form method="POST" action="/users/{{ u.id }}/reassign">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <div class="modal-body">
                                 <p class="small text-muted mb-2">
-                                    ปัจจุบันสังกัด:
+                                    {{ t('users.current_owner') }}
                                     <strong>{{ u.creator.username if u.creator else '—' }}</strong>
                                 </p>
-                                <label class="form-label">ย้ายไปสังกัด Admin</label>
+                                <label class="form-label">{{ t('users.move_to') }}</label>
                                 <select name="new_admin_id" class="form-select" required>
-                                    <option value="" disabled selected>-- เลือก Admin --</option>
+                                    <option value="" disabled selected>{{ t('users.pick_admin') }}</option>
                                     {% for a in admins %}
                                         {% if not u.creator or a.id != u.creator.id %}
                                         <option value="{{ a.id }}">{{ a.username }}</option>
@@ -191,8 +229,8 @@
                                 </select>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
-                                <button type="submit" class="btn btn-warning btn-sm">ย้าย</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">{{ t('common.cancel') }}</button>
+                                <button type="submit" class="btn btn-primary btn-sm">{{ t('users.move_btn') }}</button>
                             </div>
                         </form>
                     </div>
@@ -204,18 +242,19 @@
                 <div class="modal-dialog modal-sm">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h6 class="modal-title">🔑 Reset Password — {{ u.username }}</h6>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            <h6 class="modal-title">{{ t('users.reset_title', name=u.username) }}</h6>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"></button>
                         </div>
                         <form method="POST" action="/users/{{ u.id }}/reset_password">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <div class="modal-body">
-                                <label class="form-label">Password ใหม่</label>
+                                <label class="form-label">{{ t('users.new_pw') }}</label>
                                 <input type="password" name="new_password" class="form-control"
-                                       placeholder="กรอก password ใหม่" required>
+                                       placeholder="{{ t('users.new_pw_ph') }}" required>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
-                                <button type="submit" class="btn btn-warning btn-sm">บันทึก</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">{{ t('common.cancel') }}</button>
+                                <button type="submit" class="btn btn-primary btn-sm">{{ t('common.save') }}</button>
                             </div>
                         </form>
                     </div>
@@ -224,36 +263,39 @@
             {% else %}
             <tr>
                 <td colspan="{{ 5 if current_user.role == 'superadmin' else 4 }}" class="text-center text-muted py-3">
-                    ยังไม่มี User
+                    {{ t('users.no_users') }}
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 
 {# ── Role Permission Guide ── #}
 <div class="card border-0 shadow-sm mt-2">
     <div class="card-body">
-        <h6 class="mb-3">สิทธิ์แต่ละ Role</h6>
+        <h6 class="mb-3">{{ t('users.perm_title') }}</h6>
         <table class="table table-sm table-bordered mb-0 text-center small">
             <thead class="table-light">
                 <tr>
-                    <th class="text-start">ฟีเจอร์</th>
-                    <th>Super Admin</th>
-                    <th>Admin</th>
-                    <th>User</th>
+                    <th class="text-start">{{ t('users.perm.feature') }}</th>
+                    <th>{{ t('nav.role.superadmin') }}</th>
+                    <th>{{ t('nav.role.admin') }}</th>
+                    <th>{{ t('nav.role.user') }}</th>
                 </tr>
             </thead>
             <tbody>
-                <tr><td class="text-start">สแกนเครือข่าย</td><td>✅</td><td>✅</td><td>❌</td></tr>
-                <tr><td class="text-start">สร้าง / จัดการ Schedule</td><td>✅</td><td>✅</td><td>❌</td></tr>
-                <tr><td class="text-start">ดูผลการสแกน</td><td>ของตัวเอง</td><td>ของตัวเอง</td><td>ของ Admin ที่สร้าง</td></tr>
-                <tr><td class="text-start">สร้าง Admin</td><td>✅</td><td>❌</td><td>❌</td></tr>
-                <tr><td class="text-start">สร้าง User</td><td>✅</td><td>✅</td><td>❌</td></tr>
-                <tr><td class="text-start">ลบ / Reset PW</td><td>Admin + User ทุกคน</td><td>User ใต้สังกัด</td><td>❌</td></tr>
-                <tr><td class="text-start">ย้าย User ไปสังกัด Admin อื่น</td><td>✅</td><td>❌</td><td>❌</td></tr>
+                {% set ok %}<i class="ti ti-check um-yes" role="img" aria-label="{{ t('users.yes_aria') }}"></i>{% endset %}
+                {% set no %}<i class="ti ti-minus um-no" role="img" aria-label="{{ t('users.no_aria') }}"></i>{% endset %}
+                <tr><td class="text-start">{{ t('users.perm.scan') }}</td><td>{{ ok }}</td><td>{{ ok }}</td><td>{{ no }}</td></tr>
+                <tr><td class="text-start">{{ t('users.perm.schedule') }}</td><td>{{ ok }}</td><td>{{ ok }}</td><td>{{ no }}</td></tr>
+                <tr><td class="text-start">{{ t('users.perm.view') }}</td><td>{{ t('users.perm.own') }}</td><td>{{ t('users.perm.own') }}</td><td>{{ t('users.perm.creators') }}</td></tr>
+                <tr><td class="text-start">{{ t('users.perm.create_admin') }}</td><td>{{ ok }}</td><td>{{ no }}</td><td>{{ no }}</td></tr>
+                <tr><td class="text-start">{{ t('users.perm.create_user') }}</td><td>{{ ok }}</td><td>{{ ok }}</td><td>{{ no }}</td></tr>
+                <tr><td class="text-start">{{ t('users.perm.delete_reset') }}</td><td>{{ t('users.perm.all_accounts') }}</td><td>{{ t('users.perm.own_users') }}</td><td>{{ no }}</td></tr>
+                <tr><td class="text-start">{{ t('users.perm.move') }}</td><td>{{ ok }}</td><td>{{ no }}</td><td>{{ no }}</td></tr>
             </tbody>
         </table>
     </div>
@@ -265,28 +307,29 @@
 <div class="modal fade" id="createAdminModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header border-danger">
-                <h5 class="modal-title text-danger">เพิ่ม Admin ใหม่</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <div class="modal-header">
+                <h5 class="modal-title">{{ t('users.admin_new_title') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"></button>
             </div>
             <form method="POST" action="/users/create">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="role" value="admin">
                 <div class="modal-body">
-                    <div class="alert alert-warning small py-2">
-                        Admin สามารถสแกนได้ สร้าง User ได้ แต่เห็นเฉพาะ Scan ของตัวเอง
+                    <div class="alert alert-info small py-2">
+                        {{ t('users.admin_new_note') }}
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Username</label>
-                        <input type="text" name="username" class="form-control" placeholder="กรอก username" required>
+                        <label class="form-label" for="caUsername">{{ t('users.col.username') }}</label>
+                        <input type="text" id="caUsername" name="username" class="form-control" placeholder="{{ t('users.username_ph') }}" autocomplete="off" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Password</label>
-                        <input type="password" name="password" class="form-control" placeholder="กรอก password" required>
+                        <label class="form-label" for="caPassword">{{ t('users.password') }}</label>
+                        <input type="password" id="caPassword" name="password" class="form-control" placeholder="{{ t('users.password_ph') }}" autocomplete="new-password" required>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
-                    <button type="submit" class="btn btn-danger">สร้าง Admin</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('common.cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ t('users.create_admin') }}</button>
                 </div>
             </form>
         </div>
@@ -300,32 +343,212 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">เพิ่ม User ใหม่</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <h5 class="modal-title">{{ t('users.user_new_title') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"></button>
             </div>
             <form method="POST" action="/users/create">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="role" value="user">
                 <div class="modal-body">
                     <div class="alert alert-info small py-2">
-                        User จะเห็นผลการสแกนของ
-                        <strong>{{ current_user.username }}</strong> เท่านั้น
+                        {{ t('users.user_new_note_pre') }}
+                        <strong>{{ current_user.username }}</strong> {{ t('users.user_new_note_post') }}
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Username</label>
-                        <input type="text" name="username" class="form-control" placeholder="กรอก username" required>
+                        <label class="form-label" for="cuUsername">{{ t('users.col.username') }}</label>
+                        <input type="text" id="cuUsername" name="username" class="form-control" placeholder="{{ t('users.username_ph') }}" autocomplete="off" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Password</label>
-                        <input type="password" name="password" class="form-control" placeholder="กรอก password" required>
+                        <label class="form-label" for="cuPassword">{{ t('users.password') }}</label>
+                        <input type="password" id="cuPassword" name="password" class="form-control" placeholder="{{ t('users.password_ph') }}" autocomplete="new-password" required>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
-                    <button type="submit" class="btn btn-primary">สร้าง User</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('common.cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ t('users.create_user') }}</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+
+{# ── Delete confirmation (one dialog for every row; filled in by the script below, with textContent only) ── #}
+<div class="modal fade" id="umDeleteModal" tabindex="-1" aria-labelledby="umDelTitle" aria-describedby="umDelLead" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered um-dd-dialog">
+        <div class="modal-content um-dd-content">
+            <div class="um-dd-head">
+                <h5 class="um-dd-title" id="umDelTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('common.close') }}"></button>
+            </div>
+            <p class="um-dd-lead" id="umDelLead"></p>
+            <dl class="um-dd-facts" id="umDelFacts"></dl>
+            <div class="um-dd-actions">
+                <button type="button" class="um-dd-btn um-dd-quiet" id="umDelCancel" data-bs-dismiss="modal">{{ t('common.cancel') }}</button>
+                <button type="button" class="um-dd-btn um-dd-danger" id="umDelConfirm"></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* User management. Page-local colour pairs: the light value is the first, the dark value (the app's tokens) the second.
+   Calm on purpose: no solid red or black card headers, no yellow chips or buttons (red is for Critical only; the one red thing is the final Delete button). */
+:root {
+    --um-line: #e5e8ec; --um-line-2: #f0f2f5; --um-soft: #5b6472; --um-hover: #f3f5f8;
+    --um-btn-line: #d9dee5; --um-btn-line-hover: #c8cfd9;
+    --um-focus-line: #8796ab; --um-focus-ring: rgba(100, 116, 139, .22);
+    --um-shadow: 0 20px 50px rgba(15, 23, 42, .16), 0 0 0 1px rgba(15, 23, 42, .04);
+    --um-del-ink: #b91c1c; --um-del-line: rgba(185, 28, 28, .3); --um-del-line-hover: rgba(185, 28, 28, .45); --um-del-hover: #fdf1f0;
+    --um-yes: #166534; --um-no: #64748b;
+}
+:root[data-theme="dark"] {
+    --um-line: var(--border); --um-line-2: var(--line-soft); --um-soft: var(--muted); --um-hover: var(--surface-2);
+    --um-btn-line: var(--border-strong); --um-btn-line-hover: var(--line-stronger);
+    --um-focus-line: var(--focus); --um-focus-ring: rgba(169, 171, 180, .28);
+    --um-shadow: 0 20px 50px rgba(0, 0, 0, .5), 0 0 0 1px var(--border);
+    --um-del-ink: var(--danger-ink); --um-del-line: rgba(229, 151, 158, .4); --um-del-line-hover: rgba(229, 151, 158, .6); --um-del-hover: rgba(229, 151, 158, .12);
+    --um-yes: var(--ok-deep); --um-no: var(--muted);
+}
+
+/* the two card headers: the card's own surface and a hairline, a plain title (they were a solid red strip and a black one) */
+.card-header.um-head { background: var(--surface); color: var(--text); border-bottom: 1px solid var(--um-line); }
+.um-head h6 { font-weight: 600; color: var(--text); }
+
+/* a very long username wraps inside its cell instead of widening the table past the card */
+.um-name { overflow-wrap: anywhere; }
+
+/* role chips: soft slate for the superadministrator, soft blue for an administrator (they were solid red, solid blue and yellow) */
+.badge.um-chip { font-weight: 600; border: 1px solid transparent; }
+.badge.um-chip-super { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
+.badge.um-chip-admin { background: var(--info-bg); color: var(--info-ink); }
+/* Actions: a grid of fixed slots, right-aligned, so every button sits in the same slot in every row and in both tables. A slot's width is set by its
+   longest label (Thai and English), so a suspended row ("เปิดใช้งาน" / "Reactivate") cannot shift anything. The forms only wrap the buttons. */
+.um-act-cell { width: 1%; white-space: nowrap; }
+.um-actions { display: grid; gap: .5rem; justify-content: end; align-items: stretch; }
+.um-actions-3 { grid-template-columns: 9rem 8rem 5.25rem; }
+.um-actions-4 { grid-template-columns: 8rem 9rem 8rem 5.25rem; }
+.um-actions > form.um-form { display: contents; }
+.um-actions .btn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: .3rem; white-space: nowrap; }
+
+/* Suspended: a soft amber chip (a state to notice, not an alarm: red is kept for Critical) */
+.badge.um-chip-susp { background: var(--warn-bg); color: var(--amber-ink-3); border-color: var(--warn-line); font-weight: 600; margin-left: .35rem; }
+
+/* Delete in a row: a quiet outline in the same red as the dialog's button, at 30% strength (the History bulk bar does the same) */
+.btn.um-btn-del {
+    --bs-btn-color: var(--um-del-ink); --bs-btn-bg: transparent; --bs-btn-border-color: var(--um-del-line);
+    --bs-btn-hover-color: var(--um-del-ink); --bs-btn-hover-bg: var(--um-del-hover); --bs-btn-hover-border-color: var(--um-del-line-hover);
+    --bs-btn-active-color: var(--um-del-ink); --bs-btn-active-bg: var(--um-del-hover); --bs-btn-active-border-color: var(--um-del-line-hover);
+    --bs-btn-focus-shadow-rgb: 185, 28, 28;
+}
+
+/* the permission table: a tick and a dash instead of two emoji; "no" is grey, never red */
+.um-yes, .um-no { font-size: 1rem; vertical-align: middle; }
+.um-yes { color: var(--um-yes); }
+.um-no { color: var(--um-no); }
+
+/* Delete confirmation: the same parts as the History page's delete dialogs (white, no icon, the title says what happens, red only on the final button) */
+.um-dd-dialog { --bs-modal-width: 520px; }
+.um-dd-content { border: 0; border-radius: 1rem; background: var(--surface); padding: 22px 24px 20px; box-shadow: var(--um-shadow); }
+.um-dd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.um-dd-title { margin: 0; font-size: 1.1rem; font-weight: 700; line-height: 1.5; color: var(--nt-text); overflow-wrap: anywhere; }
+.um-dd-head .btn-close { flex: none; margin: 4px -4px 0 0; --bs-btn-close-opacity: .4; }
+:root[data-theme="dark"] .um-dd-head .btn-close { --bs-btn-close-opacity: .7; }
+.um-dd-lead { margin: 4px 0 16px; font-size: .875rem; line-height: 1.7; color: var(--nav-ink); }
+.um-dd-facts { margin: 0; border: 1px solid var(--um-line); border-radius: 10px; font-size: .8125rem; }
+.um-dd-facts .um-dd-row { display: flex; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--um-line-2); line-height: 1.5; }
+.um-dd-facts .um-dd-row:last-child { border-bottom: 0; }
+.um-dd-facts dt { flex: 0 0 8.5rem; margin: 0; font-weight: 500; color: var(--um-soft); }
+.um-dd-facts dd { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--nt-text); overflow-wrap: anywhere; }
+.um-dd-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin: 18px 0 0; }
+.um-dd-btn {
+    padding: 7px 16px; border: 1px solid transparent; border-radius: 8px;
+    font: inherit; font-size: .875rem; font-weight: 500; line-height: 1.5; cursor: pointer;
+    transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.um-dd-btn:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--um-focus-ring); border-color: var(--um-focus-line); }
+.um-dd-quiet { background: var(--surface); border-color: var(--um-btn-line); color: var(--text-2); }
+.um-dd-quiet:hover { background: var(--um-hover); border-color: var(--um-btn-line-hover); color: var(--fg-2); }
+.um-dd-danger { background: #b91c1c; border-color: #b91c1c; color: #fff; font-weight: 600; }
+.um-dd-danger:hover { background: #a01919; border-color: #a01919; }
+.um-dd-danger:focus-visible { border-color: #7f1d1d; box-shadow: 0 0 0 3px rgba(185, 28, 28, .25); }
+.um-dd-danger:disabled { opacity: .65; cursor: default; }
+@media (max-width: 575.98px) {
+    .um-dd-content { padding: 18px 16px 16px; }
+    .um-dd-facts .um-dd-row { flex-direction: column; gap: 0; }
+    .um-dd-facts dt { flex-basis: auto; }
+}
+@media (prefers-reduced-motion: reduce) { .um-dd-btn { transition: none; } }
+</style>
+
+<script>
+/* The delete buttons of the tables do not submit by themselves: they open the confirmation above, and only its red button submits the row's form
+   (so nothing is deleted without it, and without JavaScript nothing is deleted at all). Every value from a row goes in with textContent. */
+document.addEventListener('DOMContentLoaded', function () {
+    var modalEl = document.getElementById('umDeleteModal');
+    if (!modalEl) return;
+    var TXT = {
+        titleUser: {{ t('users.del.title_user') | tojson }},
+        titleAdmin: {{ t('users.del.title_admin') | tojson }},
+        leadUser: {{ t('users.del.lead_user') | tojson }},
+        leadAdmin: {{ t('users.del.lead_admin') | tojson }},
+        fName: {{ t('users.col.username') | tojson }},
+        fRole: {{ t('users.col.role') | tojson }},
+        fOwner: {{ t('users.del.f_owner') | tojson }},
+        fCascade: {{ t('users.del.f_cascade') | tojson }},
+        btnUser: {{ t('users.del.btn_user') | tojson }},
+        btnAdmin: {{ t('users.del.btn_admin') | tojson }},
+        roleUser: {{ t('nav.role.user') | tojson }},
+        roleAdmin: {{ t('nav.role.admin') | tojson }},
+        people: {{ t('users.n_people') | tojson }}
+    };
+    var titleEl = document.getElementById('umDelTitle');
+    var leadEl = document.getElementById('umDelLead');
+    var factsEl = document.getElementById('umDelFacts');
+    var confirmBtn = document.getElementById('umDelConfirm');
+    var cancelBtn = document.getElementById('umDelCancel');
+    var pendingForm = null, opener = null;
+
+    function addFact(label, value) {
+        var row = document.createElement('div'); row.className = 'um-dd-row';
+        var dt = document.createElement('dt'); dt.textContent = label;
+        var dd = document.createElement('dd'); dd.textContent = value;
+        row.appendChild(dt); row.appendChild(dd); factsEl.appendChild(row);
+    }
+
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('[data-um-delete]') : null;
+        if (!btn) return;
+        e.preventDefault();
+        var isAdmin = btn.dataset.kind === 'admin';
+        var name = btn.dataset.name || '';
+        pendingForm = btn.closest('form');
+        opener = btn;
+        titleEl.textContent = (isAdmin ? TXT.titleAdmin : TXT.titleUser).replace('{name}', name);
+        leadEl.textContent = isAdmin ? TXT.leadAdmin : TXT.leadUser;
+        confirmBtn.textContent = isAdmin ? TXT.btnAdmin : TXT.btnUser;
+        confirmBtn.disabled = false;
+        factsEl.textContent = '';
+        addFact(TXT.fName, name);
+        addFact(TXT.fRole, isAdmin ? TXT.roleAdmin : TXT.roleUser);
+        if (isAdmin) addFact(TXT.fCascade, TXT.people.replace('{n}', btn.dataset.count || '0'));
+        else if (btn.dataset.owner) addFact(TXT.fOwner, btn.dataset.owner);
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+
+    /* Cancel is the safe default: it gets the focus, and Enter on it only closes */
+    modalEl.addEventListener('shown.bs.modal', function () { cancelBtn.focus(); });
+    modalEl.addEventListener('hidden.bs.modal', function () {
+        pendingForm = null;
+        if (opener && document.body.contains(opener)) opener.focus();
+        opener = null;
+    });
+    confirmBtn.addEventListener('click', function () {
+        if (!pendingForm) return;
+        confirmBtn.disabled = true;          // one click, one request
+        pendingForm.submit();
+    });
+});
+</script>
 
 {% endblock %}

@@ -1,12 +1,79 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ ui_lang }}" data-theme="{{ ui_theme }}">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login — CLYLAR Network Scanner</title>
+    <meta name="color-scheme" content="{{ 'dark' if ui_theme == 'dark' else 'normal' }}">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{{ t('login.tab_title') }}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Nunito:wght@900&family=Prompt:wght@500;600;700&family=Sarabun:wght@500;600;700&display=swap" rel="stylesheet">
     <style>
+        /* ═══════════════════════════════════════════
+           DESIGN TOKENS: light is the default (exactly the colours this page always had); dark is the app's palette C.
+           The server writes data-theme on <html> from the user's saved choice or the cookie, so there is no flash.
+           ═══════════════════════════════════════════ */
+        :root {
+            --l-page: #f7f7f8;
+            --l-surface: #ffffff;
+            --l-ink: #1a1a2e;
+            --l-ink-2: #4a4a5a;
+            --l-muted: #8c8c9e;
+            --l-faint: #b5b5c3;
+            --l-faint-hover: #6b6b7b;
+            --l-input-bg: #fafafc;
+            --l-input-line: #e2e2ea;
+            --l-btn: #2d2d3a;
+            --l-btn-hover: #1a1a28;
+            --l-btn-ink: #ffffff;
+            --l-err-bg: #fef2f2;
+            --l-err-line: #fecaca;
+            --l-err-ink: #b91c1c;
+            --l-edge: rgba(255, 255, 255, 0.12);
+            --l-photo: brightness(0.88) saturate(1.08);
+            --l-logo-text: #363a42;
+            --l-logo-en: #4d515a;
+            --l-logo-nt: #55595a;
+            --l-ctl-bg: #f7f8fa;
+            --l-ctl-line: #eef0f3;
+            --l-ctl-ink: #363a42;
+            --l-ctl-muted: #6b7280;
+            --l-ctl-thumb: #ffffff;
+            --l-ctl-hover: #f1f5f9;
+            --l-focus: #64748b;
+        }
+
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --l-page: #2a2b2f;
+            --l-surface: #34353a;
+            --l-ink: #f3f3f5;
+            --l-ink-2: #d2d3d8;
+            --l-muted: #b8bac2;
+            --l-faint: #a3a5ad;
+            --l-faint-hover: #d2d3d8;
+            --l-input-bg: #2a2b2f;
+            --l-input-line: #5b5c64;
+            --l-btn: #f5c518;
+            --l-btn-hover: #ffd23f;
+            --l-btn-ink: #1f2024;
+            --l-err-bg: #4a2f31;
+            --l-err-line: #6b4448;
+            --l-err-ink: #eba3a8;
+            --l-edge: rgba(42, 43, 47, 0.35);
+            --l-photo: brightness(0.72) saturate(1.05);
+            --l-logo-text: #f3f3f5;
+            --l-logo-en: #d2d3d8;
+            --l-logo-nt: #d8d9dd;
+            --l-ctl-bg: #2a2b2f;
+            --l-ctl-line: #46474e;
+            --l-ctl-ink: #f3f3f5;
+            --l-ctl-muted: #b8bac2;
+            --l-ctl-thumb: #494a51;
+            --l-ctl-hover: #3d3e44;
+            --l-focus: #a9abb4;
+        }
+
         /* ═══════════════════════════════════════════
            RESET & BASE
            ═══════════════════════════════════════════ */
@@ -22,8 +89,8 @@
         body {
             height: 100%;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #f7f7f8;
-            color: #1a1a2e;
+            background: var(--l-page);
+            color: var(--l-ink);
             -webkit-font-smoothing: antialiased;
         }
 
@@ -42,7 +109,7 @@
             flex-direction: column;
             justify-content: center;
             padding: 60px 56px;
-            background: #ffffff;
+            background: var(--l-surface);
             position: relative;
             z-index: 2;
         }
@@ -63,7 +130,7 @@
             height: 100%;
             object-fit: cover;
             display: block;
-            filter: brightness(0.88) saturate(1.08);
+            filter: var(--l-photo);
             opacity: 0;
             transition: opacity 1.2s ease-in-out, transform 8s ease-out;
             transform: scale(1.04);
@@ -108,7 +175,7 @@
             position: absolute;
             inset: 0;
             background: linear-gradient(90deg,
-                    rgba(255, 255, 255, 0.12) 0%,
+                    var(--l-edge) 0%,
                     transparent 18%,
                     transparent 100%);
             z-index: 2;
@@ -122,6 +189,10 @@
             margin-bottom: 44px;
         }
 
+        .nt-logo .l-nt { fill: var(--l-logo-nt); }
+        .nt-logo .l-company { fill: var(--l-logo-text); }
+        .nt-logo .l-company-en { fill: var(--l-logo-en); }
+
         .nt-logo svg {
             height: 52px;
             width: auto;
@@ -134,14 +205,14 @@
         .login-heading {
             font-size: 26px;
             font-weight: 700;
-            color: #1a1a2e;
+            color: var(--l-ink);
             margin-bottom: 6px;
             letter-spacing: -0.5px;
         }
 
         .login-subheading {
             font-size: 14px;
-            color: #8c8c9e;
+            color: var(--l-muted);
             margin-bottom: 36px;
             font-weight: 400;
         }
@@ -154,7 +225,7 @@
             display: block;
             font-size: 13px;
             font-weight: 600;
-            color: #4a4a5a;
+            color: var(--l-ink-2);
             margin-bottom: 8px;
             letter-spacing: 0.2px;
         }
@@ -162,23 +233,23 @@
         .form-group input {
             width: 100%;
             padding: 13px 16px;
-            border: 1.5px solid #e2e2ea;
+            border: 1.5px solid var(--l-input-line);
             border-radius: 10px;
             font-size: 14.5px;
             font-family: inherit;
-            color: #1a1a2e;
-            background: #fafafc;
+            color: var(--l-ink);
+            background: var(--l-input-bg);
             outline: none;
             transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
         }
 
         .form-group input::placeholder {
-            color: #b5b5c3;
+            color: var(--l-faint);
         }
 
         .form-group input:focus {
             border-color: #f5c518;
-            background: #ffffff;
+            background: var(--l-surface);
             box-shadow: 0 0 0 3.5px rgba(245, 197, 24, 0.12);
         }
 
@@ -187,8 +258,8 @@
             padding: 14px;
             border: none;
             border-radius: 10px;
-            background: #2d2d3a;
-            color: #ffffff;
+            background: var(--l-btn);
+            color: var(--l-btn-ink);
             font-size: 15px;
             font-weight: 600;
             font-family: inherit;
@@ -201,7 +272,7 @@
         }
 
         .login-btn:hover {
-            background: #1a1a28;
+            background: var(--l-btn-hover);
             transform: translateY(-1px);
             box-shadow: 0 6px 24px rgba(45, 45, 58, 0.25);
         }
@@ -234,9 +305,9 @@
            FLASH MESSAGE
            ═══════════════════════════════════════════ */
         .alert-error {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-            color: #b91c1c;
+            background: var(--l-err-bg);
+            border: 1px solid var(--l-err-line);
+            color: var(--l-err-ink);
             padding: 12px 16px;
             border-radius: 10px;
             font-size: 13.5px;
@@ -278,12 +349,12 @@
         .login-footer {
             margin-top: 44px;
             font-size: 12px;
-            color: #b5b5c3;
+            color: var(--l-faint);
             line-height: 1.6;
         }
 
         .login-footer span {
-            color: #8c8c9e;
+            color: var(--l-muted);
         }
 
         /* ═══════════════════════════════════════════
@@ -391,6 +462,25 @@
             opacity: 0;
         }
 
+
+        /* ═══════════════════════════════════════════
+           THEME AND LANGUAGE BUTTONS (the same two as the app's top bar)
+           ═══════════════════════════════════════════ */
+        .login-ctls { position: absolute; top: 20px; right: 24px; display: flex; align-items: center; gap: 10px; z-index: 3; }
+        .tb-ctl { display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; font-size: 12.8px; font-weight: 500; line-height: 1.5; white-space: nowrap;
+                  color: var(--l-ctl-ink); background: var(--l-ctl-bg); border: 1px solid var(--l-ctl-line); border-radius: 10px; font-family: inherit; }
+        .tb-ctl svg { width: 16px; height: 16px; stroke: currentColor; color: var(--l-ctl-muted); flex: none; }
+        button.tb-ctl { cursor: pointer; }
+        .tb-theme { padding: 0 10px; height: 35.2px; justify-content: center; }
+        .tb-theme:hover { background: var(--l-ctl-hover); }
+        .tb-lang { padding: 3px; gap: 2px; }
+        .tb-lang button { border: 1px solid transparent; background: transparent; color: var(--l-ctl-muted); font: inherit; font-weight: 500; padding: 3px 10px; border-radius: 7px; line-height: 1.5; cursor: pointer; }
+        .tb-lang button:hover { color: var(--l-ctl-ink); }
+        .tb-lang button[aria-pressed="true"] { background: var(--l-ctl-thumb); color: var(--l-ctl-ink); font-weight: 700; border-color: var(--l-ctl-line); cursor: default; }
+        .tb-theme:focus-visible, .tb-lang button:focus-visible { outline: 2px solid var(--l-focus); outline-offset: 2px; }
+        :root[data-theme="dark"] .ic-moon { display: none; }
+        :root:not([data-theme="dark"]) .ic-sun { display: none; }
+
         /* ═══════════════════════════════════════════
            PASSWORD EYE TOGGLE
            ═══════════════════════════════════════════ */
@@ -420,7 +510,7 @@
             background: none;
             border: none;
             cursor: pointer;
-            color: #b5b5c3;
+            color: var(--l-faint);
             font-size: 18px;
             padding: 2px;
             line-height: 1;
@@ -428,7 +518,7 @@
         }
 
         .password-toggle:hover {
-            color: #6b6b7b;
+            color: var(--l-faint-hover);
         }
     </style>
 </head>
@@ -459,27 +549,27 @@
                     <!-- NT Official 'nt' Glyphs -->
                     <g id="nt-letters">
                         <!-- Letter 't' -->
-                        <path fill="#55595a" d="M 422.36 127.36 C 428.03 123.86 435.49 123.50 441.45 126.48 C 448.04 129.58 452.69 136.57 452.72 143.89 C 452.80 150.76 452.71 157.62 452.74 164.48 C 461.10 164.56 469.47 164.39 477.82 164.55 C 487.41 165.12 495.13 174.61 493.98 184.10 C 493.36 192.70 485.84 200.05 477.22 200.41 C 469.06 200.66 460.90 200.43 452.74 200.52 C 452.75 226.67 452.74 252.82 452.75 278.98 C 452.41 283.17 455.90 286.89 460.02 287.21 C 463.92 286.87 466.93 284.08 469.17 281.09 C 472.46 276.76 477.39 273.34 482.98 273.20 C 489.07 272.56 494.81 275.94 498.64 280.44 C 502.71 285.29 503.14 292.35 501.32 298.20 C 493.57 317.87 470.77 329.81 450.14 325.41 C 429.66 321.86 413.12 302.82 412.83 281.97 C 412.81 254.82 412.81 227.67 412.83 200.51 C 408.23 200.47 403.36 200.91 399.10 198.83 C 392.38 195.82 388.00 188.40 388.74 181.05 C 389.06 174.15 393.96 167.86 400.40 165.53 C 404.37 164.00 408.69 164.59 412.85 164.48 C 412.80 157.67 412.82 150.85 412.81 144.04 C 412.65 137.27 416.60 130.78 422.36 127.36 Z"/>
+                        <path class="l-nt" d="M 422.36 127.36 C 428.03 123.86 435.49 123.50 441.45 126.48 C 448.04 129.58 452.69 136.57 452.72 143.89 C 452.80 150.76 452.71 157.62 452.74 164.48 C 461.10 164.56 469.47 164.39 477.82 164.55 C 487.41 165.12 495.13 174.61 493.98 184.10 C 493.36 192.70 485.84 200.05 477.22 200.41 C 469.06 200.66 460.90 200.43 452.74 200.52 C 452.75 226.67 452.74 252.82 452.75 278.98 C 452.41 283.17 455.90 286.89 460.02 287.21 C 463.92 286.87 466.93 284.08 469.17 281.09 C 472.46 276.76 477.39 273.34 482.98 273.20 C 489.07 272.56 494.81 275.94 498.64 280.44 C 502.71 285.29 503.14 292.35 501.32 298.20 C 493.57 317.87 470.77 329.81 450.14 325.41 C 429.66 321.86 413.12 302.82 412.83 281.97 C 412.81 254.82 412.81 227.67 412.83 200.51 C 408.23 200.47 403.36 200.91 399.10 198.83 C 392.38 195.82 388.00 188.40 388.74 181.05 C 389.06 174.15 393.96 167.86 400.40 165.53 C 404.37 164.00 408.69 164.59 412.85 164.48 C 412.80 157.67 412.82 150.85 412.81 144.04 C 412.65 137.27 416.60 130.78 422.36 127.36 Z"/>
                         <!-- Letter 'n' -->
-                        <path fill="#55595a" d="M 247.35 165.51 C 253.23 163.58 260.06 164.24 265.20 167.80 C 270.76 171.45 274.19 178.06 273.97 184.71 C 278.73 178.56 284.51 173.03 291.65 169.76 C 304.67 163.77 319.77 163.10 333.62 166.27 C 347.30 169.48 358.92 179.13 365.64 191.32 C 371.06 200.92 373.46 212.05 373.33 223.02 C 373.31 250.00 373.33 276.98 373.33 303.96 C 373.40 309.81 371.01 315.70 366.56 319.56 C 360.70 325.03 351.44 326.21 344.31 322.63 C 337.68 319.49 333.18 312.37 333.20 305.03 C 333.19 280.02 333.18 255.00 333.20 229.98 C 333.17 223.96 331.44 217.90 327.99 212.93 C 322.38 204.53 312.17 199.40 302.05 200.14 C 287.49 200.44 274.48 213.36 274.19 227.94 C 274.15 252.95 274.17 277.96 274.18 302.97 C 274.21 307.65 273.12 312.47 270.33 316.31 C 265.89 322.66 257.55 325.92 249.98 324.27 C 243.06 322.97 237.10 317.64 234.99 310.94 C 233.45 306.46 233.86 301.66 233.82 297.02 C 233.82 261.67 233.83 226.33 233.82 190.99 C 233.82 186.69 233.55 182.25 234.98 178.12 C 236.84 172.29 241.58 167.52 247.35 165.51 Z"/>
+                        <path class="l-nt" d="M 247.35 165.51 C 253.23 163.58 260.06 164.24 265.20 167.80 C 270.76 171.45 274.19 178.06 273.97 184.71 C 278.73 178.56 284.51 173.03 291.65 169.76 C 304.67 163.77 319.77 163.10 333.62 166.27 C 347.30 169.48 358.92 179.13 365.64 191.32 C 371.06 200.92 373.46 212.05 373.33 223.02 C 373.31 250.00 373.33 276.98 373.33 303.96 C 373.40 309.81 371.01 315.70 366.56 319.56 C 360.70 325.03 351.44 326.21 344.31 322.63 C 337.68 319.49 333.18 312.37 333.20 305.03 C 333.19 280.02 333.18 255.00 333.20 229.98 C 333.17 223.96 331.44 217.90 327.99 212.93 C 322.38 204.53 312.17 199.40 302.05 200.14 C 287.49 200.44 274.48 213.36 274.19 227.94 C 274.15 252.95 274.17 277.96 274.18 302.97 C 274.21 307.65 273.12 312.47 270.33 316.31 C 265.89 322.66 257.55 325.92 249.98 324.27 C 243.06 322.97 237.10 317.64 234.99 310.94 C 233.45 306.46 233.86 301.66 233.82 297.02 C 233.82 261.67 233.83 226.33 233.82 190.99 C 233.82 186.69 233.55 182.25 234.98 178.12 C 236.84 172.29 241.58 167.52 247.35 165.51 Z"/>
                     </g>
                     <!-- Company Text -->
                     <text x="590" y="190"
                           font-family="'Prompt', 'Sarabun', sans-serif"
                           font-size="80"
                           font-weight="800"
-                          fill="#363a42">บริษัท โทรคมนาคมแห่งชาติ จำกัด (มหาชน)</text>
+                          class="l-company">บริษัท โทรคมนาคมแห่งชาติ จำกัด (มหาชน)</text>
                     <text x="590" y="280"
                           font-family="'Inter', 'Arial', sans-serif"
                           font-size="64"
                           font-weight="700"
-                          fill="#4d515a">National Telecom Public Company Limited</text>
+                          class="l-company-en">National Telecom Public Company Limited</text>
                 </svg>
             </div>
 
             <!-- Heading -->
-            <h1 class="login-heading">Welcome back</h1>
-            <p class="login-subheading">Sign in to CLYLAR Network Scanner</p>
+            <h1 class="login-heading">{{ t('login.heading') }}</h1>
+            <p class="login-subheading">{{ t('login.sub') }}</p>
 
             <!-- Flash messages -->
             {% with messages = get_flashed_messages() %}
@@ -490,20 +580,21 @@
 
             <!-- Login form -->
             <form method="POST" autocomplete="on">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                 <div class="form-group">
-                    <label for="login-username">Username</label>
-                    <input type="text" id="login-username" name="username" placeholder="Enter your username"
+                    <label for="login-username">{{ t('login.username') }}</label>
+                    <input type="text" id="login-username" name="username" placeholder="{{ t('login.username_ph') }}"
                         autocomplete="username" required autofocus>
                 </div>
 
                 <div class="form-group">
-                    <label for="login-password">Password</label>
+                    <label for="login-password">{{ t('login.password') }}</label>
                     <div class="password-wrapper">
-                        <input type="password" id="login-password" name="password" placeholder="Enter your password"
+                        <input type="password" id="login-password" name="password" placeholder="{{ t('login.password_ph') }}"
                             autocomplete="current-password" required>
                         <button type="button" class="password-toggle" onclick="togglePassword()"
-                            aria-label="Toggle password visibility" tabindex="-1">
+                            aria-label="{{ t('login.toggle_pw') }}" tabindex="-1">
                             <!-- Eye-off (closed) — default when password is hidden -->
                             <svg id="icon-eye-off" width="20" height="20" viewBox="0 0 24 24" fill="none"
                                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -525,15 +616,27 @@
                 </div>
 
                 <button type="submit" class="login-btn" id="login-submit-btn">
-                    Sign In
+                    {{ t('login.submit') }}
                 </button>
 
             </form>
 
             <!-- Footer -->
             <div class="login-footer">
-                <span>CLYLAR</span> · Network Security Platform<br>
+                <span>CLYLAR</span> · {{ t('login.footer') }}<br>
                 © 2026 National Telecom Public Company Limited
+            </div>
+
+            <!-- Theme and language (saved in a cookie for a visitor who is not signed in, and per user once signed in) -->
+            <div class="login-ctls">
+                <button type="button" class="tb-ctl tb-theme" id="themeToggle" title="{{ t('ui.theme.to_dark') if ui_theme == 'light' else t('ui.theme.to_light') }}" aria-label="{{ t('ui.theme.to_dark') if ui_theme == 'light' else t('ui.theme.to_light') }}">
+                    <svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"/></svg>
+                    <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"/><path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7"/></svg>
+                </button>
+                <div class="tb-ctl tb-lang" id="langPill" role="group" aria-label="{{ t('ui.lang') }}">
+                    <button type="button" data-set-lang="th" lang="th" aria-pressed="{{ 'true' if ui_lang == 'th' else 'false' }}" title="{{ t('ui.lang.th') }}">TH</button>
+                    <button type="button" data-set-lang="en" lang="en" aria-pressed="{{ 'true' if ui_lang == 'en' else 'false' }}" title="{{ t('ui.lang.en') }}">EN</button>
+                </div>
             </div>
 
         </div>
@@ -541,11 +644,11 @@
         <!-- ═══ RIGHT: Slideshow ═══ -->
         <div class="login-right" id="login-slideshow">
             <img class="bg-slide" src="{{ url_for('static', filename='images/office-team.jpg') }}?v=2"
-                alt="National Telecom team collaborating" loading="eager">
+                alt="{{ t('login.alt1') }}" loading="eager">
             <img class="bg-slide" src="{{ url_for('static', filename='images/nt-building.jpg') }}?v=2"
-                alt="National Telecom headquarters building" loading="eager">
+                alt="{{ t('login.alt2') }}" loading="eager">
             <img class="bg-slide" src="{{ url_for('static', filename='images/nt-city.jpg') }}?v=2"
-                alt="National Telecom city network" loading="eager">
+                alt="{{ t('login.alt3') }}" loading="eager">
 
             <!-- Dot indicators -->
             <div class="slide-dots" id="slide-dots">
@@ -558,6 +661,35 @@
     </div>
 
     <script>
+        /* ─── Theme and language: the same two buttons as the app's top bar. No account yet, so the server only sets a cookie. ─── */
+        (function () {
+            var TO = { dark: {{ t('ui.theme.to_dark') | tojson }}, light: {{ t('ui.theme.to_light') | tojson }} };
+            function show(theme) {
+                document.documentElement.setAttribute('data-theme', theme);
+                var meta = document.querySelector('meta[name="color-scheme"]'); if (meta) meta.setAttribute('content', theme === 'dark' ? 'dark' : 'normal');
+                var b = document.getElementById('themeToggle'), label = theme === 'dark' ? TO.light : TO.dark;
+                b.title = label; b.setAttribute('aria-label', label);
+            }
+            function post(path, body) {
+                var meta = document.querySelector('meta[name="csrf-token"]');
+                var headers = { 'Content-Type': 'application/json' };
+                if (meta && meta.content) headers['X-CSRFToken'] = meta.content;
+                return fetch(path, { method: 'POST', headers: headers, body: JSON.stringify(body) }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); });
+            }
+            document.getElementById('themeToggle').addEventListener('click', function () {
+                var before = document.documentElement.getAttribute('data-theme') || 'light', next = before === 'dark' ? 'light' : 'dark';
+                show(next);
+                post('/api/ui/theme', { theme: next }).catch(function () { show(before); });
+            });
+            document.querySelectorAll('#langPill [data-set-lang]').forEach(function (b) {
+                b.addEventListener('click', function () {
+                    var lang = b.getAttribute('data-set-lang');
+                    if (lang === document.documentElement.lang) return;
+                    post('/api/ui/lang', { lang: lang }).then(function () { window.location.reload(); }).catch(function () { });
+                });
+            });
+        })();
+
         /* ─── Password toggle ─── */
         function togglePassword() {
             const input = document.getElementById('login-password');

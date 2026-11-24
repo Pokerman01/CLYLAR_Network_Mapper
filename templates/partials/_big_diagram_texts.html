@@ -1,0 +1,46 @@
+{# The words of static/js/topology-big.js (the "Group by" control, the "+" / "-" badge and the subnet bubbles of the two scan report diagrams).
+   They are the Network Topology page's texts (locales/*/topology.json), so the two diagrams read the same. #}
+{# window.SUBNET_T: the words static/js/subnet-topology.js puts on the router / subnet hubs, their tooltips and the virtual-router reasons.
+   Same keys and same texts as the Network Topology page (templates/network_topology.html), so the three diagrams read alike.
+   The engine keeps its English text as the fallback, so a page that defines no SUBNET_T (the PDF report) is unchanged. #}
+<script>
+window.SUBNET_T = {
+    sys_gw: {{ t('topo.subnet.sys_gw') | tojson }},
+    localhost_note: {{ t('topo.subnet.localhost_note') | tojson }},
+    trace_last: {{ t('topo.subnet.trace_last') | tojson }},
+    router_os: {{ t('topo.subnet.router_os') | tojson }},
+    multi_router: {{ t('topo.subnet.multi_router') | tojson }},
+    lbl_router: {{ t('topo.subnet.lbl_router') | tojson }},
+    lbl_subnet: {{ t('topo.subnet.lbl_subnet') | tojson }},
+    tip_ip: {{ t('topo.subnet.tip_ip') | tojson }},
+    tip_subnet: {{ t('topo.subnet.tip_subnet') | tojson }},
+    tip_by: {{ t('topo.subnet.tip_by') | tojson }},
+    tip_count: {{ t('topo.subnet.tip_count') | tojson }},
+    tip_no_router: {{ t('topo.subnet.tip_no_router') | tojson }},
+    edge_unverified: {{ t('topo.subnet.edge_unverified') | tojson }},
+    vmac_vrrp4: {{ t('topo.subnet.vmac_vrrp4') | tojson }},
+    vmac_vrrp6: {{ t('topo.subnet.vmac_vrrp6') | tojson }},
+    vmac_hsrp1: {{ t('topo.subnet.vmac_hsrp1') | tojson }},
+    vmac_hsrp2: {{ t('topo.subnet.vmac_hsrp2') | tojson }},
+    vmac_glbp: {{ t('topo.subnet.vmac_glbp') | tojson }},
+    metric_tag: {{ t('topo.subnet.metric_tag') | tojson }}
+};
+</script>
+<script>
+window.BIGD_USER = {{ current_user.id | tojson }};
+window.BIGD_T = {{ {
+    'groupBy': t('topo.set_group_by'),
+    'groupNone': t('topo.group_none'),
+    'group24Title': t('topo.group_subnet_title'),
+    'group16Title': t('topo.group_16_title'),
+    'groupNoneTitle': t('topo.group_none_title'),
+    'groupNoneSlow': t('topo.group_none_slow'),
+    'nDevices': t('topo.n_devices'),
+    'badgeExpand': t('topo.badge_expand'),
+    'badgeCollapse': t('topo.badge_collapse'),
+    'bubbleHint': t('topo.bubble_hint'),
+    'bubbleAuto': t('topo.bubble_auto'),
+    'shown': t('topo.stat_drawn'),
+    'router': t('topo.subnet.lbl_router')
+} | tojson }};
+</script>

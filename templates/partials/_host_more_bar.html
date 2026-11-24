@@ -8,7 +8,7 @@
    With nothing to say the note's <span> is not drawn at all (it carries the hairline that separates it from the label). #}
 {%- set tip = [] %}
 {%- set odd = namespace(state=false) %}
-{%- for state, n in behind.states %}{% set _ = tip.append(state ~ ' ' ~ n) %}{% if state != 'open' %}{% set odd.state = true %}{% endif %}{% endfor %}
+{%- for state, n in behind.states %}{% set _sv = t('device.state.' ~ state) %}{% set _ = tip.append((state if _sv.startswith('device.state.') else _sv) ~ ' ' ~ n) %}{% if state != 'open' %}{% set odd.state = true %}{% endif %}{% endfor %}
 {%- if behind.severities %}{% set sev_tip = [] %}{% for sev, n in behind.severities %}{% set _ = sev_tip.append((sev | title) ~ ' ' ~ n) %}{% endfor %}{% set _ = tip.append('CVE: ' ~ (sev_tip | join(', '))) %}{% endif %}
 {%- set has_note = odd.state or behind.severities %}
 <tbody class="host-more">
@@ -16,9 +16,9 @@
         <td colspan="3" class="host-more-gap"></td>
         <td colspan="{{ bar_span }}" class="host-more-cell">
             <button type="button" class="host-more-btn" onclick="toggleHostRows(this)" aria-controls="{{ bar_group }}" aria-expanded="false"
-                    data-hidden="{{ hidden_rows }}" title="ในพอร์ตที่ซ่อนอยู่: {{ tip | join(' · ') }}"><i class="ti ti-chevron-down" aria-hidden="true"></i><span class="host-more-label">แสดงอีก {{ hidden_rows }} พอร์ต</span>
+                    data-hidden="{{ hidden_rows }}" title="{{ t('scan.p.more_tip', tip=(tip | join(' · '))) }}"><i class="ti ti-chevron-down" aria-hidden="true"></i><span class="host-more-label">{{ t('scan.p.more_ports_one') if hidden_rows == 1 else t('scan.p.more_ports', n=hidden_rows) }}</span>
                 {%- if has_note %}<span class="host-more-info">
-                {%- if odd.state %}{% for state, n in behind.states %}<span class="hm-note"><span class="hm-dot hm-dot-{{ state | replace('|', '-') }}" aria-hidden="true"></span>{{ state }} {{ n }}</span>{% endfor %}{% endif %}
+                {%- if odd.state %}{% for state, n in behind.states %}<span class="hm-note"><span class="hm-dot hm-dot-{{ state | replace('|', '-') }}" aria-hidden="true"></span>{% set _sv = t('device.state.' ~ state) %}{{ state if _sv.startswith('device.state.') else _sv }} {{ n }}</span>{% endfor %}{% endif %}
                 {%- if behind.severities %}<span class="hm-note hm-cve">CVE{% for sev, n in behind.severities %}<span class="hm-note"><span class="hm-dot hm-dot-{{ sev | lower }}" aria-hidden="true"></span>{{ sev | title }} {{ n }}</span>{% endfor %}</span>{% endif %}</span>{% endif %}</button>
         </td>
     </tr>

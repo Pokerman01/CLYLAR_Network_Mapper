@@ -11,7 +11,7 @@ The rule behind every number and label here is the owner's: if the app does not 
 "ไม่ได้บันทึกไว้" or leaves it out. It never fills the gap with a guess:
   * a host is "ไม่พบ CVE" only when EVERY open service of it was really looked up and the lookup answered (`cve_status` 'ok');
   * a scan that never looked for CVEs (Fast, Discovery, ...) gives "ยังไม่ทราบ", not "ปกติ";
-  * device types come from scanner.guess_device_type() and are always shown as a guess ("น่าจะ" when the evidence is thin);
+  * device types come from scanner.guess_device_type() and are always shown as a guess ("คาดเดา" when the evidence is thin);
   * "N IP" scanned is shown only when the target can be counted exactly or nmap said so;
   * a sentence about the run (no Administrator rights, no Npcap, -Pn, the ARP cache) is written only when the run recorded that fact.
 """
@@ -19,14 +19,15 @@ import ipaddress
 import re
 
 from cwe_data import cwe_info
-from scanner import (describe_scan_settings, effective_severity, guess_device_type, os_match_accuracy, port_reason, port_reason_label, virtual_machine_platform)
+from scanner import (ALL_PORTS_HOST_TIMEOUT, UDP_HOST_TIMEOUT, UDP_PORTS, describe_scan_settings, effective_severity, guess_device_type, os_match_accuracy,
+                     port_reason, port_reason_label, virtual_machine_platform)
 
 SYSTEM_NAME = 'Clylar'
 
 # risk levels, in the order the report shows them
 LEVELS = [
     ('high', 'สูง'),
-    ('med', 'กลาง'),
+    ('med', 'ปานกลาง'),
     ('low', 'ต่ำ'),
     ('none', 'ไม่พบ CVE'),
     ('unknown', 'ยังไม่ทราบ'),
@@ -41,10 +42,35 @@ TYPE_LABEL = {
     'printer': 'เครื่องพิมพ์', 'camera': 'กล้อง IP', 'tv': 'Smart TV', 'iot': 'อุปกรณ์ IoT', 'unknown': 'ไม่ทราบ',
 }
 
+def _minutes(spec):
+    """'45m' -> 45: the per-host limits the scanner puts on nmap, so the words below say the number the scanner really uses. Anything else gives None and
+    the number is left out of the sentence (never a made-up one)."""
+    m = re.fullmatch(r'(\d{1,3})m', str(spec or ''))
+    return int(m.group(1)) if m else None
+
+
+HOST_MIN = _minutes(ALL_PORTS_HOST_TIMEOUT)           # nmap --host-timeout of "scan all ports" and of Gentle (the same 45 minutes)
+UDP_MIN = _minutes(UDP_HOST_TIMEOUT)                  # nmap --host-timeout of the UDP run
+N_UDP_PORTS = len(UDP_PORTS)
+UDP_PORT_LIST = ', '.join(str(p) for p in UDP_PORTS)
+# The scan report page's own words for a host that ran out of its --host-timeout (locales scan.host_timeout): the host's ports were never read.
+HOST_TIMEOUT_TEXT = 'หมดเวลาต่อเครื่อง' + (f' ({HOST_MIN} นาที)' if HOST_MIN else '') + ' ไม่ทราบพอร์ต'
+UDP_TIMEOUT_TEXT = 'ใช้เวลาสแกน UDP เกิน' + (f' {UDP_MIN} นาที' if UDP_MIN else 'เวลาที่กำหนด')
+UDP_FAILED_TEXT = 'รอบสแกน UDP ทำงานไม่สำเร็จ'
+UDP_UNKNOWN_TEXT = 'ไม่ทราบพอร์ต UDP'                  # said wherever "ไม่พบ CVE" is said for a host whose UDP result is unknown (its TCP ports were looked up)
+UDP_NOT_SCANNED_TEXT = 'ไม่ได้สแกน UDP (เป็นที่อยู่ที่ไม่ใช่ IPv4 หรือ nmap ไม่รายงานผล)'
+UDP_SECOND_RUN_TARGETS = '<อุปกรณ์ที่รอบแรกพบว่าออนไลน์>'     # the Tasks page's own placeholder for the hosts of the UDP run (they are only known when the first run is over)
+MAX_UDP_ERROR = 120                                   # characters of nmap's own reason for a failed UDP run that are printed (the app keeps 200)
+
+
+def _timed_out_hosts(n):
+    return f'ไม่ทราบพอร์ตเพราะหมดเวลา {n} เครื่อง'
+
 STEP_TEXT = {
     'nvd_lookup': 'ค้นหา CVE จาก NVD ตามชื่อและเวอร์ชันของบริการที่พบ',
     'mdns_ssdp': 'ฟังการตอบกลับ mDNS / SSDP ระหว่างสแกน',
     'gateway_probe': 'ตรวจหา default gateway ของเครื่องที่สแกน',
+    'udp_pass': f'รอบที่ 2: สแกน UDP {N_UDP_PORTS} พอร์ตที่พบบ่อยกับอุปกรณ์ที่รอบแรกพบว่าออนไลน์',      # the Tasks page's words
 }
 STATUS_NOTICE = {
     'Failed': 'งานสแกนนี้ล้มเหลว ผลที่แสดงอาจไม่สมบูรณ์หรือไม่มีเลย',
@@ -223,7 +249,7 @@ def _sev_class(sev):
 
 
 def _sev_name(sev):
-    return {'CRITICAL': 'Critical', 'HIGH': 'High', 'MEDIUM': 'Medium', 'LOW': 'Low'}.get(sev, 'Unknown')
+    return {'CRITICAL': 'วิกฤต', 'HIGH': 'สูง', 'MEDIUM': 'ปานกลาง', 'LOW': 'ต่ำ'}.get(sev, 'ไม่ทราบ')
 
 
 def _ip_sort(ip):
@@ -264,35 +290,64 @@ def _max_text(cves):
     return _sev_name(top['severity']) + (f" {top['score']:.1f}" if top['score'] is not None else '')
 
 
-def _eval_text(ports_known, n_open, n_ok, scan_type):
-    """How much of a host's open ports were really looked up for CVEs, in one phrase (page 2's host table and page 4's inventory)."""
+def _count_of(value):
+    """A positive whole number (not a bool), else 0: how many open ports nmap collapsed (`ports_unlisted`), read from stored text, so anything else is no claim."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _unlisted_tail(unlisted):
+    return f'ไม่รวมพอร์ตที่เปิดอีก {unlisted:,} พอร์ตซึ่ง nmap ไม่ได้แยกรายงาน'
+
+
+def _unlisted_only(unlisted):
+    return f'มีพอร์ตที่เปิด {unlisted:,} พอร์ตซึ่ง nmap ไม่ได้แยกรายงาน'
+
+
+def _eval_text(ports_known, n_open, n_ok, scan_type, timed_out=False, unlisted=0, udp_unknown=False):
+    """How much of a host's open ports were really looked up for CVEs, in one phrase (page 2's host table and page 4's inventory).
+    timed_out: the host ran out of nmap's per-host limit (its ports are unknown, which is not the same as "not scanned").
+    unlisted: how many open ports nmap collapsed into one line without naming them (they were never looked up).
+    udp_unknown: the host's UDP result is unknown (the UDP run failed, ran out of time or never covered it): its TCP ports were looked up, its UDP ports are not known."""
     if not ports_known:
-        return 'ไม่ได้สแกนพอร์ต'
+        return 'หมดเวลา ไม่ทราบพอร์ต' if timed_out else 'ไม่ได้สแกนพอร์ต'
+    udp = f' ({UDP_UNKNOWN_TEXT})' if udp_unknown else ''
     if n_open == 0:
-        return 'ไม่มีพอร์ตที่เปิด'
+        return (_unlisted_only(unlisted) if unlisted else 'ไม่มีพอร์ตที่เปิด') + udp
     if scan_type != 'vuln_scan' and n_ok == 0:
-        return 'ไม่ได้ค้นหา CVE'
-    return f'ประเมินได้ {n_ok} จาก {n_open} พอร์ต'
+        return 'ไม่ได้ค้นหา CVE' + udp
+    gaps = ([_unlisted_tail(unlisted)] if unlisted else []) + ([UDP_UNKNOWN_TEXT] if udp_unknown else [])
+    return f'ประเมินได้ {n_ok} จาก {n_open} พอร์ต' + (' (' + ' · '.join(gaps) + ')' if gaps else '')
 
 
-def _host_risk(open_ports, cves, scan_type, ports_known=True):
+def _host_risk(open_ports, cves, scan_type, ports_known=True, timed_out=False, unlisted=0, udp_unknown=False):
     """(level key, one-line reason). See the module docstring: only what was really checked is called "ไม่พบ CVE".
-    ports_known False = the scan has no port list for this host (a Discovery scan never looks at ports): that is not "0 open"."""
+    ports_known False = the scan has no port list for this host (a Discovery scan never looks at ports): that is not "0 open".
+    timed_out (with ports_known False): the host ran out of nmap's per-host limit, so its ports are unknown for that reason.
+    unlisted: open ports nmap did not list one by one; they were never looked up, so a host is never "ไม่พบ CVE" while there are some.
+    udp_unknown: the host's UDP result is unknown. Its level does NOT change (its TCP ports were evaluated, and the device page says the same), but where the
+    answer is "ไม่พบ CVE" the reason says that UDP ports are not known.
+    Callers that pass none of these get the old answer exactly (device_builder and the topology page call this with 3 or 4 arguments)."""
     if not ports_known and not cves:
-        return 'unknown', 'ไม่ได้สแกนพอร์ต จึงยังไม่ได้ตรวจ CVE'
+        return 'unknown', (HOST_TIMEOUT_TEXT + ' จึงยังไม่ได้ตรวจ CVE') if timed_out else 'ไม่ได้สแกนพอร์ต จึงยังไม่ได้ตรวจ CVE'
     n_open = len(open_ports)
     statuses = [_port_status(p) for p in open_ports]
     n_ok = statuses.count('ok')
     if cves:
         level = max((c['level'] for c in cves), key=lambda k: _LEVEL_RANK[k])
         reason = '' if n_ok == n_open else f'ประเมินได้ {n_ok} จาก {n_open} พอร์ต'
+        if unlisted:
+            reason = f'{reason} ({_unlisted_tail(unlisted)})' if reason else _unlisted_tail(unlisted)
         return level, reason
     if n_open == 0:
+        if unlisted:
+            return 'unknown', _unlisted_only(unlisted) + ' จึงยังประเมิน CVE ไม่ได้'
         return 'unknown', 'ไม่มีพอร์ตที่เปิดให้ตรวจ CVE'
     if scan_type != 'vuln_scan' and n_ok == 0:
         return 'unknown', 'การสแกนนี้ไม่ได้ตรวจช่องโหว่ (CVE)'
+    if n_ok == n_open and unlisted:
+        return 'unknown', f'ประเมินได้ {n_ok} จาก {n_open} พอร์ต ({_unlisted_tail(unlisted)})'
     if n_ok == n_open:
-        return 'none', 'ไม่พบ CVE จากพอร์ตที่ตรวจ'
+        return 'none', 'ไม่พบ CVE จากพอร์ตที่ตรวจ' + (f' ({UDP_UNKNOWN_TEXT})' if udp_unknown else '')
     why = []
     for key, text in (('failed', 'ค้นหา NVD ไม่สำเร็จ'), ('no_product', 'nmap ระบุผลิตภัณฑ์ไม่ได้'), ('unrecorded', 'สแกนรุ่นเก่าไม่ได้บันทึกสถานะ')):
         if statuses.count(key):
@@ -306,7 +361,14 @@ def _vuln_unevaluated_reason(rows):
     cve_status existed (nothing recorded) is "not recorded", never "failed". Needs the rows before their private _open_ports are dropped."""
     states = {_port_status(p) for r in rows for p in r['_open_ports']}
     if not states:                       # no open port to look up (or no host at all)
-        return 'ไม่มีพอร์ตที่เปิดให้ค้นหา CVE' + (' หรือไม่ได้สแกนพอร์ต' if any(not r['ports_known'] for r in rows) else '')
+        extra = ''
+        if any(r['timed_out'] for r in rows):          # the host was scanned but ran out of time: say that, not "not scanned"
+            extra = ' หรือไม่ทราบพอร์ตเพราะหมดเวลา'
+        elif any(not r['ports_known'] for r in rows):
+            extra = ' หรือไม่ได้สแกนพอร์ต'
+        if any(r['unlisted'] for r in rows):           # open ports that nmap did not list one by one were never looked up
+            extra += ' หรือมีพอร์ตที่เปิดซึ่ง nmap ไม่ได้แยกรายงาน'
+        return 'ไม่มีพอร์ตที่เปิดให้ค้นหา CVE' + extra
     if states == {'failed'}:
         return 'ค้นหา CVE จาก NVD ไม่สำเร็จ'
     if states == {'no_product'}:
@@ -329,7 +391,7 @@ def _device_type(h, open_ports):
         return 'unknown', TYPE_LABEL['unknown'], False
     key = g.get('key') if g.get('key') in TYPE_LABEL else 'unknown'
     likely = g.get('confidence') == 'likely' and key != 'unknown'
-    return key, TYPE_LABEL[key] + (' (น่าจะ)' if likely else ''), likely
+    return key, TYPE_LABEL[key] + (' (คาดเดา)' if likely else ''), likely
 
 
 def _group_of(ip_obj):
@@ -347,27 +409,40 @@ def _group_of(ip_obj):
     return (0 if ip_obj.version == 4 else 1, int(net.network_address), ''), str(net)
 
 
+UNSURE_STATE = 'open|filtered'      # nmap could not tell whether the port is open or filtered (a UDP port that did not answer): unknown, NOT "not open"
+
+
+def _group_line(groups):
+    """'state N (reason), state N ...' for {(state, reason): n}: biggest group first, at most MAX_NOT_OPEN_GROUPS groups named, "+N กลุ่ม" for the rest."""
+    ordered = sorted(groups.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1] is None, kv[0][1] or ''))
+    named = [f"{state} {n}" + (f" ({port_reason_label(reason)})" if reason else '') for (state, reason), n in ordered[:MAX_NOT_OPEN_GROUPS]]
+    more = len(ordered) - MAX_NOT_OPEN_GROUPS
+    return ', '.join(named) + (f' +{more} กลุ่ม' if more > 0 else '')
+
+
 def _not_open(ports):
-    """The ports that are NOT open, as one short line: (text, count, reasoned). Grouped by (state, nmap's reason), biggest group first, at most
-    MAX_NOT_OPEN_GROUPS groups named and "+N กลุ่ม" for the rest. The count is exact. A group whose ports have no recorded reason (a scan from before
+    """The ports that are NOT open, as short lines: (text, count, reasoned, unsure_text, unsure_count). Grouped by (state, nmap's reason), biggest group first,
+    at most MAX_NOT_OPEN_GROUPS groups named and "+N กลุ่ม" for the rest. The counts are exact. A group whose ports have no recorded reason (a scan from before
     `reason` was kept, or text that is not a plain nmap reason) shows only the state and the count: no "unknown reason" words. Nothing in the list that
-    is not a port record is counted. '' / 0 when there is nothing to say. `reasoned` is True when at least one of these ports carries a reason."""
-    groups = {}
-    total = 0
+    is not a port record is counted. '' / 0 when there is nothing to say. `reasoned` is True when at least one of these ports carries a reason.
+    A port whose state is `open|filtered` (a UDP port that did not answer) is NOT "not open": nmap does not know. It gets its own line,
+    "ไม่ทราบว่าเปิดหรือถูกกรองอีก N พอร์ต: ...", and is not in `text` or `count`."""
+    groups, unsure = {}, {}
+    total = n_unsure = 0
     for p in ports:
         if not isinstance(p, dict) or _is_open(p):
             continue
         state = _clip(str(p.get('state') or '').lower(), MAX_STATE_TEXT) or 'ไม่ทราบสถานะ'
         key = (state, port_reason(p.get('reason')))
-        groups[key] = groups.get(key, 0) + 1
-        total += 1
-    if not total:
-        return '', 0, False
-    ordered = sorted(groups.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1] is None, kv[0][1] or ''))
-    named = [f"{state} {n}" + (f" ({port_reason_label(reason)})" if reason else '') for (state, reason), n in ordered[:MAX_NOT_OPEN_GROUPS]]
-    more = len(ordered) - MAX_NOT_OPEN_GROUPS
-    text = f'ไม่เปิดอีก {total} พอร์ต: ' + ', '.join(named) + (f' +{more} กลุ่ม' if more > 0 else '')
-    return text, total, any(reason for (_, reason) in groups)
+        if state == UNSURE_STATE:
+            unsure[key] = unsure.get(key, 0) + 1
+            n_unsure += 1
+        else:
+            groups[key] = groups.get(key, 0) + 1
+            total += 1
+    text = f'ไม่เปิดอีก {total} พอร์ต: ' + _group_line(groups) if total else ''
+    unsure_text = f'ไม่ทราบว่าเปิดหรือถูกกรองอีก {n_unsure} พอร์ต: ' + _group_line(unsure) if n_unsure else ''
+    return text, total, any(reason for (_, reason) in list(groups) + list(unsure)), unsure_text, n_unsure
 
 
 def _host_row(h, scan_type):
@@ -376,7 +451,15 @@ def _host_row(h, scan_type):
     ports_known = isinstance(h.get('ports'), list)
     open_ports = sorted([p for p in (h.get('ports') if ports_known else []) if _is_open(p)], key=lambda p: (_port_number(p), str(p.get('protocol') or '')))
     cves = _host_cves(open_ports)
-    level, reason = _host_risk(open_ports, cves, scan_type, ports_known)
+    # Why the ports of this host are unknown or incomplete, when the scan recorded it (each only for a host whose flag is exactly True / a positive count):
+    #   timed_out    nmap gave up on the host (--host-timeout); the scanner then removes its `ports`, so this only applies to a host with no port list
+    #   unlisted     open ports nmap collapsed into one <extraports state="open"> line: they exist but were never named, so never looked up
+    #   udp_*        the UDP run failed / ran out of time / never covered this host: its UDP ports are unknown (not "no UDP port found")
+    timed_out = (not ports_known) and h.get('timed_out') is True
+    unlisted = _count_of(h['ports_unlisted'].get('open')) if ports_known and isinstance(h.get('ports_unlisted'), dict) else 0
+    udp_flags = {key: ports_known and h.get(key) is True for key in ('udp_failed', 'udp_timed_out', 'udp_not_scanned')}
+    udp_why = [text for key, text in (('udp_failed', UDP_FAILED_TEXT), ('udp_timed_out', UDP_TIMEOUT_TEXT), ('udp_not_scanned', UDP_NOT_SCANNED_TEXT)) if udp_flags[key]]
+    level, reason = _host_risk(open_ports, cves, scan_type, ports_known, timed_out, unlisted, bool(udp_why))
     type_key, type_label, type_likely = _device_type(h, open_ports)
     mac = (h.get('mac') or '').strip()
     mac = '' if mac.lower() in ('', 'unknown') else mac
@@ -386,18 +469,23 @@ def _host_row(h, scan_type):
              for p in open_ports[:MAX_PORT_LINES]]
     n_ok = sum(1 for p in open_ports if _port_status(p) == 'ok')
     # a host whose ports were never scanned has nothing to say about ports that are not open (that is "unknown", not "none")
-    not_open_text, not_open_count, not_open_reasoned = _not_open(h.get('ports')) if ports_known else ('', 0, False)
+    not_open_text, not_open_count, not_open_reasoned, unsure_text, unsure_count = _not_open(h.get('ports')) if ports_known else ('', 0, False, '', 0)
     return {
         'ip': h.get('ip', ''), 'hostname': (h.get('hostname') or '').strip(), 'mac': mac, 'mac_vendor': (h.get('mac_vendor') or '').strip(),
         'vm': virtual_machine_platform(mac, h.get('mac_vendor') or ''), 'os': _clip(os_name, 60), 'local': bool(h.get('local')),
         # nmap's confidence in the OS guess: only from THIS record and only with a real OS name (never from another scan's guess)
         'os_confidence': os_match_accuracy(h.get('os_accuracy')) if os_name else None,
-        'type_key': type_key, 'type_label': type_label, 'type_likely': type_likely, 'type_name': TYPE_LABEL[type_key],      # type_name without the "(น่าจะ)" so the page can keep that on one line
+        'type_key': type_key, 'type_label': type_label, 'type_likely': type_likely, 'type_name': TYPE_LABEL[type_key],      # type_name without the "(คาดเดา)" so the page can keep that on one line
         'not_open_text': not_open_text, 'not_open_count': not_open_count, 'not_open_reasoned': not_open_reasoned,
+        'unsure_text': unsure_text, 'unsure_count': unsure_count,                 # open|filtered: its own line, it is not "not open"
+        'timed_out': timed_out, 'timed_out_text': HOST_TIMEOUT_TEXT if timed_out else '',
+        'unlisted': unlisted, 'unlisted_text': f'มีพอร์ตที่เปิดอีก {unlisted:,} พอร์ตซึ่ง nmap ไม่ได้แยกรายงาน' if unlisted else '',
+        'udp_failed': udp_flags['udp_failed'], 'udp_timed_out': udp_flags['udp_timed_out'], 'udp_not_scanned': udp_flags['udp_not_scanned'],
+        'udp_unknown': bool(udp_why), 'udp_note': ('ไม่ทราบพอร์ต UDP: ' + ', '.join(udp_why)) if udp_why else '',
         'ports_known': ports_known, 'open_count': len(open_ports), 'ports': ports, 'ports_more': max(0, len(open_ports) - MAX_PORT_LINES),
         'risk': level, 'risk_label': LEVEL_LABEL[level], 'risk_reason': reason,
         'cve_total': len(cves), 'sev_counts': _sev_counts(cves), 'max_text': _max_text(cves),
-        'eval_ok': n_ok, 'eval_text': _eval_text(ports_known, len(open_ports), n_ok, scan_type),
+        'eval_ok': n_ok, 'eval_text': _eval_text(ports_known, len(open_ports), n_ok, scan_type, timed_out, unlisted, bool(udp_why)),
         'protocols': [str(p.get('protocol') or 'tcp').lower() for p in open_ports],
         '_cve_all': cves, '_open_ports': open_ports,
     }
@@ -491,7 +579,7 @@ def _findings(rows, scan_type, distinct, unevaluated_text):
     hidden_count = {}
     for x in hidden:
         hidden_count[x['sev_label']] = hidden_count.get(x['sev_label'], 0) + 1
-    hidden_text = ' · '.join(f'{k} {hidden_count[k]}' for k in ('Medium', 'Low', 'Unknown') if hidden_count.get(k))
+    hidden_text = ' · '.join(f'{k} {hidden_count[k]}' for k in ('ปานกลาง', 'ต่ำ', 'ไม่ทราบ') if hidden_count.get(k))
     ips = {x['ip'] for x in frows}
     single_ip = next(iter(ips)) if len(ips) == 1 else ''
     tail = 'เรียงตามความรุนแรงแล้วคะแนน CVSS · จับคู่จากชื่อและเวอร์ชันของบริการ ยังไม่ผ่านการยืนยัน'
@@ -500,19 +588,19 @@ def _findings(rows, scan_type, distinct, unevaluated_text):
     elif total == distinct:
         sub = f'CVE ทั้ง {total} รายการ' + (f'ของ {single_ip} ' if single_ip else 'ของสแกนนี้ ') + tail
     else:
-        sub = (f'ตารางนี้มี {total} แถว (นับทีละ host × พอร์ต × CVE) ส่วน CVE ที่ไม่ซ้ำกันของทั้งสแกนมี {distinct} รายการ '
+        sub = (f'ตารางนี้มี {total} แถว (นับทีละอุปกรณ์ × พอร์ต × CVE) ส่วน CVE ที่ไม่ซ้ำกันของทั้งสแกนมี {distinct} รายการ '
                f'(ตามกล่อง "CVE ที่พบ" หัวข้อ 1) ' + tail)
     looked = scan_type == 'vuln_scan'
     if frows:
         empty = ''
     elif not rows:
-        empty = 'ไม่มี host ในผลสแกนนี้ จึงไม่มี CVE ให้แสดง'
+        empty = 'ไม่มีอุปกรณ์ในผลสแกนนี้ จึงไม่มี CVE ให้แสดง'
     elif distinct is not None:
         empty = 'ไม่พบ CVE จากพอร์ตที่ตรวจ ไม่ได้แปลว่าปลอดภัย (ค้นหาจากชื่อและเวอร์ชันของบริการด้วยคีย์เวิร์ดเท่านั้น)'
     elif looked:
         empty = unevaluated_text
     else:
-        empty = 'การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่ทราบว่ามีช่องโหว่หรือไม่ (ไม่ได้แปลว่าไม่มี) ใช้ Vulnerability Scan เพื่อค้นหา CVE'
+        empty = 'การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่ทราบว่ามีช่องโหว่หรือไม่ (ไม่ได้แปลว่าไม่มี) ใช้สแกนช่องโหว่ (CVE) เพื่อค้นหา CVE'
     notes = _match_notes(frows, len(rows) > 1) if looked and frows else []
     hosts, hosts_total, hosts_more = _host_table(rows)
     for x in frows:
@@ -534,10 +622,12 @@ def _status_counts(rows):
 _NOT_DONE = {'Running': 'ยังทำงานอยู่', 'Failed': 'ล้มเหลว', 'Cancelled': 'ถูกยกเลิก'}
 
 
-def _badge(rows, frows, scan_type, n_evaluated, status):
+def _badge(rows, frows, scan_type, n_evaluated, status, udp_gap=''):
     """The scan's overall level, in the host levels' own words. A level of สูง / กลาง / ต่ำ is the worst host's (a floor: a host that could not be
     evaluated may be worse). "ไม่พบ CVE" only when EVERY host was evaluated and clean AND the scan is Completed (the hosts of a Running, Failed or Cancelled
-    scan are only the part that was scanned). Everything else is "ยังไม่ทราบ", with the reason."""
+    scan are only the part that was scanned). Everything else is "ยังไม่ทราบ", with the reason.
+    udp_gap: when the UDP result of some host (or of the whole scan) is unknown, "ไม่พบ CVE" is still the answer (the TCP ports were evaluated) but its detail says
+    "every KNOWN port" and names the gap, never "every open port"."""
     with_cves = [r for r in rows if r['cve_total']]
     if with_cves and frows:
         level = max((r['risk'] for r in with_cves), key=lambda k: _LEVEL_RANK[k])
@@ -549,17 +639,19 @@ def _badge(rows, frows, scan_type, n_evaluated, status):
     elif rows and all(r['risk'] == 'none' for r in rows) and status != 'Completed':
         level, detail = 'unknown', f"สแกนนี้{_NOT_DONE.get(status, 'ยังไม่เสร็จสมบูรณ์')} ผลเป็นเพียงบางส่วน จึงยังบอกไม่ได้ว่า \"ไม่พบ CVE\""
     elif rows and all(r['risk'] == 'none' for r in rows):
-        level, detail = 'none', 'ค้นหาครบทุกพอร์ตที่เปิดแล้วไม่พบ CVE (การค้นหาไม่พบ ไม่ได้รับรองว่าปลอดภัย)'
+        level = 'none'
+        detail = (f'ค้นหาครบทุกพอร์ตที่เปิดเท่าที่ทราบแล้วไม่พบ CVE ({udp_gap} · การค้นหาไม่พบ ไม่ได้รับรองว่าปลอดภัย)' if udp_gap
+                  else 'ค้นหาครบทุกพอร์ตที่เปิดแล้วไม่พบ CVE (การค้นหาไม่พบ ไม่ได้รับรองว่าปลอดภัย)')
     else:
         level = 'unknown'
         if not rows:
-            detail = 'ไม่มี host ในผลสแกนนี้'
+            detail = 'ไม่มีอุปกรณ์ในผลสแกนนี้'
         elif n_evaluated == 0 and scan_type == 'vuln_scan':
             detail = _vuln_unevaluated_reason(rows)
         elif n_evaluated == 0:
             detail = 'การสแกนนี้ไม่ได้ค้นหา CVE'
         else:
-            detail = f'ไม่พบ CVE ในส่วนที่ประเมินได้ แต่ประเมินได้เพียง {n_evaluated} จาก {len(rows)} host'
+            detail = f'ไม่พบ CVE ในส่วนที่ประเมินได้ แต่ประเมินได้เพียง {n_evaluated} จาก {len(rows)} เครื่อง'
     return {'key': level, 'label': LEVEL_LABEL[level], 'detail': detail}
 
 
@@ -582,13 +674,33 @@ def _lead(rows, scan_type, tiles, facts, skip_ping, total_ips, status_counts):
     pieces = [((head + ' ' + found).strip(), False)]
     if rows:
         not_scanned = [r for r in rows if not r['ports_known']]
+        timed = [r for r in not_scanned if r['timed_out']]            # scanned, but nmap gave up on them: their ports are unknown for THAT reason
+        plain = [r for r in not_scanned if not r['timed_out']]        # the scan never looked at their ports
         open_total = sum(r['open_count'] for r in rows)
         if len(not_scanned) == n_hosts:
-            pieces.append(('การสแกนนี้ไม่ได้ตรวจพอร์ต', False))
+            pieces.append((HOST_TIMEOUT_TEXT if not plain else 'การสแกนนี้ไม่ได้ตรวจพอร์ต' if not timed
+                           else f'ไม่ทราบพอร์ตของทุกเครื่อง (ไม่ได้สแกนพอร์ต {len(plain)} เครื่อง · {_timed_out_hosts(len(timed))})', False))
         else:
             s = 'ไม่พบพอร์ตที่เปิด' if open_total == 0 else f'มีพอร์ตที่เปิด {open_total} พอร์ต'
+            # what the number leaves out, in ONE parenthesis (each part only when it is true of this scan)
+            leaves = []
             if not_scanned:
-                s += f' (นับเฉพาะ {n_hosts - len(not_scanned)} เครื่องที่สแกนพอร์ต)'
+                known = n_hosts - len(not_scanned)
+                if not timed:
+                    leaves.append(f'นับเฉพาะ {known} เครื่องที่สแกนพอร์ต')
+                else:
+                    leaves.append(f'นับเฉพาะ {known} เครื่องที่ทราบพอร์ต')
+                    if plain:
+                        leaves.append(f'ไม่ได้สแกนพอร์ต {len(plain)} เครื่อง')
+                    leaves.append(_timed_out_hosts(len(timed)))
+            unlisted_hosts = [r for r in rows if r['unlisted']]
+            if unlisted_hosts:                                        # open ports nmap did not name are not in the number
+                leaves.append(f'ไม่รวมพอร์ตที่เปิดซึ่ง nmap ไม่ได้แยกรายงานใน {len(unlisted_hosts)} เครื่อง')
+            udp_hosts = [r for r in rows if r['udp_unknown']]
+            if udp_hosts:                                             # and no UDP port is known for these
+                leaves.append(f'ไม่ทราบพอร์ต UDP ของ {len(udp_hosts)} เครื่อง')
+            if leaves:
+                s += ' (' + ' · '.join(leaves) + ')'
             pieces.append((s, False))
         n_cve = tiles['cves']['value']
         if n_cve is None:
@@ -611,14 +723,24 @@ def _lead(rows, scan_type, tiles, facts, skip_ping, total_ips, status_counts):
     return [{'text': t, 'bold': b} for t, b in pieces]
 
 
-def _limits(scan_type, facts, skip_ping):
+def _fact_count(facts, key, rows, row_key):
+    """How many hosts a fact is about: the number the run recorded when it is a positive count, else the number of hosts that carry the flag (0 = nothing to say)."""
+    n = facts.get(key)
+    if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+        return n
+    return sum(1 for r in rows if r.get(row_key))
+
+
+def _limits(scan_type, facts, skip_ping, rows=(), settings=None):
     """The "what this result cannot tell you" box. A bullet about the run is written only when the run recorded that fact (admin False, npcap False,
-    -Pn used, an ARP-cache note > 0); the keyword-match bullet only when a CVE lookup was part of the scan; the last one is always there."""
+    -Pn used, an ARP-cache note > 0, hosts that timed out, a UDP run that failed, no DNS, Gentle ...); the keyword-match bullet only when a CVE lookup
+    was part of the scan; the last one is always there. The words of the new bullets are the scan run notes' own (app.describe_run, locales run.note.*)."""
+    settings = settings or {}
     out = []
     if scan_type == 'vuln_scan':
         out.append('CVE จับคู่จากชื่อและเวอร์ชันของบริการกับ NVD (สูงสุด 5 รายการต่อพอร์ต) ยังไม่ผ่านการยืนยันว่าใช้ได้กับเครื่องนี้')
     else:
-        out.append('การสแกนนี้ไม่ได้ค้นหา CVE ระดับความเสี่ยงของ host จึงเป็น "ยังไม่ทราบ" ไม่ได้แปลว่าปลอดภัย')
+        out.append('การสแกนนี้ไม่ได้ค้นหา CVE ระดับความเสี่ยงของอุปกรณ์จึงเป็น "ยังไม่ทราบ" ไม่ได้แปลว่าปลอดภัย')
     if scan_type == 'xml_upload':
         out.append('ผลนี้นำเข้าจากไฟล์ XML ของ nmap ระบบไม่ได้เป็นผู้สแกน ความครบถ้วนของผลขึ้นอยู่กับคำสั่งที่สร้างไฟล์นั้น')
     if facts.get('admin') is False:
@@ -633,6 +755,33 @@ def _limits(scan_type, facts, skip_ping):
     arp = facts.get('arp_only_total')
     if isinstance(arp, int) and not isinstance(arp, bool) and arp > 0:
         out.append(f'ตาราง ARP ของเครื่องที่สแกนรู้จักอีก {arp:,} อุปกรณ์ในช่วงที่สแกน ซึ่งสแกนไม่ได้รายงานว่าออนไลน์ (ข้อมูลอาจเก่า) จึงไม่นับรวมในรายงานนี้')
+    # ---- what the scan options and the hosts' own flags leave unknown (each only when it was recorded)
+    n = _fact_count(facts, 'timed_out', rows, 'timed_out')
+    if n:
+        out.append(f'{n:,} เครื่องใช้เวลาเกิน {HOST_MIN} นาที nmap จึงข้ามเครื่องนั้น และไม่ทราบพอร์ตของเครื่องนั้น (ไม่ได้หมายความว่าไม่มีพอร์ตที่เปิด)' if HOST_MIN
+                   else f'{n:,} เครื่องใช้เวลาเกินที่กำหนด nmap จึงข้ามเครื่องนั้น และไม่ทราบพอร์ตของเครื่องนั้น (ไม่ได้หมายความว่าไม่มีพอร์ตที่เปิด)')
+    n = sum(1 for r in rows if r.get('unlisted'))
+    if n:
+        out.append(f'{n:,} เครื่องมีพอร์ตที่เปิดซึ่ง nmap ไม่ได้แยกรายงานหมายเลขพอร์ต จึงไม่ได้ค้นหา CVE ของพอร์ตเหล่านั้น')
+    udp_failed = facts.get('udp_failed') is True or any(r.get('udp_failed') for r in rows)
+    if settings.get('udp') is True or facts.get('udp') is True:
+        if not udp_failed:
+            out.append(f'สแกน UDP เฉพาะ {N_UDP_PORTS} พอร์ตที่พบบ่อย พอร์ต UDP ที่แสดงเป็น open|filtered หมายถึงไม่ทราบว่าเปิดหรือถูกกรอง '
+                       'จึงไม่นับเป็นพอร์ตที่เปิดและไม่ค้นหา CVE ให้พอร์ตนั้น')
+    if udp_failed:
+        cause = facts.get('udp_error')
+        cause = _clip(cause, MAX_UDP_ERROR) if isinstance(cause, str) else ''
+        out.append(f'{UDP_FAILED_TEXT} จึงไม่มีผลพอร์ต UDP ของสแกนนี้ ผลพอร์ต TCP ไม่ได้รับผลกระทบ' + (f' (สาเหตุ: {cause})' if cause else ''))
+    n = _fact_count(facts, 'udp_not_scanned', rows, 'udp_not_scanned')
+    if n:
+        out.append(f'{n:,} เครื่อง{UDP_NOT_SCANNED_TEXT} จึงไม่ทราบพอร์ต UDP ของเครื่องนั้น')
+    n = _fact_count(facts, 'udp_timed_out', rows, 'udp_timed_out')
+    if n:
+        out.append(f'{n:,} เครื่อง{UDP_TIMEOUT_TEXT} nmap จึงข้ามเครื่องนั้น และไม่ทราบพอร์ต UDP ของเครื่องนั้น')
+    if settings.get('no_dns') is True or facts.get('no_dns') is True:
+        out.append('ไม่ได้ค้นหาชื่ออุปกรณ์ผ่าน DNS (-n) อุปกรณ์ที่ไม่แสดงชื่อจึงไม่ได้หมายความว่าไม่มีชื่อ (ชื่อ NetBIOS ที่ถามจากตัวอุปกรณ์ยังอ่านได้)')
+    if settings.get('gentle') is True or facts.get('gentle') is True:
+        out.append('สแกนแบบนุ่มนวล ส่งแพ็กเก็ตช้าและจำกัดอัตรา ส่งซ้ำไม่เกิน 2 ครั้ง พอร์ตที่แพ็กเก็ตสูญหายอาจแสดงเป็นถูกกรอง (filtered) ทั้งที่เปิดอยู่')
     out.append('เป็นผล ณ เวลาที่สแกน ไม่ได้รับรองว่าปลอดภัยหรือไม่ปลอดภัยหลังจากนี้')
     return out
 
@@ -663,7 +812,8 @@ def _timing_text(info):
         return 'ตามคำสั่งที่กำหนดเอง'
     if v is None or src in ('none', 'unused'):
         return None
-    return {'set': f'T{v} (ตั้งไว้)', 'type-default': f'T{v} (ค่าเริ่มต้นของประเภทนี้)', 'nmap-default': f'ค่าเริ่มต้นของ nmap (T{v})'}.get(src)
+    return {'set': f'T{v} (ตั้งไว้)', 'type-default': f'T{v} (ค่าเริ่มต้นของประเภทนี้)', 'nmap-default': f'ค่าเริ่มต้นของ nmap (T{v})',
+            'gentle': f'T{v} (ตั้งโดยโหมดสแกนแบบนุ่มนวล)'}.get(src)       # Gentle replaces the Timing control: its own T2
 
 
 def _intensity_text(info):
@@ -688,6 +838,16 @@ def _appendix_scan(scan, settings, label, steps, facts, nmap_version, run_summar
     add('Version intensity', _intensity_text(settings.get('intensity')))
     if settings.get('skip_ping') is not None:
         add('ตรวจ ping', 'ข้ามการ ping (-Pn)' if settings['skip_ping'] else 'ปกติ (ไม่ได้ข้ามการ ping)')
+    # the options added later: a row only when the option was ON (a scan without them, or from before them, keeps exactly its old rows). The words are the
+    # Tasks page's details panel's own.
+    if settings.get('all_ports') is True or facts.get('ports_scanned') == 65535:
+        add('พอร์ตที่สแกน', 'TCP ทุกพอร์ต (1-65535)')
+    if settings.get('no_dns') is True or facts.get('no_dns') is True:
+        add('ชื่ออุปกรณ์ (DNS)', 'ไม่ค้นหา (-n)')
+    if settings.get('host_probes') is True or facts.get('host_probes') is True:
+        add('ตรวจหาอุปกรณ์ที่ไม่ตอบ ping', 'เปิด (ลองเชื่อมต่อพอร์ตที่พบบ่อย) มีผลกับอุปกรณ์ที่อยู่หลังเราเตอร์เป็นหลัก')
+    if settings.get('gentle') is True or facts.get('gentle') is True:
+        add('สแกนแบบนุ่มนวล', 'เปิด (ช้าลงมาก จำกัดอัตรา)')
     if settings.get('scan_type') == 'discovery':
         m = settings.get('multicast')
         add('ฟังการตอบกลับ mDNS / SSDP', 'ไม่ได้บันทึกไว้' if m is None else ('ใช่' if m else 'ไม่ใช่'))
@@ -719,7 +879,11 @@ def _changes_view(changes, failed, scan_type, status=''):
     """Appendix B. `changes` is app.scan_changes()'s {'prev': {id, seq, when}, 'diff': scan_diff.compare_scans(...)} or None. The earlier scan is named by prev['seq'] (the number the app shows), else by its id. The words follow scan_diff's rules:
     a device missing from the newer scan is "ไม่พบในสแกนนี้" (never "gone"), a port is "ไม่เปิดแล้ว" (never "closed"), a CVE the older scan could not
     judge is counted and never listed. At most MAX_CHANGE_ITEMS per list ("+N" counts the real total). A value that cannot be read says the
-    comparison could not be made."""
+    comparison could not be made.
+    A host whose PORTS are unknown in either scan (no port list, timed out, open ports nmap did not list) is left out of the comparison of ports and CVEs by
+    scan_diff, which says so with the caveat 'ports_unknown' and counts['ports_not_compared']; a host whose UDP result is unknown (the UDP run failed, ran out
+    of time or never reached it) has only its UDP ports left out ('udp_unknown', counts['udp_not_compared']). A note repeats each here, only when the
+    caveat is there AND its count is a positive whole number (never an invented number)."""
     if failed:
         return {'state': 'failed', 'text': 'เทียบกับสแกนก่อนหน้าไม่ได้'}
     if changes is None:
@@ -734,7 +898,7 @@ def _changes_view(changes, failed, scan_type, status=''):
         if not (isinstance(prev, dict) and isinstance(prev.get('id'), int) and isinstance(d, dict) and isinstance(counts, dict)):
             raise ValueError('unreadable')
         when = str(prev.get('when') or '')
-        vs = f"เทียบกับ Scan Job #{_shown_number(prev.get('seq'), prev['id'])}" + (f' ({_clip(when, 30)})' if when else '')
+        vs = f"เทียบกับ งาน #{_shown_number(prev.get('seq'), prev['id'])}" + (f' ({_clip(when, 30)})' if when else '')
         lines = []
 
         def group(title, lst, total, fmt, inline=False):
@@ -760,11 +924,19 @@ def _changes_view(changes, failed, scan_type, status=''):
         group(f"CVE ที่ไม่พบในสแกนนี้ {counts['fixed_cves']}", d.get('fixed_cves'), counts['fixed_cves'],
               lambda x: cve_item(x, ' · พอร์ตนี้ไม่เปิดแล้ว' if x.get('reason') == 'port_closed' else ' · ค้นหาแล้วไม่พบ'))
         notes = []
+        caveats = d.get('caveats') if isinstance(d.get('caveats'), (list, tuple)) else []
+        ports_gap = 'ports_unknown' in caveats and _int(counts.get('ports_not_compared')) > 0
         if d.get('missing_devices'):
             notes.append('ไม่พบ ไม่ได้แปลว่าปิดเครื่อง อุปกรณ์อาจบล็อก ping หรือปิดอยู่ชั่วคราว')
+        if ports_gap:
+            notes.append(f"ไม่ได้นำพอร์ตและ CVE ของ {counts['ports_not_compared']} เครื่องมาเทียบ เพราะไม่ทราบพอร์ตของเครื่องนั้นในสแกนใดสแกนหนึ่ง "
+                         "(หมดเวลาต่อเครื่อง หรือมีพอร์ตที่เปิดซึ่ง nmap ไม่ได้แยกรายงาน)")
+        if 'udp_unknown' in caveats and _int(counts.get('udp_not_compared')) > 0:
+            notes.append(f"ไม่ได้นำพอร์ต UDP ของ {counts['udp_not_compared']} เครื่องมาเทียบ เพราะไม่ทราบพอร์ต UDP ของเครื่องนั้นในสแกนใดสแกนหนึ่ง "
+                         "(รอบสแกน UDP ทำงานไม่สำเร็จ ใช้เวลาสแกน UDP เกินกำหนด หรือไม่ได้สแกน UDP)")
         if _int(d.get('cve_unjudged')):
             notes.append(f"มี {d['cve_unjudged']} CVE ที่บอกไม่ได้ว่าใหม่หรือเก่า เพราะการค้นหา CVE ของสแกนใดสแกนหนึ่งไม่สำเร็จหรือไม่ได้บันทึกสถานะไว้ (นับแล้ว แต่ไม่ได้แสดงในรายการ)")
-        if 'admin_differs' in (d.get('caveats') or []):
+        if 'admin_differs' in caveats:
             notes.append('สองครั้งนี้รันด้วยสิทธิ์ต่างกัน (Administrator กับไม่ใช่) อุปกรณ์จึงอาจต่างกันโดยที่เครือข่ายไม่ได้เปลี่ยนจริง')
         cost = lambda g: -(-len(g['items']) // 4) if g['inline'] else len(g['items'])          # printed lines of a list
         while sum(cost(g) for g in lines) > MAX_CHANGE_LINES:                   # the page has room for so many lines: trim the longest list first
@@ -775,8 +947,9 @@ def _changes_view(changes, failed, scan_type, status=''):
             longest['more'] += 1
         if lines:
             return {'state': 'changes', 'vs': vs, 'text': '', 'lines': lines, 'notes': notes}
-        same = ('ไม่พบความเปลี่ยนแปลงของอุปกรณ์ พอร์ตที่เปิด และ CVE ที่เทียบได้' if d.get('cve_compared')
-                else 'ไม่พบความเปลี่ยนแปลงของอุปกรณ์' + ('และพอร์ตที่เปิด' if scan_type not in ('discovery', 'xml_upload') else ''))
+        # "nothing changed" must not claim the ports of the hosts that were left out (their ports are unknown, not unchanged)
+        same = (('ไม่พบความเปลี่ยนแปลงของอุปกรณ์ และของพอร์ตที่เปิดและ CVE ในเครื่องที่เทียบได้' if ports_gap else 'ไม่พบความเปลี่ยนแปลงของอุปกรณ์ พอร์ตที่เปิด และ CVE ที่เทียบได้') if d.get('cve_compared')
+                else 'ไม่พบความเปลี่ยนแปลงของอุปกรณ์' + ((' และของพอร์ตที่เปิดในเครื่องที่เทียบได้' if ports_gap else 'และพอร์ตที่เปิด') if scan_type not in ('discovery', 'xml_upload') else ''))
         return {'state': 'same', 'vs': vs, 'text': same, 'lines': [], 'notes': notes}
     except Exception:
         return {'state': 'failed', 'text': 'เทียบกับสแกนก่อนหน้าไม่ได้'}
@@ -784,27 +957,32 @@ def _changes_view(changes, failed, scan_type, status=''):
 
 METHOD_STEPS = [
     'nmap ตรวจพอร์ตที่เปิดและอ่านชื่อ/เวอร์ชันของบริการ',
-    'ระบบค้นหา NVD ด้วยข้อความชื่อผลิตภัณฑ์และเวอร์ชันที่ nmap อ่านได้ (คีย์เวิร์ด ไม่ใช่การจับคู่ CPE)',
+    'ระบบค้นหา NVD ด้วย CPE ที่มีเวอร์ชันเมื่อ nmap ระบุได้ หรือค้นด้วยชื่อผลิตภัณฑ์และเวอร์ชันแล้วคัดกรองตามช่วงเวอร์ชันและระบบปฏิบัติการที่ได้รับผลกระทบ',
     'เก็บผลสูงสุด 5 รายการต่อพอร์ต',
-    'ความรุนแรงใช้คะแนน CVSS ที่ NVD ให้ (v3.1 ก่อน แล้ว v3.0 แล้ว v2) CVE ที่ได้คะแนน v2 อย่างเดียวและ 9.0 ขึ้นไป ระบบแสดงเป็น Critical',
+    'ความรุนแรงใช้คะแนน CVSS ที่ NVD ให้ (v3.1 ก่อน แล้ว v3.0 แล้ว v2) CVE ที่ได้คะแนน v2 อย่างเดียวและ 9.0 ขึ้นไป ระบบแสดงเป็นวิกฤต',
 ]
 SCALE = [
-    {'label': 'Critical', 'range': '9.0 – 10.0', 'key': 'crit'}, {'label': 'High', 'range': '7.0 – 8.9', 'key': 'high'},
-    {'label': 'Medium', 'range': '4.0 – 6.9', 'key': 'med'}, {'label': 'Low', 'range': '0.1 – 3.9', 'key': 'low'}, {'label': 'None', 'range': '0.0', 'key': 'unknown'},
+    {'label': 'วิกฤต', 'range': '9.0 – 10.0', 'key': 'crit'}, {'label': 'สูง', 'range': '7.0 – 8.9', 'key': 'high'},
+    {'label': 'ปานกลาง', 'range': '4.0 – 6.9', 'key': 'med'}, {'label': 'ต่ำ', 'range': '0.1 – 3.9', 'key': 'low'}, {'label': 'ไม่มี', 'range': '0.0', 'key': 'unknown'},
 ]
+# the definition of "ไม่พบ CVE" when some host's UDP result is unknown (that host keeps the level, but did not have every open port checked)
+LEVEL_NONE_UDP_TEXT = 'ค้นหาครบทุกพอร์ตที่เปิดเท่าที่ทราบแล้วไม่พบ CVE (หากไม่ทราบพอร์ต UDP ของเครื่องใด รายงานระบุไว้ที่เครื่องนั้น)'
 LEVEL_TEXT = {
-    'high': 'มี CVE ระดับ Critical หรือ High',
-    'med': 'CVE ที่รุนแรงที่สุดเป็น Medium',
-    'low': 'CVE ที่รุนแรงที่สุดเป็น Low (CVE ที่ไม่มีระดับความรุนแรงนับรวมที่นี่)',
+    'high': 'มี CVE ระดับวิกฤตหรือสูง',
+    'med': 'CVE ที่รุนแรงที่สุดเป็นระดับปานกลาง',
+    'low': 'CVE ที่รุนแรงที่สุดเป็นระดับต่ำ (CVE ที่ไม่มีระดับความรุนแรงนับรวมที่นี่)',
     'none': 'ค้นหาครบทุกพอร์ตที่เปิดแล้วไม่พบ CVE',
     'unknown': 'ประเมินไม่ได้ (ไม่ได้ค้นหา CVE, ค้นหาไม่สำเร็จ, nmap ระบุผลิตภัณฑ์ไม่ได้, ไม่ได้สแกนพอร์ต หรือไม่มีพอร์ตที่เปิด) ไม่ได้แปลว่าปลอดภัย',
 }
 
 
-def _not_said(scan_type, skip_ping, reasons=None):
+def _not_said(scan_type, skip_ping, reasons=None, all_ports=False, udp=False, host_probes=False):
     """Appendix D: what this report does not say. Each sentence is written only when it is true of this kind of scan.
     reasons: None = this scan has no port that is not open (nothing to add), True = at least one such port carries nmap's reason (the inventory shows
-    it), False = such ports exist but none has a recorded reason (an older scan): the sentence says so and never promises reasons."""
+    it), False = such ports exist but none has a recorded reason (an older scan): the sentence says so and never promises reasons.
+    all_ports: ports 1-65535 were scanned, so "ports outside the range" is not true; it says what the lists of ports that are not open show instead.
+    udp: the second (UDP) run was made: only its 12 ports were looked at, and a port that did not answer is "open|filtered", which is not open.
+    host_probes: the extra probes were sent, so the ping sentence says what they did not catch."""
     out = ['ไม่ได้ยืนยันว่าช่องโหว่ใช้โจมตีได้จริง (ไม่ได้ทดสอบเจาะระบบ)',
            'ไม่ใช่รายการช่องโหว่ที่ครบถ้วน เป็นเพียง CVE ที่ NVD จับคู่ได้จากชื่อและเวอร์ชันของบริการ (สูงสุด 5 รายการต่อพอร์ต)']
     if scan_type == 'vuln_scan':
@@ -812,20 +990,113 @@ def _not_said(scan_type, skip_ping, reasons=None):
     if scan_type != 'discovery':
         out.append('พอร์ตที่เป็น filtered หรือ closed ไม่ถูกนำมาประเมิน (นับเฉพาะพอร์ตที่ open)'
                    + (' เหตุผลที่ nmap ให้ไว้แสดงในหัวข้อ 4 เฉพาะพอร์ตที่สแกนบันทึกเหตุผลไว้' if reasons else ' สแกนนี้ไม่ได้บันทึกเหตุผลที่ nmap ให้ไว้ของพอร์ตเหล่านี้' if reasons is False else ''))
-    if scan_type not in ('discovery', 'xml_upload'):
-        out.append('พอร์ตนอกช่วงที่การสแกนนี้ตรวจจะไม่ปรากฏในผล')
+    ports_scanned = scan_type not in ('discovery', 'xml_upload')
+    if ports_scanned and udp:
+        out.append('พอร์ต UDP ที่แสดงเป็น open|filtered หมายถึงไม่ทราบว่าเปิดหรือถูกกรอง จึงไม่นับเป็นพอร์ตที่เปิดและไม่ค้นหา CVE ให้พอร์ตนั้น')
+    if ports_scanned:
+        if all_ports:
+            out.append('สแกนนี้ตรวจพอร์ต TCP ทุกพอร์ต (1-65535) รายการพอร์ตที่ไม่เปิดในหัวข้อ 4 แสดงเฉพาะพอร์ตที่ nmap แยกรายงาน '
+                       'ส่วนที่เหลือ nmap สรุปเป็นจำนวนรวมตามสถานะ (มักเป็นสถานะปิด หรือสถานะถูกกรอง)')
+            if not udp:
+                out.append('ไม่ได้ตรวจพอร์ต UDP')
+        else:
+            out.append('พอร์ตนอกช่วงที่การสแกนนี้ตรวจจะไม่ปรากฏในผล')
+        if udp:
+            out.append(f'ตรวจพอร์ต UDP เพียง {N_UDP_PORTS} พอร์ตที่พบบ่อย ({UDP_PORT_LIST}) พอร์ต UDP อื่นจึงไม่ปรากฏในผล')
     if scan_type != 'xml_upload' and not skip_ping:
-        out.append('อุปกรณ์ที่บล็อก ping อาจไม่ถูกพบ')
+        out.append('อุปกรณ์ที่บล็อกทั้ง ping และพอร์ตที่ลองเชื่อมต่อเพิ่ม อาจไม่ถูกพบ' if host_probes else 'อุปกรณ์ที่บล็อก ping อาจไม่ถูกพบ')
     out.append('เป็นผล ณ เวลาที่สแกน ไม่ได้รับรองว่าปลอดภัยหรือไม่ปลอดภัยหลังจากนี้')
     out.append('ไม่มีข้อมูลวิธีแก้ไขในรายงานนี้ เพราะระบบไม่ได้เก็บข้อมูลดังกล่าว')
     return out
+
+
+# ---------------------------------------------------------------- the portrait frame: the cover, the contents page and "about this report"
+# (2026-11-17: the A4 PORTRAIT layout is the default, the landscape one is an export option. Everything below is orientation-free data: the template draws it only
+# in portrait, so the landscape page, and every text it prints, is exactly what it was.)
+MAX_TOC_GROUPS = 5         # subnet groups named under "รายการอุปกรณ์ที่พบ" on the contents page (the rest are counted, not listed)
+MAX_RUNNING_TARGET = 30    # characters of the target printed in the running header of every portrait page (the cover and section 1 have the whole text)
+COVER_KICKER_VULN = 'รายงานผลการสแกนเครือข่าย'
+COVER_TITLE_VULN = ('รายงานการประเมิน', 'ช่องโหว่ของเครือข่าย')      # a vulnerability scan: it did look for CVEs
+COVER_TITLE_SCAN = ('รายงานผลการสแกนเครือข่าย',)                     # every other type: it did not, so the title does not say "ช่องโหว่"
+COVER_KICKER_XML = 'นำเข้าจากไฟล์ XML ของ nmap (ไม่ได้สแกนจากระบบ)'
+
+
+def _cover_titles(scan_type, status='', evaluated_any=True):
+    """(kicker or None, title lines): what the cover may claim. Only a vulnerability scan that ran to its end is a "vulnerability assessment": one that failed, was
+    cancelled or is still running did not assess anything (its cover says what happened), so it gets the plain title like every other scan. The same for a completed one in which no
+    open port was really looked up (every lookup failed, nmap named no product, no open port): evaluated_any False."""
+    return (COVER_KICKER_VULN, COVER_TITLE_VULN) if (scan_type == 'vuln_scan' and status not in _NOT_DONE and evaluated_any) else (None, COVER_TITLE_SCAN)
+
+
+def _cover_risk(badge, scan_type, status='', is_upload=False):
+    """The box under the key facts on the cover. It follows the badge of section 1 exactly (a level only from the worst host, "ไม่พบ CVE" only when every host was
+    evaluated and the scan is Completed, "ยังไม่ทราบ" with its reason otherwise). A scan that did not look for CVEs and found none says so instead of showing a pill;
+    an imported file has no CVE results at all. A level from a scan that did not finish is what was found so far, and says so."""
+    key = badge['key']
+    if scan_type != 'vuln_scan' and key == 'unknown':
+        if is_upload:
+            return {'pill': '', 'key': 'unknown', 'title': 'ไฟล์ที่นำเข้าไม่มีผลการค้นหา CVE',
+                    'text': 'จึงยังไม่ทราบระดับความเสี่ยง รายงานนี้แสดงเฉพาะผลที่มีอยู่ในไฟล์'}
+        return {'pill': '', 'key': 'unknown', 'title': 'การสแกนนี้ไม่ได้ค้นหา CVE',
+                'text': 'จึงยังไม่ทราบระดับความเสี่ยง รายงานนี้แสดงเฉพาะผลที่การสแกนตรวจได้ หากต้องการค้นหา CVE ให้ใช้สแกนช่องโหว่ (CVE)'}
+    worst = 'ระดับความเสี่ยงสูงสุดที่พบ (ผลยังไม่ครบ)' if status in _NOT_DONE else 'ระดับความเสี่ยงสูงสุดของสแกนนี้'
+    title = {'high': worst, 'med': worst, 'low': worst, 'none': 'ผลการค้นหา CVE'}.get(key, 'ระดับความเสี่ยงของสแกนนี้')
+    return {'pill': badge['label'], 'key': key, 'title': title, 'text': badge['detail'] + ' ดูรายละเอียดในหัวข้อ 1'}
+
+
+def _cover_notice(scan_type):
+    text = 'รายงานนี้แสดงผล ณ เวลาที่สแกน และไม่ได้รับรองว่าปลอดภัยหรือไม่ปลอดภัยหลังจากนั้น'
+    if scan_type == 'vuln_scan':
+        text += ' CVE ได้จากการจับคู่ชื่อและเวอร์ชันของบริการกับฐานข้อมูล NVD และยังไม่ได้ยืนยันว่ามีผลกับอุปกรณ์ที่พบจริง'
+    else:
+        text += ' สิ่งที่ไม่ทราบแสดงเป็น "ยังไม่ทราบ" ไม่ใช้การคาดเดา'
+    return {'lead': 'ข้อควรทราบ', 'text': text}
+
+
+def _about_paras(scan_type):
+    """"เกี่ยวกับรายงานนี้": plain sentences that are true for every scan type (the one about CVEs is the only part that depends on the type)."""
+    paras = ['รายงานนี้จัดทำโดยระบบ Clylar และสรุปผลการสแกนเครือข่ายหนึ่งครั้ง แบ่งเป็น 5 หัวข้อ ได้แก่ สรุปผลโดยย่อ สรุปผลที่พบ แผนภาพเครือข่าย รายการอุปกรณ์ที่พบ และภาคผนวก']
+    if scan_type == 'vuln_scan':
+        paras.append('สิ่งที่ไม่ทราบจะแสดงเป็น "ยังไม่ทราบ" เสมอ ไม่ใช้การคาดเดา และ "ไม่พบ CVE" หมายถึงค้นหาแล้วไม่พบเท่านั้น ไม่ได้รับรองว่าปลอดภัย')
+    elif scan_type == 'xml_upload':
+        paras.append('สิ่งที่ไม่ทราบจะแสดงเป็น "ยังไม่ทราบ" เสมอ ไม่ใช้การคาดเดา ไฟล์ที่นำเข้าไม่มีผลการค้นหา CVE จึงยังไม่ทราบระดับความเสี่ยงของอุปกรณ์')
+    else:
+        paras.append('สิ่งที่ไม่ทราบจะแสดงเป็น "ยังไม่ทราบ" เสมอ ไม่ใช้การคาดเดา การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่ทราบระดับความเสี่ยงของอุปกรณ์')
+    return paras
+
+
+APPENDIX_TOC = [['A. ข้อมูลการสแกนโดยละเอียด', 'B. เปลี่ยนแปลงจากสแกนก่อนหน้า', 'C. วิธีค้นหา CVE'],
+                ['D. สิ่งที่รายงานนี้ไม่ได้บอก', 'E. ระดับความรุนแรง (CVSS)', 'F. ระดับความเสี่ยงของอุปกรณ์']]
+
+
+def _contents(findings, groups):
+    """The contents page. Titles only: the PAGE of a section that flows (2 and 4) is measured in the browser after layout and written in by the page's script, so
+    it is never a guess; the fixed pages (about = 2, section 1 = 3) are known. `anchor` names the element of the page whose page is wanted ('toc-...' ids)."""
+    s2 = []
+    if findings.get('rows'):
+        s2.append({'title': 'ตาราง CVE เรียงตามความรุนแรง', 'anchor': 'toc-find'})
+    if findings.get('hosts'):
+        s2.append({'title': 'สรุปตามอุปกรณ์', 'anchor': 'toc-hosts'})
+    s4 = [{'title': ('เครือข่ายย่อย ' if '/' in g['title'] else '') + g['title'], 'anchor': f'toc-g{i}'} for i, g in enumerate(groups[:MAX_TOC_GROUPS])]
+    more = len(groups) - MAX_TOC_GROUPS
+    if more > 0:
+        s4.append({'title': f'และอีก {more} กลุ่ม', 'anchor': ''})
+    return [
+        {'key': 'about', 'num': '', 'title': 'เกี่ยวกับรายงานนี้', 'page': 2, 'subs': []},
+        {'key': 's1', 'num': 1, 'title': 'สรุปผลโดยย่อ', 'page': 3, 'subs': [{'title': 'ระดับความเสี่ยง และตัวเลขสำคัญ', 'page': 3}, {'title': 'รายการที่ควรตรวจสอบก่อน และข้อจำกัดของผลนี้', 'page': 3}]},
+        {'key': 's2', 'num': 2, 'title': 'สรุปผลที่พบ', 'page': None, 'anchor': 'toc-s2', 'subs': s2},
+        {'key': 's3', 'num': 3, 'title': 'แผนภาพเครือข่าย', 'page': None, 'anchor': 'toc-s3', 'subs': []},
+        {'key': 's4', 'num': 4, 'title': 'รายการอุปกรณ์ที่พบ', 'page': None, 'anchor': 'toc-s4', 'subs': s4},
+        {'key': 's5', 'num': 5, 'title': 'ภาคผนวก', 'page': None, 'anchor': 'toc-s5', 'subs': [{'title': ' · '.join(line), 'anchor': 'toc-s5'} for line in APPENDIX_TOC]},
+    ]
 
 
 # ---------------------------------------------------------------- the whole report
 def build_report(scan, hosts, now, type_labels=None):
     """scan: dict with id (the database id, for URLs), number (optional: the "Job #N" the app shows, printed in the header and footers; a missing or
     bad one prints the id), scan_type, scan_name, target, status, started, finished (datetimes or None), timing, version_intensity,
-    custom_args, multicast, skip_ping, nmap_version, run (app.describe_run), and, all optional: run_facts (app.scan_run_info: a missing key = not
+    custom_args, multicast, skip_ping, all_ports, no_dns, host_probes, gentle, udp (the job's columns: all of them go to scanner.describe_scan_settings, which
+    builds the command the scan really ran; None = not applicable or a job from before the option), nmap_version, run (app.describe_run), and, all optional: run_facts (app.scan_run_info: a missing key = not
     recorded), owner (the owner's username), triggered_by ('manual' | 'rescan' | 'drilldown' | 'schedule' | 'chatbot'), changes (app.scan_changes() or
     None) and changes_failed (True when that comparison raised). hosts: the parsed result_data list. now: a datetime for "created at".
     type_labels: scan type -> name. Returns the plain dict the template draws (see the keys at the end of this function)."""
@@ -837,8 +1108,10 @@ def build_report(scan, hosts, now, type_labels=None):
     rows = [_host_row(h, scan_type) for h in rows_in]
 
     # ---- the header cells
+    # ALL the settings the scan was started with go to scanner.describe_scan_settings, which builds the arguments with the same function the scan ran with
+    # (scanner.scan_arguments): a scan with all ports, no DNS, extra probes, Gentle or the UDP pass prints the command that really ran, never the plain default
     settings = describe_scan_settings(scan_type, scan.get('timing'), scan.get('version_intensity'), scan.get('custom_args'), scan.get('multicast'),
-                                      scan.get('skip_ping'))
+                                      scan.get('skip_ping'), scan.get('all_ports'), scan.get('no_dns'), scan.get('host_probes'), scan.get('gentle'), scan.get('udp'))
     args = (settings.get('arguments') or '').strip()
     if scan_type == 'xml_upload':
         command, command_note = '', 'นำเข้าจากไฟล์ XML จึงไม่มีคำสั่งที่ใช้สแกน'
@@ -846,6 +1119,9 @@ def build_report(scan, hosts, now, type_labels=None):
         command, command_note = _clip_marked(f"nmap {args} {scan.get('target') or ''}".strip(), MAX_COMMAND_TEXT), ''
     else:
         command, command_note = '', 'ไม่ได้บันทึกคำสั่งไว้ (งานเก่า)'
+    # the UDP option is a SECOND nmap run, on the hosts the first run found up (known only when that run is over), so its command ends with a placeholder
+    command_udp = (_clip_marked(f"nmap {settings['udp_arguments']} {UDP_SECOND_RUN_TARGETS}", MAX_COMMAND_TEXT)
+                   if settings.get('udp') and settings.get('udp_arguments') else '')
     steps = [STEP_TEXT[s] for s in settings.get('steps', []) if s in STEP_TEXT]
     facts = scan.get('run_facts') if isinstance(scan.get('run_facts'), dict) else {}      # what the run recorded about itself; a missing key = not recorded
     skip_ping = bool(settings.get('skip_ping') or facts.get('skip_ping') is True or scan.get('skip_ping'))
@@ -887,24 +1163,36 @@ def build_report(scan, hosts, now, type_labels=None):
         'ports': {'value': open_total, 'sub': ' | '.join(f'{k.upper()} {v}' for k, v in sorted(proto_counts.items())) or 'ไม่พบพอร์ตที่เปิด'},
     }
     not_scanned = [r for r in rows if not r['ports_known']]
-    if rows and len(not_scanned) == len(rows):       # no host has a port list: the scan never looked at ports, so there is no count (not 0)
-        tiles['ports'] = {'value': None, 'sub': 'ยังไม่ทราบ: การสแกนนี้ไม่ได้ตรวจพอร์ต'}
+    timed = [r for r in not_scanned if r['timed_out']]       # nmap gave up on these hosts (--host-timeout): their ports are unknown for that reason
+    plain = [r for r in not_scanned if not r['timed_out']]   # the scan never looked at their ports
+    if rows and len(not_scanned) == len(rows):       # no host has a port list: no count (not 0); say WHY, in the words that are true
+        tiles['ports'] = {'value': None, 'sub': 'ยังไม่ทราบ: ' + (HOST_TIMEOUT_TEXT if not plain else 'การสแกนนี้ไม่ได้ตรวจพอร์ต' if not timed
+                                                                  else f'ไม่ได้สแกนพอร์ต {len(plain)} เครื่อง · ไม่ทราบพอร์ตเพราะหมดเวลา {len(timed)} เครื่อง')}
     elif not_scanned:                                # the count is of the hosts that were port-scanned; say how many were not (no number is made up for them)
-        tiles['ports']['sub'] += f' | ไม่ได้สแกนพอร์ต {len(not_scanned)} host'
+        if plain:
+            tiles['ports']['sub'] += f' | ไม่ได้สแกนพอร์ต {len(plain)} เครื่อง'
+        if timed:
+            tiles['ports']['sub'] += f' | ไม่ทราบพอร์ตเพราะหมดเวลา {len(timed)} เครื่อง'
+    if rows and len(not_scanned) < len(rows):
+        n_unlisted, n_udp_unknown = sum(1 for r in rows if r['unlisted']), sum(1 for r in rows if r['udp_unknown'])
+        if n_unlisted:                               # open ports nmap did not name are not in the number
+            tiles['ports']['sub'] += f' | ไม่รวมพอร์ตที่เปิดซึ่ง nmap ไม่ได้แยกรายงาน {n_unlisted} เครื่อง'
+        if n_udp_unknown:                            # the UDP result of these hosts is unknown, so the number leaves UDP out for them
+            tiles['ports']['sub'] += f' | ไม่ทราบพอร์ต UDP {n_udp_unknown} เครื่อง'
     if not evaluated and scan_type == 'vuln_scan':       # it did look; say what happened (the reason of each host is on page 3)
         why = _vuln_unevaluated_text(rows)
-        tiles['high'] = {'value': None, 'sub': why + ' (ดูเหตุผลของแต่ละ host ในหัวข้อ 4)'}
+        tiles['high'] = {'value': None, 'sub': why + ' (ดูเหตุผลของแต่ละอุปกรณ์ในหัวข้อ 4)'}
         tiles['cves'] = {'value': None, 'sub': why, 'breakdown': []}
     elif not evaluated:                                   # a scan that never looks for CVEs
         tiles['high'] = {'value': None, 'sub': 'ยังไม่ทราบ: การสแกนนี้ไม่ได้ตรวจช่องโหว่ (CVE)'}
-        tiles['cves'] = {'value': None, 'sub': 'ยังไม่ทราบ: ใช้ Vulnerability Scan เพื่อค้นหา CVE', 'breakdown': []}
+        tiles['cves'] = {'value': None, 'sub': 'ยังไม่ทราบ: ใช้สแกนช่องโหว่ (CVE) เพื่อค้นหา CVE', 'breakdown': []}
     else:
-        tiles['high'] = {'value': len(high_hosts), 'sub': (_hosts_text(high_hosts) if high_hosts else 'ไม่มี host ที่พบ CVE ระดับสูง')
-                         + ('' if len(evaluated) == n_hosts else f' (ประเมินได้ {len(evaluated)} จาก {n_hosts} host)')}
+        tiles['high'] = {'value': len(high_hosts), 'sub': (_hosts_text(high_hosts) if high_hosts else 'ไม่มีอุปกรณ์ที่พบ CVE ระดับสูง')
+                         + ('' if len(evaluated) == n_hosts else f' (ประเมินได้ {len(evaluated)} จาก {n_hosts} เครื่อง)')}
         cve_sub = (f"CVSS สูงสุด {top_cve['score']:.1f}" + (f" ({_clip(top_cve['product'], 34)})" if top_cve['product'] else '')) if top_cve and top_cve['score'] is not None \
             else ('พบ CVE แต่ไม่มีคะแนน CVSS' if all_cves else 'ไม่พบ CVE จากพอร์ตที่ตรวจ')
         # Critical, High, Medium and Low always (a zero says "none of those"), Unknown only when some CVE has no usable label; nothing when there is no CVE
-        breakdown = [{'key': k.lower(), 'label': k.title(), 'n': n} for k, n in sev_counts.items() if all_cves and (n or k != 'UNKNOWN')]
+        breakdown = [{'key': k.lower(), 'label': _sev_name(k), 'n': n} for k, n in sev_counts.items() if all_cves and (n or k != 'UNKNOWN')]
         tiles['cves'] = {'value': len(all_cves), 'sub': cve_sub, 'breakdown': breakdown}
 
     # ---- the two bar charts
@@ -930,7 +1218,7 @@ def build_report(scan, hosts, now, type_labels=None):
         for it in items:
             n += 1
             it['n'] = n
-        sub = f'{len(items)} host' + (' | มีเครื่องสแกนอยู่ในวงนี้' if any(i['local'] for i in items) else '')
+        sub = f'{len(items)} เครื่อง' + (' | มีเครื่องสแกนอยู่ในวงนี้' if any(i['local'] for i in items) else '')
         groups.append({'title': title, 'subtitle': sub, 'rows': items})
     # ---- page 2 (findings), page 1 (summary) and page 5 (appendix): all of them need the private keys, so they are built before those are dropped
     distinct = tiles['cves']['value']                    # None when no service could be evaluated
@@ -955,7 +1243,7 @@ def build_report(scan, hosts, now, type_labels=None):
     elif scan_type == 'vuln_scan':
         top_empty = _vuln_unevaluated_text(rows)
     else:
-        top_empty = 'การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่มีรายการให้เรียงลำดับ ใช้ Vulnerability Scan เพื่อค้นหา CVE'
+        top_empty = 'การสแกนนี้ไม่ได้ค้นหา CVE จึงยังไม่มีรายการให้เรียงลำดับ ใช้สแกนช่องโหว่ (CVE) เพื่อค้นหา CVE'
     if not frows:
         top_note = ''
     elif findings['hidden']:                              # say "all" only when nothing was cut
@@ -963,22 +1251,34 @@ def build_report(scan, hosts, now, type_labels=None):
                     f"หัวข้อ 2 แสดง {len(findings['rows'])} จาก {findings['total']} รายการ ส่วนที่เหลือดูได้ในหน้ารายงานผลสแกนในระบบ")
     else:
         top_note = 'เรียงตามความรุนแรงแล้วคะแนน CVSS เท่านั้น ไม่ได้ประเมินว่าโจมตีได้จริง รายการครบอยู่ในหัวข้อ 2'
+    n_udp_unknown = sum(1 for r in rows if r['udp_unknown'])
+    if n_udp_unknown:
+        udp_gap = f'{UDP_UNKNOWN_TEXT} ของ {n_udp_unknown} เครื่อง'
+    elif facts.get('udp_failed') is True:                  # only the scan said so (no host carries the flag): still not "every open port"
+        udp_gap = f'{UDP_UNKNOWN_TEXT} เพราะ{UDP_FAILED_TEXT}'
+    else:
+        udp_gap = ''
+    n_none_udp = sum(1 for r in rows if r['risk'] == 'none' and r['udp_unknown'])
+    risk_note = f'กลุ่ม "ไม่พบ CVE" มี {n_none_udp} เครื่องที่{UDP_UNKNOWN_TEXT} จึงค้นหา CVE ได้เฉพาะพอร์ตที่ทราบ' if n_none_udp else ''
+    dot_note = f'สำหรับอุปกรณ์ที่{UDP_UNKNOWN_TEXT} สีของจุดนับจากพอร์ตที่เปิดเท่าที่ทราบ' if n_udp_unknown else ''
     summary = {
-        'badge': _badge(rows, frows, scan_type, len(evaluated), scan.get('status')),
+        'badge': _badge(rows, frows, scan_type, len(evaluated), scan.get('status'), udp_gap),
         'lead': _lead(rows, scan_type, tiles, facts, skip_ping, total_ips, status_counts),
         'sev': sev_rows,
         'kev': {'n': sum(1 for k in kev_known if k), 'of': len(kev_known)} if kev_known else None,
         'top': top, 'top_empty': top_empty, 'top_note': top_note,
-        'limits': _limits(scan_type, facts, skip_ping),
+        'limits': _limits(scan_type, facts, skip_ping, rows, settings),
     }
     appendix = {
         'scan': _appendix_scan(scan, settings, label, steps, facts, nmap_version, run_summary, who),
         'changes': _changes_view(scan.get('changes'), bool(scan.get('changes_failed')), scan_type, scan.get('status')),
-        'method': {'lead': '' if scan_type == 'vuln_scan' else 'การสแกนนี้ไม่ได้ค้นหา CVE ถ้าใช้ Vulnerability Scan ระบบจะทำตามขั้นตอนนี้:',
+        'method': {'lead': '' if scan_type == 'vuln_scan' else 'การสแกนนี้ไม่ได้ค้นหา CVE ถ้าใช้สแกนช่องโหว่ (CVE) ระบบจะทำตามขั้นตอนนี้:',
                    'steps': list(METHOD_STEPS), 'note': 'บริการที่ nmap ระบุผลิตภัณฑ์ไม่ได้ ไม่ถูกค้นหา และแสดงเป็น "ยังไม่ทราบ" ไม่ใช่ "ไม่พบ CVE"'},
-        'limits': _not_said(scan_type, skip_ping, (any(r['not_open_reasoned'] for r in rows) if any(r['not_open_count'] for r in rows) else None)),
-        'scale': SCALE, 'scale_note': 'CVE ที่ NVD ให้คะแนนด้วย CVSS v2 อย่างเดียวและได้ 9.0 ขึ้นไป ระบบนับเป็น Critical (v2 ไม่มีระดับ Critical)',
-        'levels': [{'key': k, 'label': name, 'text': LEVEL_TEXT[k]} for k, name in LEVELS],
+        'limits': _not_said(scan_type, skip_ping, (any(r['not_open_reasoned'] for r in rows) if any(r['not_open_count'] for r in rows) else None),
+                            all_ports=settings.get('all_ports') is True or facts.get('ports_scanned') == 65535, udp=settings.get('udp') is True or facts.get('udp') is True,
+                            host_probes=settings.get('host_probes') is True or facts.get('host_probes') is True),
+        'scale': SCALE, 'scale_note': 'CVE ที่ NVD ให้คะแนนด้วย CVSS v2 อย่างเดียวและได้ 9.0 ขึ้นไป ระบบนับเป็นวิกฤต (v2 ไม่มีระดับวิกฤต)',
+        'levels': [{'key': k, 'label': name, 'text': (LEVEL_NONE_UDP_TEXT if (k == 'none' and udp_gap) else LEVEL_TEXT[k])} for k, name in LEVELS],
     }
     for r in rows:
         r.pop('_cve_all'); r.pop('_open_ports')
@@ -986,31 +1286,58 @@ def build_report(scan, hosts, now, type_labels=None):
     # ---- notes that keep the reader honest
     notes = ['แสดงเฉพาะพอร์ตที่ open']                      # the two that sit under the heading of the inventory; the rest go under the table
     if scan_type == 'vuln_scan' and findings['hidden']:
-        notes.append(f"หัวข้อ 2 แสดง CVE {len(findings['rows'])} จาก {findings['total']} รายการ ส่วนที่เหลือดูได้ในหน้ารายงานผลสแกนในระบบ (หัวข้อนี้แสดงเพียงสรุปของแต่ละ host)")
+        notes.append(f"หัวข้อ 2 แสดง CVE {len(findings['rows'])} จาก {findings['total']} รายการ ส่วนที่เหลือดูได้ในหน้ารายงานผลสแกนในระบบ (หัวข้อนี้แสดงเพียงสรุปของแต่ละอุปกรณ์)")
     elif scan_type == 'vuln_scan':
-        notes.append('รายละเอียด CVE ทั้งหมดอยู่ในหัวข้อ 2 (หัวข้อนี้แสดงเพียงสรุปของแต่ละ host)')
+        notes.append('รายละเอียด CVE ทั้งหมดอยู่ในหัวข้อ 2 (หัวข้อนี้แสดงเพียงสรุปของแต่ละอุปกรณ์)')
     else:
         notes.append('การสแกนนี้ไม่ได้ตรวจช่องโหว่ (CVE) ระดับความเสี่ยงจึงเป็น "ยังไม่ทราบ"')
     footnotes = ['ประเภทอุปกรณ์เป็นการคาดเดาจาก OS ผู้ผลิต MAC พอร์ตและชื่อบริการ ไม่ใช่ข้อเท็จจริง']
     if any(r['ports_more'] for r in rows):
-        footnotes.append(f'แสดงสูงสุด {MAX_PORT_LINES} พอร์ตต่อ host ข้อมูลครบถ้วนอยู่ในหน้ารายงานในระบบ')
+        footnotes.append(f'แสดงสูงสุด {MAX_PORT_LINES} พอร์ตต่ออุปกรณ์ ข้อมูลครบถ้วนอยู่ในหน้ารายงานในระบบ')
+
+    # ---- the portrait frame (cover, contents, about): plain data, drawn only by the portrait layout
+    status = scan.get('status') or ''
+    kicker, title_lines = _cover_titles(scan_type, status, status_counts['ok'] > 0)
+    if is_upload:
+        kicker = COVER_KICKER_XML
+    elif kicker is None:
+        kicker = label
+    name_clipped = _clip_marked(scan.get('scan_name'), MAX_NAME_TEXT)
+    when_text = _fmt_dt(started)
+    if when_text and finished and duration is not None and not is_upload:
+        when_text += f' (ใช้เวลา {_duration_text(duration)})'            # only when both times are recorded
+    cover_rows = [{'k': 'เป้าหมาย', 'v': _clip_marked(scan.get('target'), MAX_TARGET_TEXT) or '—', 'mono': True},
+                  {'k': 'ประเภทการสแกน', 'v': label},
+                  {'k': 'นำเข้าเมื่อ' if is_upload else 'สแกนเมื่อ', 'v': when_text or 'ไม่ได้บันทึกไว้'}]
+    if status in _NOT_DONE:
+        cover_rows.append({'k': 'สถานะงาน', 'v': _NOT_DONE[status]})
+    if who:
+        cover_rows.append({'k': 'ผู้สั่งสแกน', 'v': who})
+    cover_rows.append({'k': 'งานสแกน', 'v': f'งาน #{job_number}'})
+    if now:
+        cover_rows.append({'k': 'สร้างรายงานเมื่อ', 'v': now.strftime('%Y-%m-%d %H:%M') + ' (Asia/Bangkok)'})
+    cover = {'kicker': kicker, 'title': list(title_lines), 'title_flat': ''.join(title_lines),
+             'scan_line': (name_clipped + ' · ' + label if name_clipped else label) if kicker != label else name_clipped, 'rows': cover_rows,      # the kicker already says the type for most scans
+             'risk': _cover_risk(summary['badge'], scan_type, status, is_upload), 'notice': _cover_notice(scan_type)}
 
     return {
+        'cover': cover, 'contents': _contents(findings, groups), 'about': _about_paras(scan_type),
+        'running_target': _clip(scan.get('target'), MAX_RUNNING_TARGET),
         'system_name': SYSTEM_NAME,
         'title': 'รายงานผลการสแกนเครือข่าย',
-        'subtitle': f"Network Scan Report | Scan Job #{job_number} | {_clip_marked(scan.get('scan_name'), MAX_NAME_TEXT) or label}",
+        'subtitle': f"รายงานผลการสแกนเครือข่าย | งาน #{job_number} | {_clip_marked(scan.get('scan_name'), MAX_NAME_TEXT) or label}",
         'created_text': f"สร้างรายงาน {now.strftime('%Y-%m-%d %H:%M')} (Asia/Bangkok)" if now else '',
         'job_id': scan.get('id'), 'job_number': job_number, 'scan_type': scan_type, 'type_label': label, 'scan_name': scan.get('scan_name') or '',
         'status': scan.get('status') or '', 'notice': STATUS_NOTICE.get(scan.get('status') or '', ''), 'error': error,
         'source_label': label, 'source_tag': 'ไฟล์ที่อัปโหลด' if is_upload else 'สแกนจากระบบ',
         'target': _clip_marked(scan.get('target'), MAX_TARGET_TEXT), 'started_text': _fmt_dt(started), 'finished_text': _fmt_dt(finished), 'duration_text': _duration_text(duration),
-        'command': command, 'command_note': command_note, 'steps': steps,
+        'command': command, 'command_note': command_note, 'command_udp': command_udp, 'steps': steps,
         'nmap_version': nmap_version,                      # from the scan's own XML; empty for scans that did not keep it
         'run_summary': run_summary,                        # "ตรวจ N IP · ตอบกลับ M · ไม่ตอบ K"; empty for a scan that did not keep it
         'who_text': who,                                   # who ordered the scan and how; empty when the report was not given it
-        'tiles': tiles, 'device_types': device_types, 'risk_levels': risk_levels,
+        'tiles': tiles, 'device_types': device_types, 'risk_levels': risk_levels, 'risk_note': risk_note, 'dot_note': dot_note,
         'summary': summary, 'findings': findings, 'appendix': appendix,
         'groups': groups, 'host_count': n_hosts, 'notes': notes, 'footnotes': footnotes,
-        'running_head': f"{'รายงานผลการสแกนเครือข่าย'} | Scan Job #{job_number}",
+        'running_head': f"{'รายงานผลการสแกนเครือข่าย'} | งาน #{job_number}",
         'running_date': f"สแกนเมื่อ {started.strftime('%Y-%m-%d %H:%M')}" if started else '',
     }

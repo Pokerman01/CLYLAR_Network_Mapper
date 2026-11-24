@@ -30,72 +30,89 @@
     .chg-note { margin-top: 8px; display: flex; gap: 8px; font-size: .76rem; color: #64748b; }
     .chg-note i { flex: none; margin-top: 2px; }
     .chg-note.warn { color: #92702a; }
+    :root[data-theme="dark"] .chg-card { background: var(--surface); border-color: var(--border); color: var(--text-2); }
+    :root[data-theme="dark"] .chg-title, :root[data-theme="dark"] .chg-sec-title b { color: var(--text); }
+    :root[data-theme="dark"] .chg-title i, :root[data-theme="dark"] .chg-vs, :root[data-theme="dark"] .chg-sec-title,
+    :root[data-theme="dark"] .chg-chip small, :root[data-theme="dark"] .chg-row .cl, :root[data-theme="dark"] .chg-note { color: var(--muted); }
+    :root[data-theme="dark"] .chg-vs a { text-decoration-color: var(--border-strong); }
+    :root[data-theme="dark"] .chg-same, :root[data-theme="dark"] .chg-row .op { color: var(--text-2); }
+    :root[data-theme="dark"] .chg-chip { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+    :root[data-theme="dark"] .chg-kev { background: var(--nt-gold-bg); color: var(--gold-ink); border-color: var(--warn-line); }
+    :root[data-theme="dark"] .chg-note.warn { color: var(--gold-ink); }
 </style>
 <div class="chg-card" id="scanChanges">
     <div class="chg-head">
-        <span class="chg-title"><i class="ti ti-git-compare" aria-hidden="true"></i>เปลี่ยนแปลงจากสแกนครั้งก่อน</span>
-        <span class="chg-vs">เทียบกับ <a href="{{ url_for('scan_detail', scan_id=changes.prev.id) }}">Job #{{ changes.prev.seq }}</a> · {{ changes.prev.when }}</span>
+        <span class="chg-title"><i class="ti ti-git-compare" aria-hidden="true"></i>{{ t('scan.p.chg_title') }}</span>
+        <span class="chg-vs">{{ t('scan.p.chg_vs') }} <a href="{{ url_for('scan_detail', scan_id=changes.prev.id) }}">{{ t('scan.p.chg_job', n=changes.prev.seq) }}</a> · {{ changes.prev.when | ui_year }}</span>
     </div>
 
     {% if not d.changed %}
-    <div class="chg-same"><i class="ti ti-circle-check" aria-hidden="true" style="color:#64748b;margin-right:4px;"></i>ไม่มีการเปลี่ยนแปลง
-        {%- if d.cve_compared %} (อุปกรณ์ พอร์ตที่เปิด และ CVE เหมือนเดิม){% else %} (อุปกรณ์{% if job.scan_type != 'discovery' %}และพอร์ตที่เปิด{% endif %}เหมือนเดิม){% endif %}</div>
+    {# when some hosts were left out of the comparison (their ports are unknown) the headline must not claim their ports or CVEs #}
+    {% set gap = 'ports_unknown' in d.caveats and d.counts.ports_not_compared %}
+    <div class="chg-same"><i class="ti ti-circle-check" aria-hidden="true" style="color:var(--muted, #64748b);margin-right:4px;"></i>{{ t('scan.p.chg_same') }}
+        {%- if d.cve_compared %} {{ t('scan.p.chg_same_cve_gap' if gap else 'scan.p.chg_same_cve') }}{% elif job.scan_type != 'discovery' %} {{ t('scan.p.chg_same_ports_gap' if gap else 'scan.p.chg_same_ports') }}{% else %} {{ t('scan.p.chg_same_hosts') }}{% endif %}</div>
     {% endif %}
 
     {% if d.new_devices %}
     <div class="chg-sec">
-        <div class="chg-sec-title">อุปกรณ์ใหม่ <b>{{ d.counts.new_devices }}</b></div>
+        <div class="chg-sec-title">{{ t('scan.p.chg_new_dev') }} <b>{{ d.counts.new_devices }}</b></div>
         <div class="chg-chips">{% for x in d.new_devices %}<span class="chg-chip"><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a>{% if x.os or x.vendor %}<small>{{ x.os or x.vendor }}</small>{% endif %}</span>{% endfor %}</div>
     </div>
     {% endif %}
 
     {% if d.missing_devices %}
     <div class="chg-sec">
-        <div class="chg-sec-title">ไม่พบในสแกนนี้ <b>{{ d.counts.missing_devices }}</b></div>
+        <div class="chg-sec-title">{{ t('scan.p.chg_missing_dev') }} <b>{{ d.counts.missing_devices }}</b></div>
         <div class="chg-chips">{% for x in d.missing_devices %}<span class="chg-chip"><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a>{% if x.os or x.vendor %}<small>{{ x.os or x.vendor }}</small>{% endif %}</span>{% endfor %}</div>
-        <div class="chg-note"><i class="ti ti-info-circle" aria-hidden="true"></i><span>ไม่พบ ไม่ได้แปลว่าปิดเครื่อง — อุปกรณ์อาจบล็อก ping หรือปิดอยู่ชั่วคราว</span></div>
+        <div class="chg-note"><i class="ti ti-info-circle" aria-hidden="true"></i><span>{{ t('scan.p.chg_missing_note') }}</span></div>
     </div>
     {% endif %}
 
     {% if d.port_changes %}
     <div class="chg-sec">
-        <div class="chg-sec-title">พอร์ตที่เปลี่ยน <b>{{ d.counts.ports_opened }}</b> เปิดเพิ่ม · <b>{{ d.counts.ports_closed }}</b> ไม่เปิดแล้ว</div>
+        <div class="chg-sec-title">{{ t('scan.p.chg_ports') }} <b>{{ d.counts.ports_opened }}</b> {{ t('scan.p.chg_opened') }} · <b>{{ d.counts.ports_closed }}</b> {{ t('scan.p.chg_closed') }}</div>
         {% for x in d.port_changes %}
         <div class="chg-row"><a class="ip-link ip" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a>
-            {% if x.opened %}<span class="op">เปิดเพิ่ม: {{ x.opened | join(', ') }}</span>{% endif %}
-            {% if x.closed %}<span class="cl">ไม่เปิดแล้ว: {{ x.closed | join(', ') }}</span>{% endif %}</div>
+            {% if x.opened %}<span class="op">{{ t('scan.p.chg_opened_col') }} {{ x.opened | join(', ') }}</span>{% endif %}
+            {% if x.closed %}<span class="cl">{{ t('scan.p.chg_closed_col') }} {{ x.closed | join(', ') }}</span>{% endif %}</div>
         {% endfor %}
     </div>
     {% endif %}
 
     {% if d.new_cves %}
     <div class="chg-sec">
-        <div class="chg-sec-title">CVE ใหม่ <b>{{ d.counts.new_cves }}</b></div>
+        <div class="chg-sec-title">{{ t('scan.p.chg_new_cve') }} <b>{{ d.counts.new_cves }}</b></div>
         {% for x in d.new_cves %}
-        <div class="chg-row"><span class="chg-sev {{ x.severity | lower }}" aria-hidden="true"></span>{{ x.severity | title }}{% if x.cvss is not none %} {{ x.cvss }}{% endif %}
+        <div class="chg-row"><span class="chg-sev {{ x.severity | lower }}" aria-hidden="true"></span>{{ x.severity | sev_label }}{% if x.cvss is not none %} {{ x.cvss }}{% endif %}
             <span class="ip" style="margin-left:8px;">{{ x.cve_id }}</span><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a><span class="cl" style="margin-left:6px;">{{ x.port }}</span>
-            {% if x.kev %}<span class="chg-kev" title="CISA ระบุว่ามีการโจมตีใช้ช่องโหว่นี้จริง">ถูกโจมตีจริง</span>{% endif %}</div>
+            {% if x.kev %}<span class="chg-kev" title="{{ t('scan.p.chg_kev_tip') }}">{{ t('scan.p.chg_kev') }}</span>{% endif %}</div>
         {% endfor %}
     </div>
     {% endif %}
 
     {% if d.fixed_cves %}
     <div class="chg-sec">
-        <div class="chg-sec-title">CVE ที่ไม่พบแล้ว <b>{{ d.counts.fixed_cves }}</b></div>
+        <div class="chg-sec-title">{{ t('scan.p.chg_fixed_cve') }} <b>{{ d.counts.fixed_cves }}</b></div>
         {% for x in d.fixed_cves %}
-        <div class="chg-row"><span class="chg-sev {{ x.severity | lower }}" aria-hidden="true"></span>{{ x.severity | title }}
-            <span class="ip" style="margin-left:8px;">{{ x.cve_id }}</span><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a><span class="cl" style="margin-left:6px;">{{ x.port }} · {% if x.reason == 'port_closed' %}พอร์ตนี้ไม่เปิดแล้ว{% else %}ค้นหาแล้วไม่พบ{% endif %}</span></div>
+        <div class="chg-row"><span class="chg-sev {{ x.severity | lower }}" aria-hidden="true"></span>{{ x.severity | sev_label }}
+            <span class="ip" style="margin-left:8px;">{{ x.cve_id }}</span><a class="ip-link" href="{{ url_for('device_detail', ip=x.ip) }}">{{ x.ip }}</a><span class="cl" style="margin-left:6px;">{{ x.port }} · {% if x.reason == 'port_closed' %}{{ t('scan.p.chg_port_closed') }}{% else %}{{ t('scan.p.chg_not_found') }}{% endif %}</span></div>
         {% endfor %}
     </div>
     {% endif %}
 
     {% if d.cve_unjudged %}
-    <div class="chg-note"><i class="ti ti-info-circle" aria-hidden="true"></i><span>มี {{ d.cve_unjudged }} CVE ที่บอกไม่ได้ว่าใหม่หรือเก่า เพราะการค้นหา CVE ของสแกนครั้งก่อนหรือครั้งนี้ไม่สำเร็จ หรือไม่ได้บันทึกสถานะไว้</span></div>
+    <div class="chg-note"><i class="ti ti-info-circle" aria-hidden="true"></i><span>{{ t('scan.p.chg_unjudged', n=d.cve_unjudged) }}</span></div>
+    {% endif %}
+    {% if 'ports_unknown' in d.caveats and d.counts.ports_not_compared %}
+    <div class="chg-note"><i class="ti ti-info-circle" aria-hidden="true"></i><span>{{ t('scan.p.chg_ports_unknown', n=d.counts.ports_not_compared) }}</span></div>
+    {% endif %}
+    {% if 'udp_unknown' in d.caveats and d.counts.udp_not_compared %}
+    <div class="chg-note"><i class="ti ti-info-circle" aria-hidden="true"></i><span>{{ t('scan.p.chg_udp_unknown', n=d.counts.udp_not_compared) }}</span></div>
     {% endif %}
     {% if 'admin_differs' in d.caveats %}
-    <div class="chg-note warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i><span>สองครั้งนี้รันด้วยสิทธิ์ต่างกัน (Administrator กับไม่ใช่) อุปกรณ์จึงอาจต่างกันโดยที่เครือข่ายไม่ได้เปลี่ยนจริง</span></div>
+    <div class="chg-note warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i><span>{{ t('scan.p.chg_admin_diff') }}</span></div>
     {% endif %}
 </div>
 {% elif job and job.status == 'Completed' and job.scan_type != 'xml_upload' and not focus_ip %}
-<div class="text-muted" id="scanChanges" style="font-size:.76rem;margin:-0.5rem 0 1.5rem 2px;"><i class="ti ti-git-compare me-1" aria-hidden="true"></i>ยังไม่มีสแกนครั้งก่อนที่เทียบได้ (ต้องเป็นเป้าหมายและชนิดสแกนเดียวกัน) สแกนซ้ำหรือตั้งเวลาไว้ แล้วการเปลี่ยนแปลงจะแสดงที่นี่</div>
+<div class="text-muted" id="scanChanges" style="font-size:.76rem;margin:-0.5rem 0 1.5rem 2px;"><i class="ti ti-git-compare me-1" aria-hidden="true"></i>{{ t('scan.p.chg_none_hint') }}</div>
 {% endif %}

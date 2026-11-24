@@ -16,13 +16,18 @@
     .run-info table { margin-top: 6px; border-collapse: collapse; }
     .run-info td { padding: 2px 18px 2px 0; color: #334155; }
     .run-info td.mono { font-family: monospace; }
+    :root[data-theme="dark"] .run-info { background: var(--surface); border-color: var(--border); color: var(--text-2); }
+    :root[data-theme="dark"] .run-info .ri-sum { color: var(--text); }
+    :root[data-theme="dark"] .run-info .ri-head > i, :root[data-theme="dark"] .run-info .ri-meta, :root[data-theme="dark"] .run-info .ri-note { color: var(--muted); }
+    :root[data-theme="dark"] .run-info .ri-note.warn { color: var(--gold-ink); }
+    :root[data-theme="dark"] .run-info summary, :root[data-theme="dark"] .run-info td { color: var(--text-2); }
 </style>
 <div class="run-info" id="runInfo">
     <div class="ri-head">
         <i class="ti ti-radar-2" aria-hidden="true"></i>
         {% if run.summary %}<span class="ri-sum">{{ run.summary }}</span>{% endif %}
         {% if run.nmap or run.elapsed is not none %}
-        <span class="ri-meta">{% if run.nmap %}Nmap {{ run.nmap }}{% endif %}{% if run.nmap and run.elapsed is not none %} · {% endif %}{% if run.elapsed is not none %}nmap ใช้เวลา {{ run.elapsed }} วินาที{% endif %}</span>
+        <span class="ri-meta">{% if run.nmap %}Nmap {{ run.nmap }}{% endif %}{% if run.nmap and run.elapsed is not none %} · {% endif %}{% if run.elapsed is not none %}{{ t('scan.p.ri_elapsed', s=run.elapsed) }}{% endif %}</span>
         {% endif %}
     </div>
     {% for n in run.notes %}
@@ -30,9 +35,9 @@
     {% endfor %}
     {% if run.arp_only %}
     <details>
-        <summary>ดูอุปกรณ์ที่ตาราง ARP รู้จัก ({{ run.arp_only | length }}{% if run.arp_only_total and run.arp_only_total > run.arp_only | length %} จาก {{ run.arp_only_total }}{% endif %})</summary>
+        <summary>{{ t('scan.p.ri_arp_btn', n=run.arp_only | length) }}{% if run.arp_only_total and run.arp_only_total > run.arp_only | length %}{{ t('scan.p.ri_arp_of', total=run.arp_only_total) }}{% endif %})</summary>
         <table>
-            {% for r in run.arp_only %}<tr><td class="mono">{{ r.ip }}</td><td class="mono">{{ r.mac }}</td><td>{{ r.vendor or 'ไม่ทราบผู้ผลิต' }}</td></tr>{% endfor %}
+            {% for r in run.arp_only %}<tr><td class="mono">{{ r.ip }}</td><td class="mono">{{ r.mac }}</td><td>{{ r.vendor or t('scan.p.unknown_vendor') }}</td></tr>{% endfor %}
         </table>
     </details>
     {% endif %}

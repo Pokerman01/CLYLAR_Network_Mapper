@@ -76,6 +76,55 @@ def _kill_tree(proc):
         pass
 
 
+LAUNCHER_GRACE = 15      # seconds to wait for the browser's debugging file after the program we started has already exited with code 0
+LAUNCHER_GRACE_FAIL = 3  # ... and after it exited with an error code (nothing is expected to appear then, but give a slow disk a moment)
+
+
+def _wait_for_devtools(proc, port_file, deadline, grace=LAUNCHER_GRACE, grace_fail=LAUNCHER_GRACE_FAIL, sleep=time.sleep, now=time.time):
+    """Wait until the browser has written its DevToolsActivePort file. Newer Edge builds (seen on 158, 2026-11) make the executable we start a LAUNCHER: it starts the
+    real browser, which keeps running on its own, and exits at once with code 0. So "the program we started has exited" is NOT a failure by itself: the file
+    may still appear. We give up only when the program has been gone for `grace` seconds (`grace_fail` after an error code) without the file, or at the deadline.
+    Returns True when the launcher exited before the file appeared."""
+    gone_since = None
+    orphan = False
+    while not os.path.isfile(port_file):
+        code = proc.poll()
+        if code is not None:
+            orphan = True
+            gone_since = gone_since if gone_since is not None else now()
+            if now() - gone_since > (grace if code == 0 else grace_fail):
+                raise ReportPdfError('the browser exited at start-up (code %s)' % code)
+        if now() > deadline:
+            raise ReportPdfError('the browser did not start in time')
+        sleep(.15)
+    return orphan
+
+
+def _kill_by_profile(profile, names=('msedge.exe', 'chrome.exe')):
+    """Stop every browser process whose command line mentions our private profile folder. Needed when the executable we started was only a launcher (see
+    _wait_for_devtools): the real browser is not our child, so killing our process tree reaches nothing and it would stay running, with a few hundred MB, for ever.
+    The folder is unique to this export (a fresh mkdtemp), so nothing else can match. Windows only (elsewhere `pkill -f`); never raises."""
+    try:
+        if os.name == 'nt':
+            script = ("$p = $env:CLYLAR_PROFILE; $n = @(%s); "
+                      "Get-CimInstance Win32_Process | Where-Object { $n -contains $_.Name -and $_.CommandLine -and $_.CommandLine.Contains($p) } | "
+                      "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }") % ','.join("'%s'" % n for n in names)
+            subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+                           env=dict(os.environ, CLYLAR_PROFILE=profile), creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        else:
+            subprocess.run(['pkill', '-f', profile], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    except Exception:
+        pass
+
+
+def _debug_port_answers(port):
+    try:
+        urllib.request.urlopen('http://127.0.0.1:%d/json/version' % port, timeout=1.5).read()
+        return True
+    except Exception:
+        return False
+
+
 def find_browser():
     """Path of an Edge / Chrome / Chromium executable, or None. CLYLAR_BROWSER (a full path) overrides the search."""
     env = os.environ.get('CLYLAR_BROWSER')
@@ -95,7 +144,7 @@ def find_browser():
 
 
 def html_to_pdf(html, timeout=75, scale=2.0):
-    """The PDF (bytes) of an HTML string, printed on A4 landscape the way the page's own @page rules ask. `scale` is the device pixel
+    """The PDF (bytes) of an HTML string, printed on A4 the way the page's own @page rules ask (portrait by default, landscape when the page was rendered with orientation=landscape: the page sets the size). `scale` is the device pixel
     ratio the page is drawn at (canvases such as the diagram come out sharper at 2)."""
     browser = find_browser()
     if not browser:
@@ -109,11 +158,13 @@ def html_to_pdf(html, timeout=75, scale=2.0):
     sweep_stale()                                                    # folders of exports that died earlier (the lock is ours, so none of them is ours)
     work = tempfile.mkdtemp(prefix=WORK_PREFIX)
     proc = ws = None
+    port = None
+    call = None
+    profile = os.path.join(work, 'profile')
     try:
         page_file = os.path.join(work, 'report.html')
         with open(page_file, 'w', encoding='utf-8') as f:
             f.write(html)
-        profile = os.path.join(work, 'profile')
         cmd = [browser, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-sync',
                '--hide-scrollbars', '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank']
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -121,12 +172,7 @@ def html_to_pdf(html, timeout=75, scale=2.0):
         deadline = time.time() + timeout
 
         port_file = os.path.join(profile, 'DevToolsActivePort')
-        while not os.path.isfile(port_file):
-            if proc.poll() is not None:
-                raise ReportPdfError('the browser exited at start-up (code %s)' % proc.returncode)
-            if time.time() > deadline:
-                raise ReportPdfError('the browser did not start in time')
-            time.sleep(.15)
+        _wait_for_devtools(proc, port_file, deadline)                # tolerates a launcher that exits at once (newer Edge): the browser lives on without it
         time.sleep(.2)
         port = int(open(port_file).read().split()[0])
         target = None
@@ -178,11 +224,20 @@ def html_to_pdf(html, timeout=75, scale=2.0):
         raise ReportPdfError('%s: %s' % (type(e).__name__, e))
     finally:
         try:
+            if call is not None:                                     # ask the browser to quit itself: it takes all its helper processes with it, whoever started them
+                ws.settimeout(5)                                     # never wait the full export timeout for an answer it will not give
+                call('Browser.close')
+        except Exception:
+            pass                                                     # it closes the socket without an answer
+        try:
             if ws is not None:
                 ws.close()
         except Exception:
             pass
+        launcher_gone = proc is not None and proc.poll() is not None   # looked at BEFORE we kill anything: the program we started was only a launcher
         if proc is not None:
             _kill_tree(proc)
+        if proc is not None and (launcher_gone or (port is not None and _debug_port_answers(port))):
+            _kill_by_profile(profile)                                # a launcher-style browser (or one that ignored the request) is not our child: find it by its profile
         _remove_tree(work)
         _lock.release()

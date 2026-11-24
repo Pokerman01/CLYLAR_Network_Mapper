@@ -176,7 +176,7 @@ def _guess_type(ip, vendor, os_name, open_ports, hostname, mac):
         return 'unknown', rb.TYPE_LABEL['unknown'], '', False
     key = g.get('key') if g.get('key') in rb.TYPE_LABEL else 'unknown'
     likely = g.get('confidence') == 'likely' and key != 'unknown'
-    return key, rb.TYPE_LABEL[key] + (' (น่าจะ)' if likely else ''), g.get('reason') or '', likely
+    return key, rb.TYPE_LABEL[key] + (' (คาดเดา)' if likely else ''), g.get('reason') or '', likely
 
 
 OTHER_PORT_ROWS = 40          # ports that are not open and are listed one by one; the counts above them are always exact
