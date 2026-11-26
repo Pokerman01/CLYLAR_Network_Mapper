@@ -1453,6 +1453,23 @@ function init() {
     allDates = [...dateSet].sort().reverse();
     allJobs  = Object.values(jobMap);
     const savedState = consumeReloadState();
+    if (savedState) {
+        // The state is also saved when the person leaves the page (see the pagehide handler at the bottom), possibly days ago. A "today" /
+        // "last 7 days" choice means something else on another day, and a scan that was made since was not known when it was saved:
+        // do not let an old selection hide it.
+        const bkkDay = new Date(Date.now() + 7*3600000).toISOString().slice(0, 10);
+        if (savedState.quickMode && savedState.quickMode !== 'btnAll' && savedState.savedDay !== bkkDay) {
+            savedState.selectedDates = undefined; savedState.selectedJobs = undefined; savedState.quickMode = undefined;
+        }
+        if (Array.isArray(savedState.selectedDates) && Array.isArray(savedState.knownDates)) {
+            const known = new Set(savedState.knownDates);
+            allDates.forEach(d => { if (!known.has(d)) savedState.selectedDates.push(d); });
+        }
+        if (Array.isArray(savedState.selectedJobs) && Array.isArray(savedState.knownJobs)) {
+            const known = new Set(savedState.knownJobs);
+            allJobs.forEach(j => { if (!known.has(j.id)) savedState.selectedJobs.push(j.id); });
+        }
+    }
     if (savedState && Array.isArray(savedState.subnetChoice)) {
         savedState.subnetChoice.forEach(e => { if (Array.isArray(e) && (e[1] === 'open' || e[1] === 'closed')) subnetChoice.set(String(e[0]), e[1]); });
         if (Array.isArray(savedState.subnetFrozen)) savedState.subnetFrozen.forEach(k => { if (subnetChoice.has(String(k))) subnetFrozen.add(String(k)); });
@@ -2856,6 +2873,9 @@ function saveReloadState() {
             quickMode: activeQf ? activeQf.id : null,
             selectedDates: [...selectedDates],
             selectedJobs: [...selectedJobs],
+            knownDates: [...allDates],
+            knownJobs: allJobs.map(j => j.id),
+            savedDay: new Date(Date.now() + 7*3600000).toISOString().slice(0, 10),
             scale: visNetwork ? visNetwork.getScale() : null,
             viewPosition: visNetwork ? visNetwork.getViewPosition() : null,
             nodePositions: {},
@@ -2894,6 +2914,10 @@ syncGroupUi();
 init();
 document.addEventListener('clylar:theme', applyThemeInPlace);
 document.addEventListener('clylar:before-reload', saveReloadState);
+// Leaving for another page (or a plain reload) keeps what the person set up (collapsed subnets, selected scans, zoom, dragged places,
+// open cards) for this browser tab; coming back reads it once through consumeReloadState(). Not before a diagram exists, or an
+// early exit would overwrite a good state with an empty one.
+window.addEventListener('pagehide', () => { if (visNetwork) saveReloadState(); });
 </script>
 
 {% endblock %}
