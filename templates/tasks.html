@@ -299,6 +299,24 @@
     .ns-cmd-steps { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-2); }
     .ns-cmd-steps:empty { display: none; }
     .ns-cmd-note { margin-top: 6px; font-size: 12px; color: var(--muted); }
+    /* The command box as steps (2026-11-28, the owner's pick "B"): only when there is a second command (the UDP round). One command keeps the plain box: the dot and the
+       title of step 1 stay hidden. Each step is a number dot, a title and its own command box with a copy button; a thin line joins the dots. */
+    .ns-cmd .cs-dot, .ns-cmd .cs-ttl { display: none; }
+    .ns-cmd.is-steps .cs { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 0 10px; position: relative; }
+    .ns-cmd.is-steps .cs + .cs { margin-top: 4px; }
+    .ns-cmd.is-steps .cs:not(:last-child)::before { content: ''; position: absolute; left: 11px; top: 26px; bottom: -4px; width: 2px; background: var(--border); }
+    .ns-cmd.is-steps .cs-dot { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--info-bg); color: var(--info-ink); font-size: 12px; font-weight: 700; position: relative; z-index: 1; }
+    .ns-cmd.is-steps .cs-ttl { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); line-height: 24px; }
+    .ns-cmd.is-steps .cs-ttl small { font-weight: 400; font-size: 12px; color: var(--muted); }
+    .ns-cmd.is-steps .cs-body { min-width: 0; padding-bottom: 10px; }
+    .ns-cmd.is-steps .cs:last-child .cs-body { padding-bottom: 0; }
+    .ns-cmd.is-steps .cs .jd-cmd { margin-top: 2px; }
+    .ns-cmd .cs-text { font-size: 12px; line-height: 1.5; color: var(--text-2); padding-top: 3px; }
+    .ns-cmd.is-steps .ns-cmd-note { margin-top: 10px; }
+    /* inside a command: the program name is bold, a flag stays in one piece with its value, a placeholder is a chip (it moves to the next line whole) */
+    .ns-cmd .cmd-prog { font-weight: 700; color: var(--text); }
+    .ns-cmd .cmd-tk { white-space: nowrap; }
+    .ns-cmd .cmd-ph { display: inline-block; max-width: 100%; background: var(--surface-2); color: var(--muted); border-radius: 4px; padding: 0 5px; font-style: italic; vertical-align: bottom; }
 </style>
 
 <!-- ===== TAB: SCAN MANAGEMENT ===== -->
@@ -835,7 +853,15 @@
                     <!-- The command the form would run with its current choices (like Zenmap's Command line); shown from the header button -->
                     <div id="nsCmdBox" class="ns-cmd mb-3" hidden>
                         <div class="ns-cmd-head">{{ t('tasks.dlg.cmd_head') }}</div>
-                        <div class="jd-cmd"><code id="nsCmdText"></code><button type="button" class="jd-copy" id="nsCmdCopy" title="{{ t('tasks.dlg.copy_cmd') }}" aria-label="{{ t('tasks.dlg.copy_cmd_aria') }}"><i class="ti ti-copy"></i></button></div>
+                        <div class="cs-list">
+                            <div class="cs cs-first">
+                                <div class="cs-dot">1</div>
+                                <div class="cs-body">
+                                    <div class="cs-ttl"></div>
+                                    <div class="jd-cmd"><code id="nsCmdText"></code><button type="button" class="jd-copy" id="nsCmdCopy" title="{{ t('tasks.dlg.copy_cmd') }}" aria-label="{{ t('tasks.dlg.copy_cmd_aria') }}"><i class="ti ti-copy"></i></button></div>
+                                </div>
+                            </div>
+                        </div>
                         <div id="nsCmdWarn" class="ns-cmd-warn" hidden></div>
                         <ul id="nsCmdSteps" class="ns-cmd-steps"></ul>
                         <div id="nsCmdNote" class="ns-cmd-note"></div>
@@ -941,6 +967,7 @@
                     <input type="hidden" name="host_probes" id="sf_host_probes">
                     <input type="hidden" name="gentle" id="sf_gentle">
                     <input type="hidden" name="udp" id="sf_udp">
+                    <input type="hidden" name="udp_top" id="sf_udp_top">
                 </form>
 
             </div>
@@ -951,7 +978,7 @@
 
 
 {# The texts of this page's script, in the site language (locales/th|en/tasks.json; some shared ones from common / history). `{x}` marks a value that the code fills in (tk('key', {x: 1})). #}
-{% set tkd = {} %}{% for k in ['tasks.js.rescan_tip', 'tasks.js.stop', 'tasks.js.stopping', 'tasks.js.stop_confirm', 'tasks.js.stop_failed', 'tasks.js.error', 'tasks.js.note.discovery', 'tasks.js.note.fast_scan', 'tasks.js.note.intense', 'tasks.js.note.vuln_scan', 'tasks.js.note.custom', 'tasks.js.note.xml_upload', 'tasks.js.step.gateway_probe', 'tasks.js.step.mdns_ssdp', 'tasks.js.step.nvd_lookup', 'tasks.js.step.udp_pass', 'tasks.js.step.xml_import', 'tasks.js.trig.manual', 'tasks.js.trig.schedule', 'tasks.js.trig.rescan', 'tasks.js.trig.drilldown', 'tasks.js.trig.chatbot', 'tasks.js.when_daily', 'tasks.js.when_weekly', 'tasks.js.when_monthly', 'tasks.js.not_recorded', 'tasks.js.t_custom', 'tasks.js.t_gentle', 'tasks.js.t_nmap_default', 'tasks.js.t_type_default', 'tasks.js.i_unused', 'tasks.js.i_default', 'tasks.js.dur_min_sec', 'tasks.js.dur_sec', 'tasks.js.d_settings', 'tasks.js.d_type', 'tasks.js.d_timing', 'tasks.js.d_vi', 'tasks.js.d_ping', 'tasks.js.d_ports', 'tasks.js.d_dns', 'tasks.js.d_probes', 'tasks.js.d_gentle', 'tasks.js.d_udp', 'tasks.js.v_on', 'tasks.js.v_off', 'tasks.js.v_ping_skip', 'tasks.js.v_ping_normal', 'tasks.js.v_ports_all', 'tasks.js.v_ports_usual', 'tasks.js.v_dns_off', 'tasks.js.v_dns_on', 'tasks.js.v_probes_on', 'tasks.js.v_gentle_on', 'tasks.js.v_udp_on', 'tasks.js.rejected', 'tasks.js.args_not_saved', 'tasks.js.udp_second', 'tasks.js.udp_hosts', 'tasks.js.udp_copy_aria', 'tasks.js.d_loading', 'tasks.js.d_load_failed', 'tasks.js.d_created_by', 'tasks.js.d_schedule_name', 'tasks.js.d_job_name', 'tasks.js.d_owner', 'tasks.js.d_target', 'tasks.js.d_created', 'tasks.js.d_started', 'tasks.js.d_status', 'tasks.js.d_waiting', 'tasks.js.d_scanning', 'tasks.js.d_finished', 'tasks.js.d_took', 'tasks.js.d_cancelled', 'tasks.js.d_error', 'tasks.js.d_hosts', 'tasks.js.d_open', 'tasks.js.d_nmap_checked', 'tasks.js.d_nmap_ver', 'tasks.js.d_t_origin', 'tasks.js.d_t_result', 'tasks.js.s_freq', 'tasks.js.s_next', 'tasks.js.s_last', 'tasks.js.s_never', 'tasks.js.s_on', 'tasks.js.s_off', 'tasks.js.s_t_sched', 'tasks.js.s_note', 'tasks.js.p_queued', 'tasks.js.p_queued_pos', 'tasks.js.p_nvd', 'tasks.js.p_left_step', 'tasks.js.p_left_sec', 'tasks.js.p_left_min', 'tasks.js.p_scanning', 'tasks.js.p_elapsed', 'tasks.js.w_ping', 'tasks.js.w_dns', 'tasks.js.w_udp', 'tasks.js.w_ports', 'tasks.js.w_service', 'tasks.js.w_nse', 'tasks.js.w_trace', 'tasks.js.ip_addr', 'tasks.js.ip_big_tip', 'tasks.js.ip_del_tip', 'tasks.js.ip_del_aria', 'tasks.js.ip_group_net', 'tasks.js.ip_group_host', 'tasks.js.ip_none', 'tasks.js.ip_empty', 'tasks.js.ip_found', 'tasks.js.ip_found_none', 'tasks.js.ip_del_confirm', 'tasks.js.ip_del_failed', 'tasks.js.cmd_target', 'tasks.js.cmd_args', 'tasks.js.cmd_bad', 'tasks.js.cmd_unavail', 'tasks.js.cmd_note_pre', 'tasks.js.cmd_note_post', 'tasks.js.cmd_udp_line', 'tasks.js.ca_ports_long', 'tasks.js.ca_ports_form', 'tasks.js.ca_ports_range', 'tasks.js.ca_top', 'tasks.js.ca_vi', 'tasks.js.ca_long', 'tasks.js.ca_chars', 'tasks.js.ca_many', 'tasks.js.ca_not_flag', 'tasks.js.ca_not_allowed', 'tasks.js.ca_no_value', 'tasks.js.ca_p_sep', 'tasks.js.ca_needs', 'tasks.js.ca_bad_value', 'status.queued', 'status.running', 'status.completed', 'status.cancelled', 'status.failed', 'history.trig.manual', 'history.trig.schedule', 'history.trig.rescan', 'history.trig.drilldown', 'history.trig.chatbot', 'history.row.count', 'history.row.count_tip', 'common.view', 'tasks.details_tip', 'tasks.job.details_aria', 'tasks.page.prev', 'tasks.page.next', 'tasks.page.showing', 'tasks.page.of', 'tasks.up.selected', 'tasks.up.drop', 'tasks.up.or', 'tasks.up.browse', 'tasks.up.open', 'tasks.up.import', 'tasks.up.only_xml', 'tasks.up.choose_first', 'tasks.dlg.schedule', 'tasks.dlg.remove_schedule', 'tasks.dlg.save_schedule', 'tasks.dlg.scan_go', 'tasks.dlg.time_help', 'tasks.dlg.time_bad', 'tasks.dlg.target_req', 'tasks.dlg.target_bad', 'tasks.dlg.not_allowed', 'tasks.dlg.copy_cmd', 'tasks.dlg.copy_cmd_aria', 'tasks.dow.0', 'tasks.dow.1', 'tasks.dow.2', 'tasks.dow.3', 'tasks.dow.4', 'tasks.dow.5', 'tasks.dow.6', 'tasks.timing.0', 'tasks.timing.1', 'tasks.timing.2', 'tasks.timing.3', 'tasks.timing.4'] %}{% set _ = tkd.update({k: t(k)}) %}{% endfor %}
+{% set tkd = {} %}{% for k in ['tasks.js.rescan_tip', 'tasks.js.stop', 'tasks.js.stopping', 'tasks.js.stop_confirm', 'tasks.js.stop_failed', 'tasks.js.error', 'tasks.js.note.discovery', 'tasks.js.note.fast_scan', 'tasks.js.note.intense', 'tasks.js.note.vuln_scan', 'tasks.js.note.custom', 'tasks.js.note.xml_upload', 'tasks.js.step.gateway_probe', 'tasks.js.step.mdns_ssdp', 'tasks.js.step.nvd_lookup', 'tasks.js.step.udp_pass', 'tasks.js.step.xml_import', 'tasks.js.trig.manual', 'tasks.js.trig.schedule', 'tasks.js.trig.rescan', 'tasks.js.trig.drilldown', 'tasks.js.trig.chatbot', 'tasks.js.when_daily', 'tasks.js.when_weekly', 'tasks.js.when_monthly', 'tasks.js.not_recorded', 'tasks.js.t_custom', 'tasks.js.t_gentle', 'tasks.js.t_nmap_default', 'tasks.js.t_type_default', 'tasks.js.i_unused', 'tasks.js.i_default', 'tasks.js.dur_min_sec', 'tasks.js.dur_sec', 'tasks.js.d_settings', 'tasks.js.d_type', 'tasks.js.d_timing', 'tasks.js.d_vi', 'tasks.js.d_ping', 'tasks.js.d_ports', 'tasks.js.d_dns', 'tasks.js.d_probes', 'tasks.js.d_gentle', 'tasks.js.d_udp', 'tasks.js.v_on', 'tasks.js.v_off', 'tasks.js.v_ping_skip', 'tasks.js.v_ping_normal', 'tasks.js.v_ports_all', 'tasks.js.v_ports_usual', 'tasks.js.v_dns_off', 'tasks.js.v_dns_on', 'tasks.js.v_probes_on', 'tasks.js.v_gentle_on', 'tasks.js.v_udp_on', 'tasks.js.rejected', 'tasks.js.args_not_saved', 'tasks.js.udp_second', 'tasks.js.udp_hosts', 'tasks.js.udp_copy_aria', 'tasks.js.d_loading', 'tasks.js.d_load_failed', 'tasks.js.d_created_by', 'tasks.js.d_schedule_name', 'tasks.js.d_job_name', 'tasks.js.d_owner', 'tasks.js.d_target', 'tasks.js.d_created', 'tasks.js.d_started', 'tasks.js.d_status', 'tasks.js.d_waiting', 'tasks.js.d_scanning', 'tasks.js.d_finished', 'tasks.js.d_took', 'tasks.js.d_cancelled', 'tasks.js.d_error', 'tasks.js.d_hosts', 'tasks.js.d_open', 'tasks.js.d_nmap_checked', 'tasks.js.d_nmap_ver', 'tasks.js.d_t_origin', 'tasks.js.d_t_result', 'tasks.js.s_freq', 'tasks.js.s_next', 'tasks.js.s_last', 'tasks.js.s_never', 'tasks.js.s_on', 'tasks.js.s_off', 'tasks.js.s_t_sched', 'tasks.js.s_note', 'tasks.js.p_queued', 'tasks.js.p_queued_pos', 'tasks.js.p_nvd', 'tasks.js.p_left_step', 'tasks.js.p_left_sec', 'tasks.js.p_left_min', 'tasks.js.p_scanning', 'tasks.js.p_elapsed', 'tasks.js.w_ping', 'tasks.js.w_dns', 'tasks.js.w_udp', 'tasks.js.w_ports', 'tasks.js.w_service', 'tasks.js.w_nse', 'tasks.js.w_trace', 'tasks.js.ip_addr', 'tasks.js.ip_big_tip', 'tasks.js.ip_del_tip', 'tasks.js.ip_del_aria', 'tasks.js.ip_group_net', 'tasks.js.ip_group_host', 'tasks.js.ip_none', 'tasks.js.ip_empty', 'tasks.js.ip_found', 'tasks.js.ip_found_none', 'tasks.js.ip_del_confirm', 'tasks.js.ip_del_failed', 'tasks.js.cmd_target', 'tasks.js.cmd_args', 'tasks.js.cmd_bad', 'tasks.js.cmd_unavail', 'tasks.js.cmd_note_pre', 'tasks.js.cmd_note_post', 'tasks.js.cmd_step1', 'tasks.js.cmd_step_udp', 'tasks.js.cmd_step_udp_on', 'tasks.js.ca_ports_long', 'tasks.js.ca_ports_form', 'tasks.js.ca_ports_range', 'tasks.js.ca_top', 'tasks.js.ca_vi', 'tasks.js.ca_long', 'tasks.js.ca_chars', 'tasks.js.ca_many', 'tasks.js.ca_not_flag', 'tasks.js.ca_not_allowed', 'tasks.js.ca_no_value', 'tasks.js.ca_p_sep', 'tasks.js.ca_needs', 'tasks.js.ca_bad_value', 'status.queued', 'status.running', 'status.completed', 'status.cancelled', 'status.failed', 'history.trig.manual', 'history.trig.schedule', 'history.trig.rescan', 'history.trig.drilldown', 'history.trig.chatbot', 'history.row.count', 'history.row.count_tip', 'common.view', 'tasks.details_tip', 'tasks.job.details_aria', 'tasks.page.prev', 'tasks.page.next', 'tasks.page.showing', 'tasks.page.of', 'tasks.up.selected', 'tasks.up.drop', 'tasks.up.or', 'tasks.up.browse', 'tasks.up.open', 'tasks.up.import', 'tasks.up.only_xml', 'tasks.up.choose_first', 'tasks.dlg.schedule', 'tasks.dlg.remove_schedule', 'tasks.dlg.save_schedule', 'tasks.dlg.scan_go', 'tasks.dlg.time_help', 'tasks.dlg.time_bad', 'tasks.dlg.target_req', 'tasks.dlg.target_bad', 'tasks.dlg.not_allowed', 'tasks.dlg.copy_cmd', 'tasks.dlg.copy_cmd_aria', 'tasks.js.v_udp_top100', 'tasks.js.v_udp_top1000', 'tasks.js.step.udp_pass_top100', 'tasks.js.step.udp_pass_top1000', 'tasks.dow.0', 'tasks.dow.1', 'tasks.dow.2', 'tasks.dow.3', 'tasks.dow.4', 'tasks.dow.5', 'tasks.dow.6', 'tasks.timing.0', 'tasks.timing.1', 'tasks.timing.2', 'tasks.timing.3', 'tasks.timing.4'] %}{% set _ = tkd.update({k: t(k)}) %}{% endfor %}
 {% set type_labels = {} %}{% for k in ['fast_scan', 'discovery', 'intense', 'custom', 'xml_upload', 'vuln_scan'] %}{% set _ = type_labels.update({k: k | scan_label}) %}{% endfor %}
 <script>
     const TK = {{ tkd | tojson }};
@@ -1063,7 +1090,7 @@
                      <a href="/scan/${j.id}" class="btn btn-sm btn-outline-primary">${esc(tk('common.view'))}</a>
                      ${j.scan_type !== 'xml_upload' ? `<button class="btn btn-sm btn-outline-secondary rescan-btn" title="${escAttr(tk('tasks.js.rescan_tip'))}" aria-label="${escAttr(tk('tasks.js.rescan_tip'))}"
                              data-id="${j.id}" data-target="${esc(j.target)}" data-type="${esc(j.scan_type)}"
-                             data-timing="${j.timing != null ? j.timing : ''}" data-version-intensity="${j.version_intensity != null ? j.version_intensity : ''}" data-skip-ping="${j.skip_ping ? '1' : ''}" data-all-ports="${j.all_ports ? '1' : ''}" data-no-dns="${j.no_dns ? '1' : ''}" data-host-probes="${j.host_probes ? '1' : ''}" data-gentle="${j.gentle ? '1' : ''}" data-udp="${j.udp ? '1' : ''}"><i class="ti ti-refresh"></i></button>` : ''}
+                             data-timing="${j.timing != null ? j.timing : ''}" data-version-intensity="${j.version_intensity != null ? j.version_intensity : ''}" data-skip-ping="${j.skip_ping ? '1' : ''}" data-all-ports="${j.all_ports ? '1' : ''}" data-no-dns="${j.no_dns ? '1' : ''}" data-host-probes="${j.host_probes ? '1' : ''}" data-gentle="${j.gentle ? '1' : ''}" data-udp="${j.udp ? '1' : ''}" data-udp-top="${j.udp && j.udp_top ? j.udp_top : ''}"><i class="ti ti-refresh"></i></button>` : ''}
                    </div>`
                     : (j.status === 'Running' || j.status === 'Queued')
                         ? `<button class="btn btn-sm btn-outline-danger stop-btn" data-id="${j.id}"><i class="ti ti-player-stop-filled me-1"></i>${esc(tk('tasks.js.stop'))}</button>`
@@ -1095,7 +1122,7 @@
 
     const SCAN_TYPE_NOTE = {}, STEP_TEXT = {}, TRIGGER_TEXT = {};
     ['discovery', 'fast_scan', 'intense', 'vuln_scan', 'custom', 'xml_upload'].forEach(k => { SCAN_TYPE_NOTE[k] = tk('tasks.js.note.' + k); });
-    ['gateway_probe', 'mdns_ssdp', 'nvd_lookup', 'udp_pass', 'xml_import'].forEach(k => { STEP_TEXT[k] = tk('tasks.js.step.' + k); });
+    ['gateway_probe', 'mdns_ssdp', 'nvd_lookup', 'udp_pass', 'udp_pass_top100', 'udp_pass_top1000', 'xml_import'].forEach(k => { STEP_TEXT[k] = tk('tasks.js.step.' + k); });
     ['manual', 'schedule', 'rescan', 'drilldown', 'chatbot'].forEach(k => { TRIGGER_TEXT[k] = tk('tasks.js.trig.' + k); });
     const TIMING_WORDS = { 0: tk('tasks.timing.0'), 1: tk('tasks.timing.1'), 2: tk('tasks.timing.2'), 3: tk('tasks.timing.3'), 4: tk('tasks.timing.4') };
     const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6].map(i => tk('tasks.dow.' + i));
@@ -1146,7 +1173,7 @@
         if (st.no_dns === true || st.no_dns === false) html += jdRow(tk('tasks.js.d_dns'), esc(st.no_dns ? tk('tasks.js.v_dns_off') : tk('tasks.js.v_dns_on')));
         if (st.host_probes === true || st.host_probes === false) html += jdRow(tk('tasks.js.d_probes'), esc(st.host_probes ? tk('tasks.js.v_probes_on') : off));
         if (st.gentle === true || st.gentle === false) html += jdRow(tk('tasks.js.d_gentle'), esc(st.gentle ? tk('tasks.js.v_gentle_on') : off));
-        if (st.udp === true || st.udp === false) html += jdRow(tk('tasks.js.d_udp'), esc(st.udp ? tk('tasks.js.v_udp_on') : off));
+        if (st.udp === true || st.udp === false) html += jdRow(tk('tasks.js.d_udp'), esc(st.udp ? (st.udp_top === 100 ? tk('tasks.js.v_udp_top100') : st.udp_top === 1000 ? tk('tasks.js.v_udp_top1000') : tk('tasks.js.v_udp_on')) : off));
         html += '</dl>';
         const copyTip = escAttr(tk('tasks.dlg.copy_cmd'));
         if (rejected) {
@@ -1163,7 +1190,7 @@
             html += `<div class="jd-sub mt-2">${esc(tk('tasks.js.udp_second'))}</div>`
                 + `<div class="jd-cmd"><code>${esc(ucmd)}</code><button type="button" class="jd-copy" data-cmd="${escAttr(ucmd)}" title="${copyTip}" aria-label="${escAttr(tk('tasks.js.udp_copy_aria'))}"><i class="ti ti-copy"></i></button></div>`;
         }
-        if (st.steps.length) html += `<ul class="jd-notes">${st.steps.map(k => `<li>${esc(STEP_TEXT[k] || '')}</li>`).join('')}</ul>`;
+        if (st.steps.length) html += `<ul class="jd-notes">${st.steps.map(k => `<li>${esc(STEP_TEXT[k === 'udp_pass' && st.udp_top ? 'udp_pass_top' + st.udp_top : k] || STEP_TEXT[k] || '')}</li>`).join('')}</ul>`;
         return html;
     }
 
@@ -1300,6 +1327,8 @@
         if (gtInput) gtInput.checked = btn.dataset.gentle === '1';
         const udpInput = document.getElementById('rescan_udp_input');
         if (udpInput) udpInput.checked = btn.dataset.udp === '1';
+        const udpTop = document.getElementById('rescan_udp_top_' + (['100', '1000'].includes(btn.dataset.udpTop) ? btn.dataset.udpTop : 'common'));
+        if (udpTop) udpTop.checked = true;                                                                 // the UDP range starts as the original scan had it
         syncAdvancedExclusions('rescan');                                                                  // greys out what the original choices exclude
         const viInput = document.getElementById('rescan_vi_input');
         if (viInput) {
@@ -1849,6 +1878,7 @@
                 document.getElementById('sf_host_probes').value = document.getElementById('newScanForm').querySelector('[name="host_probes"]')?.checked ? '1' : '';
                 document.getElementById('sf_gentle').value = document.getElementById('newScanForm').querySelector('[name="gentle"]')?.checked ? '1' : '';
                 document.getElementById('sf_udp').value = document.getElementById('newScanForm').querySelector('[name="udp"]')?.checked ? '1' : '';
+                document.getElementById('sf_udp_top').value = document.getElementById('newScanForm').querySelector('[name="udp_top"]:checked')?.value || '';
                 const modalEl2 = document.getElementById('newScanModal');
                 modalEl2.addEventListener('hidden.bs.modal', function onHidden() {
                     modalEl2.removeEventListener('hidden.bs.modal', onHidden);
@@ -2076,6 +2106,7 @@
             const targetInput = cfg.targetInput ? el(cfg.targetInput) : null;        // New Scan: a box the user types in
             if (!form || !toggle || !box || !textEl || !copyBtn || !modal) return null;
             let seq = 0, timer = null, last = null;
+            const list = box ? box.querySelector('.cs-list') : null;                 // step 1 is in the markup; the other steps are added by render()
             const field = name => form.querySelector('[name="' + name + '"]');
             const targetText = () => (targetInput ? targetInput.value : (el(cfg.targetText)?.textContent || '')).trim();   // Rescan: the fixed target
 
@@ -2089,10 +2120,49 @@
                 if (field('no_dns')?.checked) p.set('no_dns', '1');
                 if (field('host_probes')?.checked) p.set('host_probes', '1');
                 if (field('gentle')?.checked) p.set('gentle', '1');
-                if (field('udp')?.checked) p.set('udp', '1');
+                if (field('udp')?.checked) {
+                    p.set('udp', '1');
+                    const range = form.querySelector('[name="udp_top"]:checked');      // field('udp_top') would be the first radio, not the chosen one
+                    if (range && range.value) p.set('udp_top', range.value);
+                }
                 if (field('multicast')?.checked) p.set('multicast', '1');
                 p.set('custom_args', field('custom_args')?.value || '');
                 return p;
+            }
+
+            // A command drawn as parts: `nmap` bold, each flag with its value in one piece (so a line never breaks inside "--host-timeout 15m"), the placeholder as a chip.
+            // Everything goes in with textContent (the target is what the user typed); the text of the element stays the plain command.
+            function fillCmd(codeEl, args, tail, tailIsPlaceholder) {
+                codeEl.textContent = '';
+                const put = (cls, text) => { const sp = document.createElement('span'); if (cls) sp.className = cls; sp.textContent = text; return sp; };
+                const parts = [put('cmd-prog', 'nmap')];
+                const a = (args || '').trim();
+                if (a.charAt(0) === '<') parts.push(put('cmd-ph', a));                   // "<arguments>": a Custom scan with nothing typed yet
+                else if (a) {
+                    const w = a.split(/\s+/);
+                    for (let i = 0; i < w.length; i++) {
+                        let token = w[i];
+                        if (token.charAt(0) === '-') while (i + 1 < w.length && w[i + 1].charAt(0) !== '-') token += ' ' + w[++i];
+                        parts.push(put('cmd-tk', token));
+                    }
+                }
+                if (tail) parts.push(put(tailIsPlaceholder ? 'cmd-ph' : '', tail));
+                parts.forEach((part, i) => { if (i) codeEl.appendChild(document.createTextNode(' ')); codeEl.appendChild(part); });
+            }
+
+            function addStep(n, build) {
+                const step = document.createElement('div');
+                step.className = 'cs cs-extra';
+                const dot = document.createElement('div'); dot.className = 'cs-dot'; dot.textContent = String(n);
+                const body = document.createElement('div'); body.className = 'cs-body';
+                build(body);
+                step.append(dot, body);
+                list.appendChild(step);
+            }
+
+            function clearSteps() {
+                if (list) list.querySelectorAll('.cs-extra').forEach(e => e.remove());
+                box.classList.remove('is-steps');
             }
 
             function render() {
@@ -2101,19 +2171,47 @@
                 const custom = last.scan_type === 'custom';
                 const problem = custom && typeof validateCustomArgs === 'function' ? validateCustomArgs(field('custom_args')?.value || '') : null;
                 const args = (last.arguments || '').trim() || (custom ? tk('tasks.js.cmd_args') : '');
-                const cmd = ('nmap ' + args + ' ' + (target || tk('tasks.js.cmd_target'))).replace(/\s+/g, ' ').trim();
-                textEl.textContent = cmd;
+                const tail = (target || tk('tasks.js.cmd_target')).replace(/\s+/g, ' ');
+                const cmd = ('nmap ' + args + ' ' + tail).replace(/\s+/g, ' ').trim();
+                fillCmd(textEl, args, tail, !target);
                 copyBtn.dataset.cmd = cmd;
                 box.classList.toggle('is-bad', !!problem);
                 warnEl.hidden = !problem;
                 warnEl.textContent = problem ? tk('tasks.js.cmd_bad', { why: String(problem).split('\n')[0].trim() }) : '';
                 stepsEl.textContent = '';
-                (last.steps || []).forEach(k => {
-                    if (!STEP_TEXT[k]) return;
-                    const li = document.createElement('li');
-                    li.textContent = (k === 'udp_pass' && last.udp_arguments) ? tk('tasks.js.cmd_udp_line', { args: last.udp_arguments }) : STEP_TEXT[k];
-                    stepsEl.appendChild(li);
-                });
+                clearSteps();
+                const udpStep = !!last.udp_arguments && (last.steps || []).indexOf('udp_pass') >= 0;
+                if (udpStep && list) {
+                    // two commands: steps. 1 = the scan above, 2 = the UDP round (its own box and copy button), then the steps that have no command (the NVD lookup)
+                    box.classList.add('is-steps');
+                    list.querySelector('.cs-first .cs-ttl').textContent = tk('tasks.js.cmd_step1');
+                    const udpHosts = tk('tasks.js.udp_hosts');
+                    addStep(2, body => {
+                        const ttl = document.createElement('div'); ttl.className = 'cs-ttl';
+                        const small = document.createElement('small'); small.textContent = ' ' + tk('tasks.js.cmd_step_udp_on');
+                        ttl.append(document.createTextNode(tk('tasks.js.cmd_step_udp')), small);
+                        const wrap = document.createElement('div'); wrap.className = 'jd-cmd';
+                        const code = document.createElement('code'); fillCmd(code, last.udp_arguments, udpHosts, true);
+                        const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'jd-copy';
+                        btn.dataset.cmd = ('nmap ' + last.udp_arguments + ' ' + udpHosts).replace(/\s+/g, ' ');
+                        btn.title = tk('tasks.dlg.copy_cmd'); btn.setAttribute('aria-label', tk('tasks.js.udp_copy_aria'));
+                        btn.innerHTML = '<i class="ti ti-copy"></i>';
+                        wrap.append(code, btn);
+                        body.append(ttl, wrap);
+                    });
+                    let n = 3;
+                    (last.steps || []).forEach(k => {
+                        if (k === 'udp_pass' || !STEP_TEXT[k]) return;
+                        addStep(n++, body => { const t = document.createElement('div'); t.className = 'cs-text'; t.textContent = STEP_TEXT[k]; body.appendChild(t); });
+                    });
+                } else {
+                    (last.steps || []).forEach(k => {
+                        if (!STEP_TEXT[k]) return;
+                        const li = document.createElement('li');
+                        li.textContent = STEP_TEXT[k];
+                        stepsEl.appendChild(li);
+                    });
+                }
                 noteEl.textContent = '';
                 if (last.internal) {              // "The system adds <code>-oX - --stats-every 3s</code> automatically ..." (the flags as code, so they read as a command)
                     const code = document.createElement('code');
@@ -2135,6 +2233,7 @@
                     if (mine !== seq) return;
                     last = null;
                     textEl.textContent = tk('tasks.js.cmd_unavail');
+                    clearSteps();
                     copyBtn.dataset.cmd = '';
                     warnEl.hidden = true; stepsEl.textContent = ''; noteEl.textContent = '';
                 }
@@ -2143,6 +2242,7 @@
 
             toggle.addEventListener('change', () => setOpen(toggle.checked, true));      // the header switch (a checkbox with role="switch")
             copyBtn.addEventListener('click', () => { if (copyBtn.dataset.cmd) copyText(copyBtn.dataset.cmd, copyBtn); });
+            if (list) list.addEventListener('click', e => { const b = e.target.closest('.jd-copy'); if (b && b !== copyBtn && b.dataset.cmd) copyText(b.dataset.cmd, b); });
             // any control of the form; a typed target only changes the last word of the command, so it needs no request
             const onChange = e => { if (targetInput && e.target === targetInput) render(); else soon(); };
             form.addEventListener('input', onChange);
@@ -2213,7 +2313,15 @@
                     <!-- The command the form would run with its current choices (same box as the New Scan dialog) -->
                     <div id="rescanCmdBox" class="ns-cmd mb-3" hidden>
                         <div class="ns-cmd-head">{{ t('tasks.dlg.cmd_head') }}</div>
-                        <div class="jd-cmd"><code id="rescanCmdText"></code><button type="button" class="jd-copy" id="rescanCmdCopy" title="{{ t('tasks.dlg.copy_cmd') }}" aria-label="{{ t('tasks.dlg.copy_cmd_aria') }}"><i class="ti ti-copy"></i></button></div>
+                        <div class="cs-list">
+                            <div class="cs cs-first">
+                                <div class="cs-dot">1</div>
+                                <div class="cs-body">
+                                    <div class="cs-ttl"></div>
+                                    <div class="jd-cmd"><code id="rescanCmdText"></code><button type="button" class="jd-copy" id="rescanCmdCopy" title="{{ t('tasks.dlg.copy_cmd') }}" aria-label="{{ t('tasks.dlg.copy_cmd_aria') }}"><i class="ti ti-copy"></i></button></div>
+                                </div>
+                            </div>
+                        </div>
                         <div id="rescanCmdWarn" class="ns-cmd-warn" hidden></div>
                         <ul id="rescanCmdSteps" class="ns-cmd-steps"></ul>
                         <div id="rescanCmdNote" class="ns-cmd-note"></div>

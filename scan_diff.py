@@ -18,12 +18,15 @@ _SEV_RANK = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
 MAX_ROWS = 50           # rows kept per list (the counts keep the true totals)
 
 
-def comparable_key(scan_type, target, skip_ping=None, custom_args=None, all_ports=None, host_probes=None, gentle=None, udp=None):
+def comparable_key(scan_type, target, skip_ping=None, custom_args=None, all_ports=None, host_probes=None, gentle=None, udp=None, udp_top=None):
     """Two scans may be compared only when their keys are equal. NULL and False for -Pn and for "all ports" are the same thing (the options did not exist
     before); a scan of all 65,535 ports and one of the usual list see different things, so they are never compared. The same for the host-discovery probes
-    (they find devices a plain run cannot) and a Gentle scan (fewer retries and a per-host limit). -n only changes names, so it is not in the key."""
+    (they find devices a plain run cannot) and a Gentle scan (fewer retries and a per-host limit). The UDP part is False (no UDP run), True (the 12 common ports,
+    also every older UDP scan) or 100 / 1000 (nmap's top N UDP ports): a wider UDP range sees ports the narrower one never looked at, so they are never compared.
+    -n only changes names, so it is not in the key."""
+    udp_part = (int(udp_top) if udp_top in (100, 1000) else True) if udp else False
     return (str(target or '').strip(), str(scan_type or ''), bool(skip_ping), ' '.join(str(custom_args or '').split()) if scan_type == 'custom' else '', bool(all_ports),
-            bool(host_probes), bool(gentle), bool(udp))
+            bool(host_probes), bool(gentle), udp_part)
 
 
 def _hosts(scan):
@@ -36,8 +39,11 @@ def _hosts(scan):
 
 def _udp_unknown(host):
     """True when the UDP result of this host is not known in that scan: the UDP run failed, the host ran out of its UDP time, or the UDP run never
-    covered it (an IPv6 address, or nmap did not report it). Such a host lists no UDP port, which says nothing about whether one is open."""
-    return any(host.get(k) is True for k in ('udp_failed', 'udp_timed_out', 'udp_not_scanned'))
+    covered it (an IPv6 address, or nmap did not report it), or nmap printed its `open` UDP ports only as a count (`udp_unlisted`, a top-N run: it lists a state
+    port by port only up to 25 ports). Such a host lists no (or too few) UDP ports, which says nothing about whether one is open."""
+    unlisted = host.get('udp_unlisted')
+    return (any(host.get(k) is True for k in ('udp_failed', 'udp_timed_out', 'udp_not_scanned'))
+            or (isinstance(unlisted, dict) and bool(unlisted.get('open'))))
 
 
 def _ports_unknown(host):

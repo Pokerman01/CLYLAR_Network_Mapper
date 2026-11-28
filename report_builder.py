@@ -19,8 +19,8 @@ import ipaddress
 import re
 
 from cwe_data import cwe_info
-from scanner import (ALL_PORTS_HOST_TIMEOUT, UDP_HOST_TIMEOUT, UDP_PORTS, describe_scan_settings, effective_severity, guess_device_type, os_match_accuracy,
-                     port_reason, port_reason_label, virtual_machine_platform)
+from scanner import (ALL_PORTS_HOST_TIMEOUT, UDP_HOST_TIMEOUT, UDP_PORTS, UDP_TOP_CHOICES, describe_scan_settings, effective_severity, guess_device_type, os_match_accuracy,
+                     port_reason, port_reason_label, udp_host_timeout, virtual_machine_platform)
 
 SYSTEM_NAME = 'Clylar'
 
@@ -50,12 +50,21 @@ def _minutes(spec):
 
 
 HOST_MIN = _minutes(ALL_PORTS_HOST_TIMEOUT)           # nmap --host-timeout of "scan all ports" and of Gentle (the same 45 minutes)
-UDP_MIN = _minutes(UDP_HOST_TIMEOUT)                  # nmap --host-timeout of the UDP run
+UDP_MIN = _minutes(UDP_HOST_TIMEOUT)                  # nmap --host-timeout of the UDP run of the 12 common ports (a top-N run has its own: udp_host_timeout(top))
 N_UDP_PORTS = len(UDP_PORTS)
 UDP_PORT_LIST = ', '.join(str(p) for p in UDP_PORTS)
+MAX_UDP_PORTS = 65535                                 # the largest UDP port count a recorded `udp_ports` may have (anything above is not a count of ports)
+UDP_UNLISTED_NOTE = 'nmap ไม่แสดงรายพอร์ต'               # said after every count that nmap printed only as a total (udp_unlisted)
 # The scan report page's own words for a host that ran out of its --host-timeout (locales scan.host_timeout): the host's ports were never read.
 HOST_TIMEOUT_TEXT = 'หมดเวลาต่อเครื่อง' + (f' ({HOST_MIN} นาที)' if HOST_MIN else '') + ' ไม่ทราบพอร์ต'
-UDP_TIMEOUT_TEXT = 'ใช้เวลาสแกน UDP เกิน' + (f' {UDP_MIN} นาที' if UDP_MIN else 'เวลาที่กำหนด')
+
+
+def _udp_timeout_text(minutes):
+    """'ใช้เวลาสแกน UDP เกิน 10 นาที': the host ran out of the UDP run's --host-timeout (10 minutes for the 12 common ports, 15 for the top 100, 45 for the top 1000)."""
+    return 'ใช้เวลาสแกน UDP เกิน' + (f' {minutes} นาที' if minutes else 'เวลาที่กำหนด')
+
+
+UDP_TIMEOUT_TEXT = _udp_timeout_text(UDP_MIN)
 UDP_FAILED_TEXT = 'รอบสแกน UDP ทำงานไม่สำเร็จ'
 UDP_UNKNOWN_TEXT = 'ไม่ทราบพอร์ต UDP'                  # said wherever "ไม่พบ CVE" is said for a host whose UDP result is unknown (its TCP ports were looked up)
 UDP_NOT_SCANNED_TEXT = 'ไม่ได้สแกน UDP (เป็นที่อยู่ที่ไม่ใช่ IPv4 หรือ nmap ไม่รายงานผล)'
@@ -72,6 +81,29 @@ STEP_TEXT = {
     'gateway_probe': 'ตรวจหา default gateway ของเครื่องที่สแกน',
     'udp_pass': f'รอบที่ 2: สแกน UDP {N_UDP_PORTS} พอร์ตที่พบบ่อยกับอุปกรณ์ที่รอบแรกพบว่าออนไลน์',      # the Tasks page's words
 }
+
+
+def _udp_tier(settings, facts):
+    """What the UDP second run of THIS scan looked at (so no sentence says "12 ports" about a top-N run): {'top': None | 100 | 1000, 'n': ports, 'minutes': per-host limit}.
+    top is 100 or 1000 only when the job recorded it with the UDP option on (settings['udp_top'], already checked by scanner.describe_scan_settings); None is the 12 common
+    ports, also every job from before the choice, and then n and minutes are the old constants. n for a top-N run is the number of UDP ports nmap really scanned
+    (facts['udp_ports'], it follows the installed nmap-services) when the run recorded one that makes sense, else the number that was asked for. minutes is
+    nmap's --host-timeout of that tier (scanner.udp_host_timeout), None when it cannot be read (the sentence then leaves the number out)."""
+    top = settings.get('udp_top') if settings.get('udp') is True and settings.get('udp_top') in UDP_TOP_CHOICES else None
+    if top is None:
+        return {'top': None, 'n': N_UDP_PORTS, 'minutes': UDP_MIN}
+    n = facts.get('udp_ports')
+    n = n if isinstance(n, int) and not isinstance(n, bool) and 0 < n <= min(MAX_UDP_PORTS, top) else top      # a top-N run never scans more than N
+    return {'top': top, 'n': n, 'minutes': _minutes(udp_host_timeout(top))}
+
+
+def _udp_step_text(tier):
+    """The words of the 'udp_pass' step in appendix A, for the range this scan used."""
+    if not tier['top']:
+        return STEP_TEXT['udp_pass']
+    return f"รอบที่ 2: สแกนพอร์ต UDP {tier['n']:,} อันดับแรกของ nmap กับอุปกรณ์ที่รอบแรกพบว่าออนไลน์ โดยไม่ตรวจเวอร์ชันของบริการ"
+
+
 STATUS_NOTICE = {
     'Failed': 'งานสแกนนี้ล้มเหลว ผลที่แสดงอาจไม่สมบูรณ์หรือไม่มีเลย',
     'Cancelled': 'งานสแกนนี้ถูกยกเลิก ผลที่แสดงอาจไม่สมบูรณ์',
@@ -366,7 +398,7 @@ def _vuln_unevaluated_reason(rows):
             extra = ' หรือไม่ทราบพอร์ตเพราะหมดเวลา'
         elif any(not r['ports_known'] for r in rows):
             extra = ' หรือไม่ได้สแกนพอร์ต'
-        if any(r['unlisted'] for r in rows):           # open ports that nmap did not list one by one were never looked up
+        if any(r['unlisted'] or r['udp_open_unlisted'] for r in rows):           # open ports that nmap did not list one by one were never looked up
             extra += ' หรือมีพอร์ตที่เปิดซึ่ง nmap ไม่ได้แยกรายงาน'
         return 'ไม่มีพอร์ตที่เปิดให้ค้นหา CVE' + extra
     if states == {'failed'}:
@@ -445,7 +477,40 @@ def _not_open(ports):
     return text, total, any(reason for (_, reason) in list(groups) + list(unsure)), unsure_text, n_unsure
 
 
-def _host_row(h, scan_type):
+def _udp_unlisted(h, ports_known):
+    """The `udp_unlisted` of a host as {state: count}: the states a top-N UDP run printed only as a count (nmap lists a state port by port only while it covers 25 ports
+    or fewer). Read from stored text, so only a dict with positive whole counts counts and a state is a short lowercase text; anything else is no claim ({}). Like the other
+    UDP flags it says nothing about a host whose ports were never scanned."""
+    raw = h.get('udp_unlisted') if ports_known else None
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for state, n in raw.items():
+        n, state = _count_of(n), _clip(str(state or '').lower(), MAX_STATE_TEXT)
+        if n and state:
+            out[state] = out.get(state, 0) + n
+    return out
+
+
+def _udp_unlisted_text(counts):
+    """The inventory line for the UDP ports nmap gave only as a count, other than `open` (that state makes the host's UDP result unknown and has its own words):
+    `open|filtered` first, as "unknown whether open or filtered" (never "closed", never open), then every other state under nmap's own word, at most MAX_NOT_OPEN_GROUPS
+    of them, all followed by one unit ("พอร์ต UDP"). The reason nmap lists no port numbers is said (with "nmap") when the line holds the unknown part, because there the
+    reader needs it; a line of only closed / filtered counts says it shorter, so it does not take three lines of a narrow column. '' when there is nothing to say."""
+    parts = []
+    unsure = counts.get(UNSURE_STATE, 0)
+    if unsure:
+        parts.append(f'ไม่ทราบว่าเปิดหรือถูกกรอง {unsure:,}')
+    others = sorted(((s, n) for s, n in counts.items() if s not in ('open', UNSURE_STATE)), key=lambda kv: (-kv[1], kv[0]))
+    parts += [f'{s} {n:,}' for s, n in others[:MAX_NOT_OPEN_GROUPS]]
+    if len(others) > MAX_NOT_OPEN_GROUPS:
+        parts.append(f'+{len(others) - MAX_NOT_OPEN_GROUPS} กลุ่ม')
+    if not parts:
+        return ''
+    return ' · '.join(parts) + ' พอร์ต UDP ' + (f'({UDP_UNLISTED_NOTE})' if unsure else '(ไม่แสดงรายพอร์ต)')
+
+
+def _host_row(h, scan_type, udp_min=UDP_MIN):
     # a host has a port list only when 'ports' is a list (even an empty one: then 0 open is a fact); a missing key, null or anything else
     # means the scan never looked at this host's ports, which is NOT the same as "none open"
     ports_known = isinstance(h.get('ports'), list)
@@ -455,11 +520,19 @@ def _host_row(h, scan_type):
     #   timed_out    nmap gave up on the host (--host-timeout); the scanner then removes its `ports`, so this only applies to a host with no port list
     #   unlisted     open ports nmap collapsed into one <extraports state="open"> line: they exist but were never named, so never looked up
     #   udp_*        the UDP run failed / ran out of time / never covered this host: its UDP ports are unknown (not "no UDP port found")
+    #   udp_unlisted a top-N UDP run gave some states only as a count (nmap lists a state port by port only up to 25 ports): `open` makes the host's UDP result unknown
+    #                (and, like the TCP `unlisted`, those open ports were never looked up, so the host is never "ไม่พบ CVE"); `open|filtered` and the others are real information
+    #                that is never counted as open and says only what it says
     timed_out = (not ports_known) and h.get('timed_out') is True
     unlisted = _count_of(h['ports_unlisted'].get('open')) if ports_known and isinstance(h.get('ports_unlisted'), dict) else 0
     udp_flags = {key: ports_known and h.get(key) is True for key in ('udp_failed', 'udp_timed_out', 'udp_not_scanned')}
-    udp_why = [text for key, text in (('udp_failed', UDP_FAILED_TEXT), ('udp_timed_out', UDP_TIMEOUT_TEXT), ('udp_not_scanned', UDP_NOT_SCANNED_TEXT)) if udp_flags[key]]
-    level, reason = _host_risk(open_ports, cves, scan_type, ports_known, timed_out, unlisted, bool(udp_why))
+    udp_why = [text for key, text in (('udp_failed', UDP_FAILED_TEXT), ('udp_timed_out', _udp_timeout_text(udp_min)), ('udp_not_scanned', UDP_NOT_SCANNED_TEXT)) if udp_flags[key]]
+    udp_counts = _udp_unlisted(h, ports_known)
+    udp_open_unlisted = udp_counts.get('open', 0)
+    if udp_open_unlisted:
+        udp_why.append(f'มีพอร์ต UDP ที่เปิด {udp_open_unlisted:,} พอร์ตซึ่ง nmap ไม่ได้แยกรายงาน')
+    gap = unlisted + udp_open_unlisted          # open ports nobody named (TCP and UDP): they were never looked up, so the level and the evaluation text count them
+    level, reason = _host_risk(open_ports, cves, scan_type, ports_known, timed_out, gap, bool(udp_why))
     type_key, type_label, type_likely = _device_type(h, open_ports)
     mac = (h.get('mac') or '').strip()
     mac = '' if mac.lower() in ('', 'unknown') else mac
@@ -482,10 +555,11 @@ def _host_row(h, scan_type):
         'unlisted': unlisted, 'unlisted_text': f'มีพอร์ตที่เปิดอีก {unlisted:,} พอร์ตซึ่ง nmap ไม่ได้แยกรายงาน' if unlisted else '',
         'udp_failed': udp_flags['udp_failed'], 'udp_timed_out': udp_flags['udp_timed_out'], 'udp_not_scanned': udp_flags['udp_not_scanned'],
         'udp_unknown': bool(udp_why), 'udp_note': ('ไม่ทราบพอร์ต UDP: ' + ', '.join(udp_why)) if udp_why else '',
+        'udp_open_unlisted': udp_open_unlisted, 'udp_unsure_unlisted': udp_counts.get(UNSURE_STATE, 0), 'udp_unlisted_text': _udp_unlisted_text(udp_counts),
         'ports_known': ports_known, 'open_count': len(open_ports), 'ports': ports, 'ports_more': max(0, len(open_ports) - MAX_PORT_LINES),
         'risk': level, 'risk_label': LEVEL_LABEL[level], 'risk_reason': reason,
         'cve_total': len(cves), 'sev_counts': _sev_counts(cves), 'max_text': _max_text(cves),
-        'eval_ok': n_ok, 'eval_text': _eval_text(ports_known, len(open_ports), n_ok, scan_type, timed_out, unlisted, bool(udp_why)),
+        'eval_ok': n_ok, 'eval_text': _eval_text(ports_known, len(open_ports), n_ok, scan_type, timed_out, gap, bool(udp_why)),
         'protocols': [str(p.get('protocol') or 'tcp').lower() for p in open_ports],
         '_cve_all': cves, '_open_ports': open_ports,
     }
@@ -764,9 +838,11 @@ def _limits(scan_type, facts, skip_ping, rows=(), settings=None):
     if n:
         out.append(f'{n:,} เครื่องมีพอร์ตที่เปิดซึ่ง nmap ไม่ได้แยกรายงานหมายเลขพอร์ต จึงไม่ได้ค้นหา CVE ของพอร์ตเหล่านั้น')
     udp_failed = facts.get('udp_failed') is True or any(r.get('udp_failed') for r in rows)
+    tier = _udp_tier(settings, facts)          # the range of the UDP run: the 12 common ports, or nmap's top 100 / top 1000 (no service versions)
     if settings.get('udp') is True or facts.get('udp') is True:
         if not udp_failed:
-            out.append(f'สแกน UDP เฉพาะ {N_UDP_PORTS} พอร์ตที่พบบ่อย พอร์ต UDP ที่แสดงเป็น open|filtered หมายถึงไม่ทราบว่าเปิดหรือถูกกรอง '
+            what = (f"สแกนพอร์ต UDP {tier['n']:,} อันดับแรกของ nmap โดยไม่ตรวจเวอร์ชันของบริการ" if tier['top'] else f'สแกน UDP เฉพาะ {N_UDP_PORTS} พอร์ตที่พบบ่อย')
+            out.append(f'{what} พอร์ต UDP ที่แสดงเป็น open|filtered หมายถึงไม่ทราบว่าเปิดหรือถูกกรอง '
                        'จึงไม่นับเป็นพอร์ตที่เปิดและไม่ค้นหา CVE ให้พอร์ตนั้น')
     if udp_failed:
         cause = facts.get('udp_error')
@@ -777,7 +853,12 @@ def _limits(scan_type, facts, skip_ping, rows=(), settings=None):
         out.append(f'{n:,} เครื่อง{UDP_NOT_SCANNED_TEXT} จึงไม่ทราบพอร์ต UDP ของเครื่องนั้น')
     n = _fact_count(facts, 'udp_timed_out', rows, 'udp_timed_out')
     if n:
-        out.append(f'{n:,} เครื่อง{UDP_TIMEOUT_TEXT} nmap จึงข้ามเครื่องนั้น และไม่ทราบพอร์ต UDP ของเครื่องนั้น')
+        out.append(f"{n:,} เครื่อง{_udp_timeout_text(tier['minutes'])} nmap จึงข้ามเครื่องนั้น และไม่ทราบพอร์ต UDP ของเครื่องนั้น")
+    # a top-N run: nmap gave some states only as a total (udp_unlisted). Only when a host really carries it, and only what it says: how many devices, which state
+    n_unsure, n_open = sum(1 for r in rows if r.get('udp_unsure_unlisted')), sum(1 for r in rows if r.get('udp_open_unlisted'))
+    if n_unsure or n_open:
+        said = ([f'{n_unsure:,} เครื่องที่ทราบเพียงจำนวนพอร์ต UDP ที่ไม่ทราบว่าเปิดหรือถูกกรอง'] if n_unsure else [])             + ([f'{n_open:,} เครื่องที่ทราบเพียงจำนวนพอร์ต UDP ที่เปิด (ไม่ได้ค้นหา CVE ของพอร์ตเหล่านั้น)'] if n_open else [])
+        out.append('nmap ไม่แสดงรายพอร์ตเมื่อสถานะหนึ่งมีเกิน 25 พอร์ต จึงมี ' + ' และ '.join(said))
     if settings.get('no_dns') is True or facts.get('no_dns') is True:
         out.append('ไม่ได้ค้นหาชื่ออุปกรณ์ผ่าน DNS (-n) อุปกรณ์ที่ไม่แสดงชื่อจึงไม่ได้หมายความว่าไม่มีชื่อ (ชื่อ NetBIOS ที่ถามจากตัวอุปกรณ์ยังอ่านได้)')
     if settings.get('gentle') is True or facts.get('gentle') is True:
@@ -875,7 +956,7 @@ def _shown_number(number, fallback):
     return number if isinstance(number, int) and not isinstance(number, bool) and number > 0 else fallback
 
 
-def _changes_view(changes, failed, scan_type, status=''):
+def _changes_view(changes, failed, scan_type, status='', udp_top=None):
     """Appendix B. `changes` is app.scan_changes()'s {'prev': {id, seq, when}, 'diff': scan_diff.compare_scans(...)} or None. The earlier scan is named by prev['seq'] (the number the app shows), else by its id. The words follow scan_diff's rules:
     a device missing from the newer scan is "ไม่พบในสแกนนี้" (never "gone"), a port is "ไม่เปิดแล้ว" (never "closed"), a CVE the older scan could not
     judge is counted and never listed. At most MAX_CHANGE_ITEMS per list ("+N" counts the real total). A value that cannot be read says the
@@ -883,7 +964,9 @@ def _changes_view(changes, failed, scan_type, status=''):
     A host whose PORTS are unknown in either scan (no port list, timed out, open ports nmap did not list) is left out of the comparison of ports and CVEs by
     scan_diff, which says so with the caveat 'ports_unknown' and counts['ports_not_compared']; a host whose UDP result is unknown (the UDP run failed, ran out
     of time or never reached it) has only its UDP ports left out ('udp_unknown', counts['udp_not_compared']). A note repeats each here, only when the
-    caveat is there AND its count is a positive whole number (never an invented number)."""
+    caveat is there AND its count is a positive whole number (never an invented number). udp_top: this scan's top-N UDP range (None = the 12 common ports): then a
+    host can also be left out because nmap gave its open UDP ports only as a count, and the note names that cause too (the key of the comparison holds the range, so the
+    earlier scan is of the same range)."""
     if failed:
         return {'state': 'failed', 'text': 'เทียบกับสแกนก่อนหน้าไม่ได้'}
     if changes is None:
@@ -932,8 +1015,9 @@ def _changes_view(changes, failed, scan_type, status=''):
             notes.append(f"ไม่ได้นำพอร์ตและ CVE ของ {counts['ports_not_compared']} เครื่องมาเทียบ เพราะไม่ทราบพอร์ตของเครื่องนั้นในสแกนใดสแกนหนึ่ง "
                          "(หมดเวลาต่อเครื่อง หรือมีพอร์ตที่เปิดซึ่ง nmap ไม่ได้แยกรายงาน)")
         if 'udp_unknown' in caveats and _int(counts.get('udp_not_compared')) > 0:
-            notes.append(f"ไม่ได้นำพอร์ต UDP ของ {counts['udp_not_compared']} เครื่องมาเทียบ เพราะไม่ทราบพอร์ต UDP ของเครื่องนั้นในสแกนใดสแกนหนึ่ง "
-                         "(รอบสแกน UDP ทำงานไม่สำเร็จ ใช้เวลาสแกน UDP เกินกำหนด หรือไม่ได้สแกน UDP)")
+            causes = ('รอบสแกน UDP ทำงานไม่สำเร็จ ใช้เวลาสแกน UDP เกินกำหนด ไม่ได้สแกน UDP หรือมีพอร์ต UDP ที่เปิดซึ่ง nmap ไม่ได้แยกรายงาน' if udp_top
+                      else 'รอบสแกน UDP ทำงานไม่สำเร็จ ใช้เวลาสแกน UDP เกินกำหนด หรือไม่ได้สแกน UDP')
+            notes.append(f"ไม่ได้นำพอร์ต UDP ของ {counts['udp_not_compared']} เครื่องมาเทียบ เพราะไม่ทราบพอร์ต UDP ของเครื่องนั้นในสแกนใดสแกนหนึ่ง ({causes})")
         if _int(d.get('cve_unjudged')):
             notes.append(f"มี {d['cve_unjudged']} CVE ที่บอกไม่ได้ว่าใหม่หรือเก่า เพราะการค้นหา CVE ของสแกนใดสแกนหนึ่งไม่สำเร็จหรือไม่ได้บันทึกสถานะไว้ (นับแล้ว แต่ไม่ได้แสดงในรายการ)")
         if 'admin_differs' in caveats:
@@ -976,12 +1060,15 @@ LEVEL_TEXT = {
 }
 
 
-def _not_said(scan_type, skip_ping, reasons=None, all_ports=False, udp=False, host_probes=False):
+def _not_said(scan_type, skip_ping, reasons=None, all_ports=False, udp=False, host_probes=False, udp_tier=None, udp_unlisted=False):
     """Appendix D: what this report does not say. Each sentence is written only when it is true of this kind of scan.
     reasons: None = this scan has no port that is not open (nothing to add), True = at least one such port carries nmap's reason (the inventory shows
     it), False = such ports exist but none has a recorded reason (an older scan): the sentence says so and never promises reasons.
     all_ports: ports 1-65535 were scanned, so "ports outside the range" is not true; it says what the lists of ports that are not open show instead.
     udp: the second (UDP) run was made: only its 12 ports were looked at, and a port that did not answer is "open|filtered", which is not open.
+    udp_tier: _udp_tier() of this scan. With a top-N range (100 / 1000) the sentence says THAT: nmap's own frequency ranking, no service versions, and that the ranking
+    was not made for telecom equipment (so a port such equipment uses, GTP for one, may be missing); with None it is exactly the 12-port sentence.
+    udp_unlisted: some host carries `udp_unlisted` (states nmap printed only as a count); with a top-N range the note about nmap's 25-port rule is there in any case.
     host_probes: the extra probes were sent, so the ping sentence says what they did not catch."""
     out = ['ไม่ได้ยืนยันว่าช่องโหว่ใช้โจมตีได้จริง (ไม่ได้ทดสอบเจาะระบบ)',
            'ไม่ใช่รายการช่องโหว่ที่ครบถ้วน เป็นเพียง CVE ที่ NVD จับคู่ได้จากชื่อและเวอร์ชันของบริการ (สูงสุด 5 รายการต่อพอร์ต)']
@@ -1002,7 +1089,15 @@ def _not_said(scan_type, skip_ping, reasons=None, all_ports=False, udp=False, ho
         else:
             out.append('พอร์ตนอกช่วงที่การสแกนนี้ตรวจจะไม่ปรากฏในผล')
         if udp:
-            out.append(f'ตรวจพอร์ต UDP เพียง {N_UDP_PORTS} พอร์ตที่พบบ่อย ({UDP_PORT_LIST}) พอร์ต UDP อื่นจึงไม่ปรากฏในผล')
+            top = bool(udp_tier and udp_tier.get('top'))
+            if top:
+                out.append(f"ตรวจพอร์ต UDP {udp_tier['n']:,} อันดับแรกของ nmap โดยไม่ตรวจเวอร์ชันของบริการ อันดับนี้เป็นของ nmap เอง จัดจากความถี่ที่พบพอร์ต UDP เปิดบนอินเทอร์เน็ต "
+                           'ไม่ได้เลือกมาสำหรับอุปกรณ์โทรคมนาคม พอร์ตที่อุปกรณ์ประเภทนี้ใช้จึงอาจไม่อยู่ในรายการ (เช่น GTP) พอร์ต UDP อื่นจึงไม่ปรากฏในผล')
+            else:
+                out.append(f'ตรวจพอร์ต UDP เพียง {N_UDP_PORTS} พอร์ตที่พบบ่อย ({UDP_PORT_LIST}) พอร์ต UDP อื่นจึงไม่ปรากฏในผล')
+            if top or udp_unlisted:      # how to read a device with no UDP port listed
+                out.append('nmap ไม่แสดงรายพอร์ตเมื่อสถานะหนึ่งมีเกิน 25 พอร์ต อุปกรณ์หนึ่งจึงอาจไม่แสดงพอร์ต UDP เลยทั้งที่มีหลายพอร์ตไม่ตอบกลับ'
+                           + (' จำนวนรวมของแต่ละสถานะแสดงไว้ในหัวข้อ 4' if udp_unlisted else ''))
     if scan_type != 'xml_upload' and not skip_ping:
         out.append('อุปกรณ์ที่บล็อกทั้ง ping และพอร์ตที่ลองเชื่อมต่อเพิ่ม อาจไม่ถูกพบ' if host_probes else 'อุปกรณ์ที่บล็อก ping อาจไม่ถูกพบ')
     out.append('เป็นผล ณ เวลาที่สแกน ไม่ได้รับรองว่าปลอดภัยหรือไม่ปลอดภัยหลังจากนี้')
@@ -1095,8 +1190,8 @@ def _contents(findings, groups):
 def build_report(scan, hosts, now, type_labels=None):
     """scan: dict with id (the database id, for URLs), number (optional: the "Job #N" the app shows, printed in the header and footers; a missing or
     bad one prints the id), scan_type, scan_name, target, status, started, finished (datetimes or None), timing, version_intensity,
-    custom_args, multicast, skip_ping, all_ports, no_dns, host_probes, gentle, udp (the job's columns: all of them go to scanner.describe_scan_settings, which
-    builds the command the scan really ran; None = not applicable or a job from before the option), nmap_version, run (app.describe_run), and, all optional: run_facts (app.scan_run_info: a missing key = not
+    custom_args, multicast, skip_ping, all_ports, no_dns, host_probes, gentle, udp, udp_top (the job's columns: all of them go to scanner.describe_scan_settings, which
+    builds the command the scan really ran; None = not applicable or a job from before the option; udp_top is 100 or 1000 for a UDP run of nmap's top N ports, None for the 12 common ones), nmap_version, run (app.describe_run), and, all optional: run_facts (app.scan_run_info: a missing key = not
     recorded), owner (the owner's username), triggered_by ('manual' | 'rescan' | 'drilldown' | 'schedule' | 'chatbot'), changes (app.scan_changes() or
     None) and changes_failed (True when that comparison raised). hosts: the parsed result_data list. now: a datetime for "created at".
     type_labels: scan type -> name. Returns the plain dict the template draws (see the keys at the end of this function)."""
@@ -1105,13 +1200,17 @@ def build_report(scan, hosts, now, type_labels=None):
     job_number = _shown_number(scan.get('number'), scan.get('id'))      # the "Job #N" the app shows (scan['number']); scan['id'] (the database id) stays in job_id for the URLs
     rows_in =[h for h in (hosts or []) if isinstance(h, dict) and h.get('ip')]
     error = next((str(h['error'])[:300] for h in (hosts or []) if isinstance(h, dict) and h.get('error')), '')
-    rows = [_host_row(h, scan_type) for h in rows_in]
+    # ALL the settings the scan was started with go to scanner.describe_scan_settings, which builds the arguments with the same function the scan ran with
+    # (scanner.scan_arguments): a scan with all ports, no DNS, extra probes, Gentle or the UDP pass (and its range, udp_top) prints the command that really ran,
+    # never the plain default
+    settings = describe_scan_settings(scan_type, scan.get('timing'), scan.get('version_intensity'), scan.get('custom_args'), scan.get('multicast'),
+                                      scan.get('skip_ping'), scan.get('all_ports'), scan.get('no_dns'), scan.get('host_probes'), scan.get('gentle'), scan.get('udp'),
+                                      scan.get('udp_top'))
+    facts = scan.get('run_facts') if isinstance(scan.get('run_facts'), dict) else {}      # what the run recorded about itself; a missing key = not recorded
+    udp_tier = _udp_tier(settings, facts)            # the range of the UDP run (12 common ports, or nmap's top 100 / 1000): every UDP sentence below is about THAT run
+    rows = [_host_row(h, scan_type, udp_tier['minutes']) for h in rows_in]
 
     # ---- the header cells
-    # ALL the settings the scan was started with go to scanner.describe_scan_settings, which builds the arguments with the same function the scan ran with
-    # (scanner.scan_arguments): a scan with all ports, no DNS, extra probes, Gentle or the UDP pass prints the command that really ran, never the plain default
-    settings = describe_scan_settings(scan_type, scan.get('timing'), scan.get('version_intensity'), scan.get('custom_args'), scan.get('multicast'),
-                                      scan.get('skip_ping'), scan.get('all_ports'), scan.get('no_dns'), scan.get('host_probes'), scan.get('gentle'), scan.get('udp'))
     args = (settings.get('arguments') or '').strip()
     if scan_type == 'xml_upload':
         command, command_note = '', 'นำเข้าจากไฟล์ XML จึงไม่มีคำสั่งที่ใช้สแกน'
@@ -1122,8 +1221,7 @@ def build_report(scan, hosts, now, type_labels=None):
     # the UDP option is a SECOND nmap run, on the hosts the first run found up (known only when that run is over), so its command ends with a placeholder
     command_udp = (_clip_marked(f"nmap {settings['udp_arguments']} {UDP_SECOND_RUN_TARGETS}", MAX_COMMAND_TEXT)
                    if settings.get('udp') and settings.get('udp_arguments') else '')
-    steps = [STEP_TEXT[s] for s in settings.get('steps', []) if s in STEP_TEXT]
-    facts = scan.get('run_facts') if isinstance(scan.get('run_facts'), dict) else {}      # what the run recorded about itself; a missing key = not recorded
+    steps = [(_udp_step_text(udp_tier) if s == 'udp_pass' else STEP_TEXT[s]) for s in settings.get('steps', []) if s in STEP_TEXT]
     skip_ping = bool(settings.get('skip_ping') or facts.get('skip_ping') is True or scan.get('skip_ping'))
     started, finished = scan.get('started'), scan.get('finished')
     duration = int((finished - started).total_seconds()) if started and finished and finished >= started else None
@@ -1271,12 +1369,13 @@ def build_report(scan, hosts, now, type_labels=None):
     }
     appendix = {
         'scan': _appendix_scan(scan, settings, label, steps, facts, nmap_version, run_summary, who),
-        'changes': _changes_view(scan.get('changes'), bool(scan.get('changes_failed')), scan_type, scan.get('status')),
+        'changes': _changes_view(scan.get('changes'), bool(scan.get('changes_failed')), scan_type, scan.get('status'), udp_tier['top']),
         'method': {'lead': '' if scan_type == 'vuln_scan' else 'การสแกนนี้ไม่ได้ค้นหา CVE ถ้าใช้สแกนช่องโหว่ (CVE) ระบบจะทำตามขั้นตอนนี้:',
                    'steps': list(METHOD_STEPS), 'note': 'บริการที่ nmap ระบุผลิตภัณฑ์ไม่ได้ ไม่ถูกค้นหา และแสดงเป็น "ยังไม่ทราบ" ไม่ใช่ "ไม่พบ CVE"'},
         'limits': _not_said(scan_type, skip_ping, (any(r['not_open_reasoned'] for r in rows) if any(r['not_open_count'] for r in rows) else None),
                             all_ports=settings.get('all_ports') is True or facts.get('ports_scanned') == 65535, udp=settings.get('udp') is True or facts.get('udp') is True,
-                            host_probes=settings.get('host_probes') is True or facts.get('host_probes') is True),
+                            host_probes=settings.get('host_probes') is True or facts.get('host_probes') is True, udp_tier=udp_tier,
+                            udp_unlisted=any(r['udp_unlisted_text'] or r['udp_open_unlisted'] for r in rows)),
         'scale': SCALE, 'scale_note': 'CVE ที่ NVD ให้คะแนนด้วย CVSS v2 อย่างเดียวและได้ 9.0 ขึ้นไป ระบบนับเป็นวิกฤต (v2 ไม่มีระดับวิกฤต)',
         'levels': [{'key': k, 'label': name, 'text': (LEVEL_NONE_UDP_TEXT if (k == 'none' and udp_gap) else LEVEL_TEXT[k])} for k, name in LEVELS],
     }

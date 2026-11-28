@@ -1,7 +1,8 @@
-{# Switch for the UDP option (a second nmap run: the 12 common UDP ports, only on the devices the first run found online), with an (i) hover card. Needs `prefix`
-   ('ns' / 'rescan' / 'dd'). Shown for Intense and Vulnerability scans only (hidden for the other types by updateScanAdvancedForType() in base.html; the whole Advanced
-   panel is hidden for Custom). The checkbox keeps its name (udp) and id (<prefix>_udp_input). It excludes nothing: the server refuses it only without Administrator
-   rights / Npcap or on more than 64 addresses, and says so in a notice. #}
+{# Switch for the UDP option (a second nmap run on the devices the first run found online), with an (i) hover card, and under it, only while the switch is on, the choice of
+   WHICH UDP ports: the 12 common ones (the default), nmap's top 100 or its top 1000 (native radios named udp_top, values '' / '100' / '1000'; the server keeps only 100 or 1000).
+   Needs `prefix` ('ns' / 'rescan' / 'dd'). Shown for Intense and Vulnerability scans only (hidden for the other types by updateScanAdvancedForType() in base.html; the whole Advanced
+   panel is hidden for Custom). The checkbox keeps its name (udp) and id (<prefix>_udp_input). The server refuses it without Administrator rights / Npcap, on more addresses than its range
+   allows (64, or 32 for the top 1000), the top 1000 with Gentle and either top-N choice with timing T1; syncUdpScope() in base.html greys those radios out early and says why. #}
 <div class="adv-switch scan-adv-mc">
     <div class="adv-switch-text">
         <div class="d-flex align-items-center gap-1">
@@ -10,6 +11,7 @@
                 <i class="ti ti-info-circle"></i>
                 <div class="scan-adv-info-card">
                     <div class="text-secondary" style="font-size:0.77rem;">{{ t('tasks.adv.udp_card') }}</div>
+                    <div class="text-secondary mt-2" style="font-size:0.77rem;">{{ t('tasks.adv.udp_card_top') }}</div>
                 </div>
             </span>
         </div>
@@ -18,4 +20,14 @@
     <div class="form-check form-switch m-0 p-0">
         <input class="form-check-input" type="checkbox" role="switch" name="udp" value="1" id="{{ prefix }}_udp_input">
     </div>
+</div>
+<div class="udp-scope" id="{{ prefix }}_udp_scope" hidden>
+    <div class="adv-seg" role="radiogroup" aria-label="{{ t('tasks.adv.udp_scope_aria') }}">
+        <label data-udp-opt=""><input class="adv-native" type="radio" name="udp_top" value="" id="{{ prefix }}_udp_top_common" checked><span>{{ t('tasks.adv.udp_opt_common') }}</span></label>
+        <label data-udp-opt="100"><input class="adv-native" type="radio" name="udp_top" value="100" id="{{ prefix }}_udp_top_100"><span>{{ t('tasks.adv.udp_opt_top100') }}</span></label>
+        <label data-udp-opt="1000"><input class="adv-native" type="radio" name="udp_top" value="1000" id="{{ prefix }}_udp_top_1000"><span>{{ t('tasks.adv.udp_opt_top1000') }}</span></label>
+    </div>
+    <div class="adv-help" data-udp-help="">{{ t('tasks.adv.udp_scope_help_common') }}</div>
+    <div class="adv-help" data-udp-help="100" hidden>{{ t('tasks.adv.udp_scope_help_top100') }}</div>
+    <div class="adv-help" data-udp-help="1000" hidden>{{ t('tasks.adv.udp_scope_help_top1000') }}</div>
 </div>

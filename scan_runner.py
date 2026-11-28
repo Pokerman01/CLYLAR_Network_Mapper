@@ -34,7 +34,7 @@ _controls = {}                    # job id -> the ScanControl of a scan that is 
 _run_job = None                   # what a worker does with one job id; set by init()
 
 
-def time_limit_for(scan_type, all_ports=False, gentle=False, udp=False):
+def time_limit_for(scan_type, all_ports=False, gentle=False, udp=False, udp_top=None):
     """Seconds the scan type may run, or None for no limit (a limit of 0 in CLYLAR_SCAN_TIME_LIMIT switches the limit off).
     A scan of all 65,535 ports needs longer than a Fast scan's 2 hours: with the option on the limit is at least scanner.ALL_PORTS_TIME_LIMIT (6 h)."""
     raw = os.environ.get(TIME_LIMIT_ENV)
@@ -48,7 +48,7 @@ def time_limit_for(scan_type, all_ports=False, gentle=False, udp=False):
     if all_ports and limit is not None and scan_type in ('fast_scan', 'intense', 'vuln_scan'):
         limit = max(limit, scanner.ALL_PORTS_TIME_LIMIT)
     if udp and limit is not None and scan_type in ('intense', 'vuln_scan'):
-        limit = max(limit, scanner.UDP_TIME_LIMIT)       # a second nmap run, and UDP answers are slow
+        limit = max(limit, scanner.udp_time_limit(udp_top))       # a second nmap run, and UDP answers are slow (8 h for nmap's top 1000)
     if gentle and limit is not None and scan_type in ('fast_scan', 'intense', 'vuln_scan'):
         limit = max(limit, scanner.GENTLE_TIME_LIMIT)       # a Gentle scan is 10 to 40 times slower per host
     return limit
@@ -89,10 +89,10 @@ def enqueue(job_id):
 
 
 @contextmanager
-def controlled(job_id, scan_type, all_ports=False, gentle=False, udp=False):
+def controlled(job_id, scan_type, all_ports=False, gentle=False, udp=False, udp_top=None):
     """Around one scan, in the worker's thread: makes a ScanControl current (so cancel() reaches nmap and the time limit applies) and
     removes it afterwards, even when the scan raises."""
-    ctl = scanner.ScanControl(time_limit=time_limit_for(scan_type, all_ports, gentle, udp))
+    ctl = scanner.ScanControl(time_limit=time_limit_for(scan_type, all_ports, gentle, udp, udp_top))
     with _lock:
         _controls[job_id] = ctl
     scanner.set_control(ctl)

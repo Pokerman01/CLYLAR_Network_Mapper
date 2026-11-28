@@ -656,11 +656,14 @@
         .topbar-bell:hover { background: var(--surface-2); }
         .topbar-bell[aria-expanded="true"] { background: var(--surface-2); color: var(--nt-text); border-color: var(--border-strong); }
         .topbar-bell:focus-visible, .nb-row:focus-visible, .nb-lnk:focus-visible, .nb-fchip:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus-blue); }
-        /* the badge is the UNREAD count and is neutral slate: it is not an alarm, red is kept for Critical */
+        /* While something is unread (class has-unread, set by the page and by setBadge()) the bell goes from the muted colour to the full text colour (2026-11-28, option A of
+           docs/design-options/bell-unread/), and the badge is the app's primary blue (#0d6efd, white text 4.5:1; slate was only 1.8:1 against the dark top bar). It is the UNREAD
+           count, not an alarm: never red (red is kept for Critical) and not the pale info blue (its disc is 1.1 to 1.2:1 against the top bar and nearly vanishes). */
+        .topbar-bell.has-unread { color: var(--nt-text); }
         .topbar-bell-badge {
             position: absolute; top: -4px; right: -4px;
             min-width: 17px; height: 17px; padding: 0 4px;
-            background: var(--btn-slate); color: var(--on-slate);
+            background: #0d6efd; color: #fff;
             border: 2px solid var(--surface);
             border-radius: 999px;
             font-size: 10px; font-weight: 700;
@@ -947,6 +950,20 @@
         .adv-switch-text { flex: 1; min-width: 0; }
         .adv-switch .form-check-input { float: none; margin: 0; width: 2.2em; height: 1.2em; font-size: 14px; cursor: pointer; }
         .scan-adv-hint { font-size: .7rem; color: var(--fg-6); margin-top: 2px; }
+        /* UDP: which ports (the 12 common | nmap's top 100 | top 1000). Native radios drawn as the same segmented look as Timing; shown only while the UDP switch is on. */
+        .udp-scope { margin-top: 10px; }
+        .udp-scope[hidden], .udp-scope [hidden] { display: none !important; }
+        .udp-scope .adv-seg { grid-template-columns: repeat(3, 1fr); margin-bottom: 6px; }
+        .udp-scope .adv-seg label {
+            display: flex; align-items: center; justify-content: center; height: 30px; padding: 0 4px; margin: 0; position: relative;
+            border-radius: 7px; background: transparent; color: var(--text-2); font-size: .8rem; white-space: nowrap; cursor: pointer;
+            transition: background .12s ease, color .12s ease;
+        }
+        .udp-scope .adv-seg label:hover { background: var(--seg-hover); }
+        .udp-scope .adv-seg label:has(input:checked) { background: var(--thumb-bg); color: var(--info-ink); font-weight: 600; box-shadow: 0 1px 2px rgba(var(--shadow-rgb), .14); }
+        .udp-scope .adv-seg label:has(input:focus-visible) { outline: 2px solid var(--focus-blue); outline-offset: 1px; }
+        .udp-scope .adv-seg label:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+        .udp-scope .adv-seg label:has(input:disabled):hover { background: transparent; }
 
         /* Hover card on the Timing label (speed vs accuracy) -- same card look as the Scan Profile ⓘ.
            Opens to the right and grows upward so its hidden box never adds scroll height at the modal bottom. */
@@ -1280,7 +1297,7 @@
                 </div>
                 {# The bell: opens the Activity panel (script "The bell" at the end of this file). The badge is the unread count. #}
                 <div class="nb-wrap" id="nbWrap">
-                    <button type="button" class="topbar-bell" id="nbBell" aria-haspopup="dialog" aria-expanded="false" aria-controls="nbPanel"
+                    <button type="button" class="topbar-bell{% if notification_unread %} has-unread{% endif %}" id="nbBell" aria-haspopup="dialog" aria-expanded="false" aria-controls="nbPanel"
                             title="{{ t('top.bell', n=notification_count) }}"
                             aria-label="{{ t('notif.bell_unread', n=notification_unread) if notification_unread else t('notif.bell') }}">
                         <i class="ti ti-bell" aria-hidden="true"></i>
@@ -4751,6 +4768,7 @@ const ADV_MS = 280;
 // The texts these scripts write into the scan forms, in the site language (locales: 'adv.*'); `{x}` marks a value filled in by advf().
 const ADV_TEXT = {{ {
     'excl.pn_with_pr': t('adv.excl.pn_with_pr'), 'excl.pr_with_pn': t('adv.excl.pr_with_pn'), 'excl.ap_with_gt': t('adv.excl.ap_with_gt'), 'excl.gt_with_ap': t('adv.excl.gt_with_ap'),
+    'excl.udp_gentle': t('adv.excl.udp_gentle'), 'excl.udp_timing': t('adv.excl.udp_timing'),
     'timing.by_gentle': t('adv.timing.by_gentle'), 'timing.default': t('adv.timing.default'), 'timing.default_t': t('adv.timing.default_t'), 'timing.default_suffix': t('adv.timing.default_suffix'),
     'timing.w1': t('adv.timing.w1'), 'timing.w2': t('adv.timing.w2'), 'timing.w3': t('adv.timing.w3'), 'timing.w4': t('adv.timing.w4'),
     'dur.min1': t('adv.dur.min1'), 'dur.min': t('adv.dur.min'), 'dur.hour': t('adv.dur.hour'),
@@ -4831,7 +4849,11 @@ function updateScanAdvancedForType(prefix, scanType) {
         const udpOk = scanType === 'intense' || scanType === 'vuln_scan';
         udpRow.style.display = udpOk ? '' : 'none';
         const udpInput = document.getElementById(prefix + '_udp_input');
-        if (udpInput && !udpOk) udpInput.checked = false;
+        if (udpInput && !udpOk) {
+            udpInput.checked = false;
+            const common = document.getElementById(prefix + '_udp_top_common');
+            if (common) common.checked = true;                                    // a type that cannot do UDP keeps no leftover range
+        }
     }
     if (wrapper) wrapper.dataset.scanType = scanType || '';
     syncAdvancedExclusions(prefix);
@@ -4866,10 +4888,41 @@ function syncAdvancedExclusions(prefix) {
     if (seg) { seg.style.opacity = on ? '.45' : ''; seg.style.pointerEvents = on ? 'none' : ''; seg.setAttribute('aria-disabled', on ? 'true' : 'false'); }
     syncTimingSeg(prefix);                                  // puts the normal timing text back
     if (on && ttext) ttext.textContent = advf('timing.by_gentle');
+    syncUdpScope(prefix);
+}
+
+// ---- UDP range (the 12 common ports | nmap's top 100 | top 1000): the radios show only while the UDP switch is on, the help line follows the choice, and the choices the server
+// would refuse are greyed out with the reason (top 1000 with the Gentle scan; top 100 / 1000 with timing T1). If the chosen one becomes unavailable the choice goes back to the 12 ports.
+function syncUdpScope(prefix) {
+    const g = (id) => document.getElementById(prefix + id);
+    const box = g('_udp_scope'), udp = g('_udp_input');
+    if (!box) return;
+    const row = g('_udp_row');
+    box.hidden = !(udp && udp.checked && !(row && row.style.display === 'none'));
+    const gt = g('_gt_input'), timing = g('_timing_input');
+    const gentleOn = !!(gt && gt.checked);
+    const t = timing && timing.value !== '' ? parseInt(timing.value, 10) : NaN;
+    const slow = !gentleOn && t <= 1;                                             // NaN (the default timing) is not slow
+    const radio = (v) => box.querySelector('input[name="udp_top"][value="' + v + '"]');
+    const mark = (v, off, why) => {
+        const r = radio(v);
+        if (!r) return;
+        r.disabled = off;
+        const label = r.closest('label');
+        if (label) label.title = off ? why : '';
+    };
+    mark('100', slow, advf('excl.udp_timing'));
+    mark('1000', gentleOn || slow, gentleOn ? advf('excl.udp_gentle') : advf('excl.udp_timing'));
+    let cur = box.querySelector('input[name="udp_top"]:checked');
+    if (cur && cur.disabled) { const common = radio(''); if (common) { common.checked = true; cur = common; } }
+    const value = cur ? cur.value : '';
+    box.querySelectorAll('[data-udp-help]').forEach((el) => { el.hidden = el.dataset.udpHelp !== value; });
 }
 document.addEventListener('change', (e) => {
-    const m = e.target && /^(ns|rescan|dd)_(pn|pr|ap|gt)_input$/.exec(e.target.id || '');
+    const m = e.target && /^(ns|rescan|dd)_(pn|pr|ap|gt|udp)_input$/.exec(e.target.id || '');
     if (m) { syncAdvancedExclusions(m[1]); }
+    const u = e.target && /^(ns|rescan|dd)_udp_top_/.exec(e.target.id || '');
+    if (u) syncUdpScope(u[1]);
     const t = e.target && /^(ns|rescan|dd)_timing_input$/.exec(e.target.id || '');
     if (t) syncAdvancedExclusions(t[1]);
 });
@@ -5153,6 +5206,7 @@ initViSlider('dd');
     function setBadge(n) {
         st.unread = n;
         badge.hidden = !n;
+        bell.classList.toggle('has-unread', !!n);
         badge.textContent = n > 99 ? '99+' : String(n);
         const label = n ? T.bellUnread.replace('{n}', n) : T.bell;
         bell.setAttribute('aria-label', label);

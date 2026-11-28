@@ -404,6 +404,8 @@
   "adv.excl.pr_with_pn": "Cannot be used together with finding devices that ignore ping",
   "adv.excl.ap_with_gt": "Cannot be used together with the Gentle scan (too slow for 65,535 ports)",
   "adv.excl.gt_with_ap": "Cannot be used together with scanning all ports (too slow for 65,535 ports)",
+  "adv.excl.udp_gentle": "Top 1,000 cannot be used with the gentle scan",
+  "adv.excl.udp_timing": "Top 100 and Top 1,000 cannot be used with timing T1",
   "adv.timing.by_gentle": "Set by the Gentle scan mode (T2)",
   "adv.timing.default": "Default",
   "adv.timing.default_t": "Default (T{t})",

@@ -1661,6 +1661,16 @@ UDP_HOST_TIMEOUT = '10m'
 UDP_MAX_ADDRESSES = 64              # the same bound as "scan all ports"; the UDP run only visits the hosts the first run found up, but a /25 is not what it was sized for
 UDP_TIME_LIMIT = 6 * 3600           # the job's time limit when the option is on (scan_runner.time_limit_for): UDP answers are slow (ICMP rate limits)
 
+# Wider UDP choices (2026-11-27, the owner asked for "top 100 / top 1000"): nmap's OWN frequency ranking of UDP ports (`--top-ports N` with -sU, read from the
+# installed nmap-services; on nmap 7.98 the 12 UDP_PORTS are inside both). NULL or anything else = the 12 ports above. A top-N run has NO -sV: measured on loopback with
+# silent sockets it costs about 25 s (100) / 120 s (1000) per silent device, it adds up over devices and --host-timeout covers it, so an overrun would throw the
+# whole device away. The per-device limits and the 32-address cap are estimates (loopback has no ICMP rate limit), to be revised after a real timing.
+UDP_TOP_CHOICES = (100, 1000)
+UDP_TIERS = {
+    100:  {'host_timeout': '15m', 'max_addresses': 64, 'time_limit': 6 * 3600},
+    1000: {'host_timeout': '45m', 'max_addresses': 32, 'time_limit': 8 * 3600},
+}
+
 
 def clamp_udp(value, scan_type=None):
     """The "also scan common UDP ports" choice from a form: True / False for Intense and Vulnerability scans, None for every other type (a Fast Scan is
@@ -1670,12 +1680,43 @@ def clamp_udp(value, scan_type=None):
     return str(value or '').strip().lower() in ('1', 'true', 'on', 'yes')
 
 
-def udp_arguments(t=None, no_dns=False, gentle=False):
+def clamp_udp_top(value, scan_type=None, udp=False):
+    """The UDP range from a form: 100 or 1000 (the exact text), else None = the 12 common ports. Kept only for Intense and Vulnerability scans with the UDP option on,
+    so a leftover value of a hidden control is never stored. No typed text ever reaches nmap: the arguments of each choice are fixed strings."""
+    if scan_type not in ('intense', 'vuln_scan') or not udp:
+        return None
+    if isinstance(value, bool):
+        return None
+    text = str(value if value is not None else '').strip()
+    return int(text) if text in ('100', '1000') else None
+
+
+def udp_host_timeout(top=None):
+    return UDP_TIERS.get(top, {}).get('host_timeout', UDP_HOST_TIMEOUT)
+
+
+def udp_host_timeout_minutes(top=None):
+    return int(udp_host_timeout(top).rstrip('m'))
+
+
+def udp_max_addresses(top=None):
+    return UDP_TIERS.get(top, {}).get('max_addresses', UDP_MAX_ADDRESSES)
+
+
+def udp_time_limit(top=None):
+    return UDP_TIERS.get(top, {}).get('time_limit', UDP_TIME_LIMIT)
+
+
+def udp_arguments(t=None, no_dns=False, gentle=False, top=None):
     """The arguments of the SECOND nmap run, the UDP one: UDP only (-sU -p U:...), the 12 ports in UDP_PORTS, light service detection, no OS detection and no scripts,
     two retries and ten minutes per host, -Pn because the hosts are already known to be up (a UDP-filtered host must not be dropped by a ping that it also ignores).
+    With `top` 100 or 1000 it runs nmap's `--top-ports N` instead, WITHOUT -sV (see UDP_TIERS) and with that tier's per-host limit.
     Gentle adds its -T2 and rate cap, otherwise a chosen timing is used. A UDP scan alone never touches a TCP port: `-sS -sU -p U:...` would scan no TCP, and
     `-sU --top-ports` would change the first run, so this is a separate run, not an option of that one."""
-    args = f'-sU -p {UDP_PORT_SPEC} -sV --version-intensity 0 --max-retries 2 --host-timeout {UDP_HOST_TIMEOUT} -Pn'
+    if top in UDP_TOP_CHOICES:
+        args = f'-sU --top-ports {int(top)} --max-retries 2 --host-timeout {udp_host_timeout(top)} -Pn'
+    else:
+        args = f'-sU -p {UDP_PORT_SPEC} -sV --version-intensity 0 --max-retries 2 --host-timeout {UDP_HOST_TIMEOUT} -Pn'
     if gentle:
         args += ' -T2 --max-rate 50'
     elif t is not None:
@@ -1685,14 +1726,26 @@ def udp_arguments(t=None, no_dns=False, gentle=False):
     return args
 
 
-def udp_limit_error(target, udp=True):
-    """The error text (as stored scan results) when the UDP option is asked for on more than UDP_MAX_ADDRESSES addresses, else None."""
+def udp_limit_error(target, udp=True, top=None):
+    """The error text (as stored scan results) when the UDP option is asked for on more addresses than its range allows (UDP_MAX_ADDRESSES, 32 for the top 1000), else None."""
     if not udp:
         return None
-    n = target_size(target)
-    if n > UDP_MAX_ADDRESSES:
-        return json.dumps([{"error": "The UDP scan is limited to %d addresses (a /26); this target has %s. Use a smaller range or untick the option."
-                                     % (UDP_MAX_ADDRESSES, format(n, ','))}])
+    n, cap = target_size(target), udp_max_addresses(top)
+    if n > cap:
+        return json.dumps([{"error": "The UDP scan is limited to %d addresses (a /%d); this target has %s. Use a smaller range or untick the option."
+                                     % (cap, 32 - (cap.bit_length() - 1), format(n, ','))}])
+    return None
+
+
+def udp_tier_conflict(top=None, timing=None, gentle=False):
+    """The English error text when a top-N UDP choice meets a setting it cannot work with, else None. -T0 / -T1 wait minutes / 15 s between probes to one device, so
+    100 ports need more than the 15 minute limit; Gentle with the top 1000 is 20 to 35 minutes per 32 devices at best, too close to its 45 minute limit."""
+    if top not in UDP_TOP_CHOICES:
+        return None
+    if gentle and top == 1000:
+        return 'UDP Top 1,000 cannot be used with the Gentle scan: it is too slow to finish a device within its time limit. Choose Top 100 or turn the Gentle scan off.'
+    if not gentle and timing is not None and timing <= 1:
+        return 'UDP Top 100 and Top 1,000 cannot be used with timing T1: nmap waits 15 seconds between probes, so a device would need more than its time limit. Choose T2 or faster.'
     return None
 
 
@@ -1790,7 +1843,7 @@ def scan_arguments(scan_type, t=None, vi=None, skip_ping=False, all_ports=False,
     return ''
 
 
-def describe_scan_settings(scan_type, timing=None, version_intensity=None, custom_args=None, multicast=None, skip_ping=None, all_ports=None, no_dns=None, host_probes=None, gentle=None, udp=None):
+def describe_scan_settings(scan_type, timing=None, version_intensity=None, custom_args=None, multicast=None, skip_ping=None, all_ports=None, no_dns=None, host_probes=None, gentle=None, udp=None, udp_top=None):
     """What a job or a schedule ran with, for the Tasks page's details panel. No I/O and nothing is guessed: a value that
     was not recorded stays None. Words belong to the page; this returns facts:
       arguments  the nmap arguments (without the target); for Custom, the arguments as saved ('' when not recorded)
@@ -1808,7 +1861,8 @@ def describe_scan_settings(scan_type, timing=None, version_intensity=None, custo
       gentle     True for a Gentle scan (its `timing` source is 'gentle'), False when it was not, None for Discovery, XML imports and Custom scans
       udp        True when a second nmap run scanned the common UDP ports (Intense and Vulnerability scans only), False when it did not (a job from before the
                  option existed did not), None for the other types; udp_arguments is that run's arguments (its target is the hosts the first run found up)
-      steps      extra things the scan does besides the nmap run: 'gateway_probe', 'mdns_ssdp', 'nvd_lookup', 'udp_pass', 'xml_import'"""
+      udp_top    100 or 1000 when the UDP run scanned nmap's top N UDP ports instead of the 12 common ones, None for the 12 (also every job from before the choice)
+      steps     extra things the scan does besides the nmap run: 'gateway_probe', 'mdns_ssdp', 'nvd_lookup', 'udp_pass', 'xml_import'"""
     t, vi = clamp_scan_knobs(timing, version_intensity, scan_type=scan_type)
     steps = []
     if scan_type == 'custom':
@@ -1848,12 +1902,13 @@ def describe_scan_settings(scan_type, timing=None, version_intensity=None, custo
     hp = bool(host_probes) if scan_type in ('discovery', 'fast_scan', 'intense', 'vuln_scan') else None
     gt = bool(gentle) if scan_type in ('fast_scan', 'intense', 'vuln_scan') else None
     ud = bool(udp) if scan_type in ('intense', 'vuln_scan') else None
+    ut = clamp_udp_top(udp_top, scan_type, ud) if ud else None
     if ud:
         steps.append('udp_pass')
     return {'scan_type': scan_type, 'arguments': arguments, 'timing': info_t, 'intensity': info_vi,
             'multicast': (bool(multicast) if multicast is not None else None) if scan_type == 'discovery' else None,
-            'skip_ping': pn, 'all_ports': ap, 'no_dns': nd, 'host_probes': hp, 'gentle': gt, 'udp': ud,
-            'udp_arguments': udp_arguments(t, bool(no_dns), bool(gentle)) if ud else None, 'steps': steps}
+            'skip_ping': pn, 'all_ports': ap, 'no_dns': nd, 'host_probes': hp, 'gentle': gt, 'udp': ud, 'udp_top': ut,
+            'udp_arguments': udp_arguments(t, bool(no_dns), bool(gentle), ut) if ud else None, 'steps': steps}
 
 
 def os_match_accuracy(value):
@@ -1969,7 +2024,10 @@ def parse_run_xml(xml_text):
         if root.tag != 'nmaprun':
             return {}
         facts = {'version': _clip(root.get('version') or '', 20) or None, 'up': None, 'down': None, 'total': None,
-                 'elapsed': None, 'hops': {}, 'distance': {}, 'timedout': set(), 'extraports': {}}
+                 'elapsed': None, 'hops': {}, 'distance': {}, 'timedout': set(), 'extraports': {}, 'udp_services': None}
+        for si in root.findall('scaninfo'):          # how many UDP ports nmap really scanned (a top-N choice follows the installed nmap-services)
+            if (si.get('protocol') or '').strip().lower() == 'udp':
+                facts['udp_services'] = _xml_int(si.get('numservices'), 65535)
         stats = root.find('runstats/hosts')
         if stats is not None:
             facts['up'], facts['down'], facts['total'] = (_xml_int(stats.get(k)) for k in ('up', 'down', 'total'))
@@ -2588,9 +2646,11 @@ def _port_entry(port, proto, port_data):
     return entry
 
 
-def run_udp_pass(ips, t=None, no_dns=False, gentle=False, info=None):
+def run_udp_pass(ips, t=None, no_dns=False, gentle=False, info=None, top=None):
     """The second nmap run of the UDP option, on the IPv4 addresses the first run found up. Returns
     {'ports': {ip: [(port, python-nmap port dict), ...]}, 'timedout': {ip, ...}, 'failed': bool}. Records udp_hosts / udp_timed_out / udp_failed in `info`.
+    For a top-N run (`top` 100 or 1000) it also returns 'unlisted': {ip: {state: count}}, the states nmap printed only as a count (it lists a state port by port
+    only while that state covers 25 ports or fewer, so a device with 400 silent ports lists none of them) and records `udp_ports`, the number of ports nmap scanned.
     A run that fails (nmap refused, a crash) is reported as failed and leaves the first run's result alone; a cancel or the time limit (ScanStopped) is NOT
     swallowed, it stops the whole scan like anywhere else."""
     info = info if info is not None else {}
@@ -2602,7 +2662,7 @@ def run_udp_pass(ips, t=None, no_dns=False, gentle=False, info=None):
     check_scan_control()
     try:
         nm = new_scanner()
-        nm.scan(hosts=' '.join(ips), arguments=udp_arguments(t, no_dns, gentle))
+        nm.scan(hosts=' '.join(ips), arguments=udp_arguments(t, no_dns, gentle, top))
         try:
             problem = (nm.scaninfo() or {}).get('error')      # python-nmap parks nmap's stderr text here and raises only when the XML is unreadable
         except Exception:
@@ -2610,15 +2670,21 @@ def run_udp_pass(ips, t=None, no_dns=False, gentle=False, info=None):
         if problem:
             raise RuntimeError(' '.join(str(x) for x in problem) if isinstance(problem, (list, tuple)) else str(problem))
         try:
-            timedout = (parse_run_xml(nm.get_nmap_last_output()) or {}).get('timedout') or set()
+            run_facts = parse_run_xml(nm.get_nmap_last_output()) or {}
         except Exception:
-            timedout = set()
+            run_facts = {}
+        timedout = run_facts.get('timedout') or set()
         for ip in nm.all_hosts():
             if ip not in ips:
                 continue
             host = nm[ip]
             out['ports'][ip] = [(port, host['udp'][port]) for port in host['udp'].keys()] if 'udp' in host.all_protocols() else []
         out['timedout'] = {ip for ip in timedout if ip in ips}
+        if top in UDP_TOP_CHOICES:      # only for a top-N run, so the 12-port run returns exactly what it always did
+            extra = run_facts.get('extraports') or {}
+            out['unlisted'] = {ip: {e['state']: e['count'] for e in extra[ip]} for ip in extra if ip in ips}
+            if run_facts.get('udp_services'):
+                info['udp_ports'] = run_facts['udp_services']
     except ScanStopped:
         raise
     except Exception as e:
@@ -2630,13 +2696,14 @@ def run_udp_pass(ips, t=None, no_dns=False, gentle=False, info=None):
     return out
 
 
-def add_udp_ports(results, t=None, no_dns=False, gentle=False, info=None):
+def add_udp_ports(results, t=None, no_dns=False, gentle=False, info=None, top=None):
     """Runs the UDP pass on the hosts of a finished host list (those with a port list that the first run did not give up on) and appends the UDP ports to each host's
     `ports`, after its TCP ports. A host whose UDP run ran out of time gets `udp_timed_out`, and every host the pass was meant for gets `udp_failed` when the
-    run failed: both are separate from the TCP `timed_out`. Returns the same list."""
+    run failed: both are separate from the TCP `timed_out`. A top-N run also gives a host `udp_unlisted` ({state: count}) for the states nmap printed only as a
+    count; if `open` is among them that host's UDP result is unknown. Returns the same list."""
     wanted = [h for h in results if isinstance(h, dict) and isinstance(h.get('ports'), list) and not h.get('timed_out')]
     hosts = [h for h in wanted if _is_ipv4(h.get('ip'))]
-    got = run_udp_pass([h['ip'] for h in hosts], t, no_dns, gentle, info)
+    got = run_udp_pass([h['ip'] for h in hosts], t, no_dns, gentle, info, top)
     not_scanned = 0
     for h in wanted:
         if h not in hosts or (not got['failed'] and h['ip'] not in got['ports'] and h['ip'] not in got['timedout']):
@@ -2649,13 +2716,15 @@ def add_udp_ports(results, t=None, no_dns=False, gentle=False, info=None):
             h['ports'].append(_port_entry(port, 'udp', data))
         if h['ip'] in got['timedout']:
             h['udp_timed_out'] = True
+        if got.get('unlisted', {}).get(h['ip']):
+            h['udp_unlisted'] = got['unlisted'][h['ip']]
         if got['failed']:
             h['udp_failed'] = True
     return results
 
 
 def run_network_scan(target_ip, scan_type='discovery', custom_args=None, timing=None, version_intensity=None, multicast=False,
-                     skip_ping=False, info=None, all_ports=False, no_dns=False, host_probes=False, gentle=False, udp=False):
+                     skip_ping=False, info=None, all_ports=False, no_dns=False, host_probes=False, gentle=False, udp=False, udp_top=None):
     if not is_valid_target(target_ip):
         return json.dumps([{"error": "Invalid target specified."}])
 
@@ -2679,10 +2748,13 @@ def run_network_scan(target_ip, scan_type='discovery', custom_args=None, timing=
     if gentle and gentle_limit_error(target_ip):
         return gentle_limit_error(target_ip)
     udp = bool(udp) and scan_type == 'intense'      # Fast is meant to be quick, Discovery looks at no ports, Custom names its own flags
+    udp_top = udp_top if (udp and udp_top in UDP_TOP_CHOICES) else None
     if udp and udp_unavailable():
         return json.dumps([{"error": udp_unavailable()}])
-    if udp and udp_limit_error(target_ip):
-        return udp_limit_error(target_ip)
+    if udp and udp_limit_error(target_ip, True, udp_top):
+        return udp_limit_error(target_ip, True, udp_top)
+    if udp and udp_tier_conflict(udp_top, t, gentle):
+        return json.dumps([{"error": udp_tier_conflict(udp_top, t, gentle)}])
     if host_probes:
         info['host_probes'] = True
     if gentle:
@@ -2920,7 +2992,7 @@ def run_network_scan(target_ip, scan_type='discovery', custom_args=None, timing=
 
         scan_results = finish_scan(scan_results, facts, info, skip_ping, target_ip, all_ports)
         if udp and scan_results:
-            scan_results = add_udp_ports(scan_results, t, no_dns, gentle, info)      # after finish_scan: only hosts that really answered, and its -Pn filter has run
+            scan_results = add_udp_ports(scan_results, t, no_dns, gentle, info, udp_top)      # after finish_scan: only hosts that really answered, and its -Pn filter has run
         if not scan_results:
             if skip_ping and info.get('no_evidence'):
                 return json.dumps([{"error": PN_NOTHING_ANSWERED}])
@@ -3511,7 +3583,7 @@ def lookup_cves_nvd(product, version, max_results=5, cpe='', host_os=''):
     return lookup_cves_nvd_status(product, version, max_results, cpe=cpe, host_os=host_os)[0]
 
 
-def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=False, info=None, all_ports=False, no_dns=False, host_probes=False, gentle=False, udp=False):
+def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=False, info=None, all_ports=False, no_dns=False, host_probes=False, gentle=False, udp=False, udp_top=None):
     """
     Vulnerability Scan: nmap -sV -O to detect services + OS, then query NVD API for CVEs.
     Returns same structure as other scans but each port has a 'cves' list.
@@ -3539,10 +3611,13 @@ def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=Fals
     if gentle and gentle_limit_error(target_ip):
         return gentle_limit_error(target_ip)
     udp = bool(udp)
+    udp_top = udp_top if (udp and udp_top in UDP_TOP_CHOICES) else None
     if udp and udp_unavailable():
         return json.dumps([{"error": udp_unavailable()}])
-    if udp and udp_limit_error(target_ip):
-        return udp_limit_error(target_ip)
+    if udp and udp_limit_error(target_ip, True, udp_top):
+        return udp_limit_error(target_ip, True, udp_top)
+    if udp and udp_tier_conflict(udp_top, t, gentle):
+        return json.dumps([{"error": udp_tier_conflict(udp_top, t, gentle)}])
     if host_probes:
         info['host_probes'] = True
     if gentle:
@@ -3556,12 +3631,13 @@ def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=Fals
 
         # The UDP option: a second nmap run on the hosts the first one found up (before the NVD loop, which then looks at the UDP ports it found as well). Under -Pn
         # nmap calls every address up, so only the hosts something answered for are tried, like finish_scan() keeps only those.
-        udp_ports, udp_timedout, udp_failed, gave_up, udp_skipped = {}, set(), False, set(), 0
+        udp_ports, udp_timedout, udp_failed, gave_up, udp_skipped, udp_unlisted = {}, set(), False, set(), 0, {}
         if udp:
             gave_up = facts.get('timedout') or set()
             got = run_udp_pass([h for h in nm.all_hosts() if nm[h].state() == 'up' and h not in gave_up and (not skip_ping or _nm_host_has_evidence(nm[h]))],
-                               t, no_dns, gentle, info)
+                               t, no_dns, gentle, info, udp_top)
             udp_ports, udp_timedout, udp_failed = got['ports'], got['timedout'], got['failed']
+            udp_unlisted = got.get('unlisted', {})
 
         # How many open ports the NVD lookups below will ask about: an exact count (the lookups can take minutes), reported as progress.
         try:
@@ -3639,6 +3715,8 @@ def run_vuln_scan(target_ip, timing=None, version_intensity=None, skip_ping=Fals
             })
             if host in udp_timedout:
                 scan_results[-1]['udp_timed_out'] = True
+            if udp_unlisted.get(host):
+                scan_results[-1]['udp_unlisted'] = udp_unlisted[host]
             if udp and not udp_failed and host not in udp_ports and host not in udp_timedout and host not in gave_up:
                 scan_results[-1]['udp_not_scanned'] = True      # an IPv6 host, a -Pn address nothing answered for that still got a record, or one nmap did not report
                 udp_skipped += 1

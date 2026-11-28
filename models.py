@@ -81,6 +81,8 @@ class ScanJob(db.Model):
     # Also scan the common UDP ports (a second nmap run on the hosts found up): True / False for Intense and Vulnerability scans, NULL for the other types
     # and for jobs from before the option existed (those did no UDP).
     udp = db.Column(db.Boolean, nullable=True)
+    # Which UDP ports that second run looked at: 100 or 1000 (nmap's top N UDP ports), NULL = the 12 common ports (and every job from before the choice existed).
+    udp_top = db.Column(db.Integer, nullable=True)
     # What the scan reported about the run itself, as JSON text (see scanner.finish_scan / capture_run): nmap version, how many addresses it
     # checked and how many answered, whether it had Administrator rights, devices only this PC's ARP table knew. NULL = not recorded.
     scan_info = db.Column(db.Text, nullable=True)
@@ -187,6 +189,7 @@ class ScheduledScan(db.Model):
     host_probes = db.Column(db.Boolean, nullable=True)     # see ScanJob.host_probes
     gentle = db.Column(db.Boolean, nullable=True)          # see ScanJob.gentle
     udp = db.Column(db.Boolean, nullable=True)             # see ScanJob.udp
+    udp_top = db.Column(db.Integer, nullable=True)         # see ScanJob.udp_top
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     # owner ของ schedule (admin/superadmin)
     owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)

@@ -11,7 +11,7 @@ from sqlalchemy.orm import defer
 from models import db, User, ScanJob, ScheduledScan, SavedTarget, HistoryQuery, AppSetting, GeminiCall, Notification, ChatAnswer, LoginThrottle
 from scanner import (port_reason, port_reason_label, PORT_REASON_TH, run_network_scan, run_vuln_scan, get_system_default_gateway, get_public_ip,
                      get_scan_capabilities, get_local_adapters, mac_note, guess_device_type, DEVICE_TYPES,
-                     clamp_scan_knobs, clamp_skip_ping, clamp_all_ports, clamp_no_dns, clamp_probes, clamp_gentle, clamp_udp, port_proto, port_key, port_text, udp_unavailable, udp_unavailable_th, udp_limit_error, UDP_MAX_ADDRESSES, options_conflict, options_conflict_th, gentle_limit_error, GENTLE_MAX_ADDRESSES, ports_limit_error, ALL_PORTS_MAX_ADDRESSES, ARP_ONLY_MAX, describe_scan_settings, discovery_service_text, virtual_machine_platform, is_local_ip,
+                     clamp_scan_knobs, clamp_skip_ping, clamp_all_ports, clamp_no_dns, clamp_probes, clamp_gentle, clamp_udp, clamp_udp_top, udp_max_addresses, udp_host_timeout_minutes, port_proto, port_key, port_text, udp_unavailable, udp_unavailable_th, udp_limit_error, UDP_MAX_ADDRESSES, options_conflict, options_conflict_th, gentle_limit_error, GENTLE_MAX_ADDRESSES, ports_limit_error, ALL_PORTS_MAX_ADDRESSES, ARP_ONLY_MAX, describe_scan_settings, discovery_service_text, virtual_machine_platform, is_local_ip,
                      effective_severity, severity_adjusted, severity_note, cvss_number, os_match_accuracy,
                      target_size, is_valid_target, PN_MAX_ADDRESSES, PROGRESS_EVERY)
 from cwe_data import cwe_info
@@ -494,7 +494,12 @@ def job_udp(scan_type, form_value):
     return clamp_udp(form_value, scan_type)
 
 
-def scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp=False):
+def job_udp_top(scan_type, udp, form_value):
+    """What to store in ScanJob.udp_top (see scanner.clamp_udp_top): 100 or 1000, else None = the 12 common UDP ports."""
+    return clamp_udp_top(form_value, scan_type, udp)
+
+
+def scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp=False, udp_top=None, timing=None):
     """Localized refusal message for a form route when options conflict or target size exceeds a safe cap, else None."""
     lang = ui_lang_now()
     conflict_fn = options_conflict if lang == 'en' else options_conflict_th
@@ -510,8 +515,13 @@ def scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp=F
         unavail = udp_unavailable() if lang == 'en' else udp_unavailable_th()
         if unavail:
             return unavail
-        if udp_limit_error(target):
-            return i18n.t('refusal.udp_limit', lang, max=UDP_MAX_ADDRESSES, n=format(target_size(target), ','))
+        if udp_limit_error(target, True, udp_top):
+            cap = udp_max_addresses(udp_top)
+            return i18n.t('refusal.udp_limit_top1000' if udp_top == 1000 else 'refusal.udp_limit', lang, max=cap, net=32 - (cap.bit_length() - 1), n=format(target_size(target), ','))
+        if udp_top == 1000 and gentle:
+            return i18n.t('refusal.udp_top_gentle', lang)
+        if udp_top and not gentle and timing is not None and timing <= 1:
+            return i18n.t('refusal.udp_top_timing', lang)
     return None
 
 
@@ -522,17 +532,17 @@ def all_ports_refusal(target, all_ports):
     return None
 
 
-def scan_with_info(target, scan_type, custom_args=None, timing=None, version_intensity=None, multicast=False, skip_ping=False, all_ports=False, no_dns=False, host_probes=False, gentle=False, udp=False):
+def scan_with_info(target, scan_type, custom_args=None, timing=None, version_intensity=None, multicast=False, skip_ping=False, all_ports=False, no_dns=False, host_probes=False, gentle=False, udp=False, udp_top=None):
     """Runs the scanner and returns (result text, the run's scan_info as JSON text or None). One place, so every way of starting a scan
     records the same things about the run."""
     info = {}
     if scan_type == 'vuln_scan':
         results = run_vuln_scan(target, timing=timing, version_intensity=version_intensity, skip_ping=bool(skip_ping), info=info, all_ports=bool(all_ports), no_dns=bool(no_dns),
-                               host_probes=bool(host_probes), gentle=bool(gentle), udp=bool(udp))
+                               host_probes=bool(host_probes), gentle=bool(gentle), udp=bool(udp), udp_top=udp_top)
     else:
         results = run_network_scan(target, scan_type, custom_args=custom_args, timing=timing, version_intensity=version_intensity,
                                    multicast=multicast, skip_ping=bool(skip_ping), info=info, all_ports=bool(all_ports), no_dns=bool(no_dns),
-                               host_probes=bool(host_probes), gentle=bool(gentle), udp=bool(udp))
+                               host_probes=bool(host_probes), gentle=bool(gentle), udp=bool(udp), udp_top=udp_top)
     # Snapshot this machine's outbound public IP for live scans (never called on XML uploads)
     try:
         pub_ip = get_public_ip(max_age=300)
@@ -568,10 +578,10 @@ def _execute_job(job_id):
         if not claimed:
             return
         job = ScanJob.query.get(job_id)
-        args = (job.target, job.scan_type, job.custom_args, job.timing, job.version_intensity, bool(job.multicast), bool(job.skip_ping), bool(job.all_ports), bool(job.no_dns), bool(job.host_probes), bool(job.gentle), bool(job.udp))
+        args = (job.target, job.scan_type, job.custom_args, job.timing, job.version_intensity, bool(job.multicast), bool(job.skip_ping), bool(job.all_ports), bool(job.no_dns), bool(job.host_probes), bool(job.gentle), bool(job.udp), job.udp_top)
         info_text = None
         try:
-            with scan_runner.controlled(job_id, job.scan_type, bool(job.all_ports), bool(job.gentle), bool(job.udp)):
+            with scan_runner.controlled(job_id, job.scan_type, bool(job.all_ports), bool(job.gentle), bool(job.udp), job.udp_top):
                 results, info_text = scan_with_info(*args)
             data = json.loads(results)
             has_error = bool(data and isinstance(data[0], dict) and data[0].get('error'))
@@ -666,7 +676,7 @@ def scan_run_info(job):
     out = {}
     if isinstance(raw.get('nmap'), str) and raw['nmap']:
         out['nmap'] = raw['nmap'][:20]
-    for key in ('checked', 'up', 'down', 'no_evidence', 'arp_only_total', 'timed_out', 'ports_scanned', 'udp_hosts', 'udp_timed_out', 'udp_not_scanned'):
+    for key in ('checked', 'up', 'down', 'no_evidence', 'arp_only_total', 'timed_out', 'ports_scanned', 'udp_hosts', 'udp_timed_out', 'udp_not_scanned', 'udp_ports'):
         if isinstance(raw.get(key), int) and not isinstance(raw.get(key), bool) and raw[key] >= 0:
             out[key] = raw[key]
     if isinstance(raw.get('elapsed'), (int, float)) and not isinstance(raw.get('elapsed'), bool) and raw['elapsed'] >= 0:
@@ -727,15 +737,20 @@ def describe_run(job, lang=None):
         notes.append({'kind': 'info', 'text': say('run.note.host_probes')})
     if run.get('gentle') is True:
         notes.append({'kind': 'info', 'text': say('run.note.gentle')})
+    udp_top = getattr(job, 'udp_top', None)
+    udp_top = udp_top if udp_top in (100, 1000) else None
     if run.get('udp') is True:
-        notes.append({'kind': 'info', 'text': say('run.note.udp')})
+        if udp_top:      # nmap's top N: the count nmap really scanned (it follows the installed nmap-services), else the number asked for
+            notes.append({'kind': 'info', 'text': say('run.note.udp_top', n=n(run.get('udp_ports') or udp_top))})
+        else:
+            notes.append({'kind': 'info', 'text': say('run.note.udp')})
     if run.get('udp_failed') is True:
         msg = say('run.note.udp_failed_cause', cause=run['udp_error']) if run.get('udp_error') else say('run.note.udp_failed')
         notes.append({'kind': 'warn', 'text': msg})
     if run.get('udp_not_scanned'):
         notes.append({'kind': 'warn', 'text': say('run.note.udp_not_scanned', n=n(run['udp_not_scanned']))})
     if run.get('udp_timed_out'):
-        notes.append({'kind': 'warn', 'text': say('run.note.udp_timed_out', n=n(run['udp_timed_out']))})
+        notes.append({'kind': 'warn', 'text': say('run.note.udp_timed_out', n=n(run['udp_timed_out']), minutes=udp_host_timeout_minutes(udp_top))})
     if run.get('no_dns') is True:
         notes.append({'kind': 'info', 'text': say('run.note.no_dns')})
     if run.get('ports_scanned') == 65535:
@@ -789,7 +804,7 @@ def previous_comparable_job(job, base_query=None):
     visible_scans_query() where there is no request (the worker that makes the bell's notifications passes the owner's own scans)."""
     if job.timestamp is None or job.status != 'Completed' or job.scan_type in (None, 'xml_upload'):
         return None
-    key = scan_diff.comparable_key(job.scan_type, job.target, job.skip_ping, job.custom_args, job.all_ports, job.host_probes, job.gentle, job.udp)
+    key = scan_diff.comparable_key(job.scan_type, job.target, job.skip_ping, job.custom_args, job.all_ports, job.host_probes, job.gentle, job.udp, job.udp_top)
     q = ((base_query if base_query is not None else visible_scans_query())
          .filter(ScanJob.id != job.id, ScanJob.status == 'Completed', ScanJob.scan_type == job.scan_type, ScanJob.target == job.target,
                  ScanJob.result_data.isnot(None), ScanJob.timestamp <= job.timestamp)
@@ -798,7 +813,7 @@ def previous_comparable_job(job, base_query=None):
     for cand in q.limit(60):
         if (cand.timestamp, cand.id) >= (job.timestamp, job.id):
             continue
-        if scan_diff.comparable_key(cand.scan_type, cand.target, cand.skip_ping, cand.custom_args, cand.all_ports, cand.host_probes, cand.gentle, cand.udp) == key and _stored_hosts(cand) is not None:
+        if scan_diff.comparable_key(cand.scan_type, cand.target, cand.skip_ping, cand.custom_args, cand.all_ports, cand.host_probes, cand.gentle, cand.udp, cand.udp_top) == key and _stored_hosts(cand) is not None:
             return cand
     return None
 
@@ -1060,6 +1075,7 @@ def execute_scheduled_scan(schedule_id, monthly_guard=False):
             host_probes=job_probes(schedule.scan_type, '1' if schedule.host_probes else ''),
             gentle=job_gentle(schedule.scan_type, '1' if schedule.gentle else ''),
             udp=job_udp(schedule.scan_type, '1' if schedule.udp else ''),
+            udp_top=job_udp_top(schedule.scan_type, job_udp(schedule.scan_type, '1' if schedule.udp else ''), schedule.udp_top),
         )
         db.session.add(new_job)
         schedule.last_run = now_th()
@@ -1229,6 +1245,8 @@ with app.app_context():
             cur.execute("ALTER TABLE scan_job ADD COLUMN gentle BOOLEAN")
         if 'udp' not in cols:
             cur.execute("ALTER TABLE scan_job ADD COLUMN udp BOOLEAN")
+        if 'udp_top' not in cols:
+            cur.execute("ALTER TABLE scan_job ADD COLUMN udp_top INTEGER")
         if 'scan_info' not in cols:
             cur.execute("ALTER TABLE scan_job ADD COLUMN scan_info TEXT")
         if 'started_at' not in cols:
@@ -1256,6 +1274,8 @@ with app.app_context():
             cur.execute("ALTER TABLE scheduled_scan ADD COLUMN gentle BOOLEAN")
         if 'udp' not in cols2:
             cur.execute("ALTER TABLE scheduled_scan ADD COLUMN udp BOOLEAN")
+        if 'udp_top' not in cols2:
+            cur.execute("ALTER TABLE scheduled_scan ADD COLUMN udp_top INTEGER")
 
         # Migration: user
         cols3 = [r[1] for r in cur.execute("PRAGMA table_info(user)")]
@@ -1680,9 +1700,10 @@ def dashboard():
         host_probes = job_probes(scan_type, request.form.get('host_probes'))
         gentle = job_gentle(scan_type, request.form.get('gentle'))
         udp = job_udp(scan_type, request.form.get('udp'))
+        udp_top = job_udp_top(scan_type, udp, request.form.get('udp_top'))
         if gentle:
             timing = None      # Gentle sets the speed itself
-        refusal = scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp)
+        refusal = scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp, udp_top, timing)
         if refusal:
             flash(refusal, 'danger')
             return redirect(url_for('tasks_page'))
@@ -1693,7 +1714,7 @@ def dashboard():
             custom_args=custom_args if scan_type == 'custom' else None,
             multicast=multicast if scan_type == 'discovery' else None,
             skip_ping=skip_ping,
-            all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp,
+            all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp, udp_top=udp_top,
         )
         db.session.add(new_job)
         if not SavedTarget.query.filter_by(target=target).first():
@@ -1947,7 +1968,7 @@ def _topology_group(job):
     if job.scan_type in (None, 'xml_upload'):
         return ''
     return '|'.join(str(x) for x in scan_diff.comparable_key(job.scan_type, job.target, job.skip_ping, job.custom_args, job.all_ports,
-                                                               job.host_probes, job.gentle, job.udp))
+                                                               job.host_probes, job.gentle, job.udp, job.udp_top))
 
 
 @app.route('/topology')
@@ -2486,7 +2507,7 @@ def tasks_page():
             'last_run': sc.last_run.strftime('%Y-%m-%d %H:%M') if sc.last_run else '',
             'created': sc.created_at.strftime('%Y-%m-%d %H:%M') if sc.created_at else '',
             'active': bool(sc.is_active),
-            'settings': describe_scan_settings(sc.scan_type, sc.timing, sc.version_intensity, sc.custom_args, False, sc.skip_ping, sc.all_ports, sc.no_dns, sc.host_probes, sc.gentle, sc.udp),
+            'settings': describe_scan_settings(sc.scan_type, sc.timing, sc.version_intensity, sc.custom_args, False, sc.skip_ping, sc.all_ports, sc.no_dns, sc.host_probes, sc.gentle, sc.udp, sc.udp_top),
         }
     return render_template("tasks.html", schedules=schedules, target_scan_counts=target_scan_counts, schedule_details=schedule_details)
 
@@ -2853,7 +2874,7 @@ def api_job_details(job_id):
         'finished': job.finished_at.strftime('%Y-%m-%d %H:%M:%S') if job.finished_at else '',
         'duration': duration,
         'hosts': hosts, 'open_ports': open_ports, 'cves': cves, 'error': localized_job_error(error),
-        'settings': describe_scan_settings(job.scan_type, job.timing, job.version_intensity, custom_args, job.multicast, job.skip_ping, job.all_ports, job.no_dns, job.host_probes, job.gentle, job.udp),
+        'settings': describe_scan_settings(job.scan_type, job.timing, job.version_intensity, custom_args, job.multicast, job.skip_ping, job.all_ports, job.no_dns, job.host_probes, job.gentle, job.udp, job.udp_top),
         'run': describe_run(job),
     })
 
@@ -2879,7 +2900,8 @@ def api_scan_command():
     host_probes = job_probes(scan_type, request.args.get('host_probes'))
     gentle = job_gentle(scan_type, request.args.get('gentle'))
     udp = job_udp(scan_type, request.args.get('udp'))
-    settings = describe_scan_settings(scan_type, timing, version_intensity, custom_args, multicast, skip_ping, all_ports, no_dns, host_probes, gentle, udp)
+    udp_top = job_udp_top(scan_type, udp, request.args.get('udp_top'))
+    settings = describe_scan_settings(scan_type, timing, version_intensity, custom_args, multicast, skip_ping, all_ports, no_dns, host_probes, gentle, udp, udp_top)
     settings['limit'] = {'max_addresses': ALL_PORTS_MAX_ADDRESSES}
     settings['internal'] = '-oX - --stats-every %s' % PROGRESS_EVERY
     resp = jsonify(settings)
@@ -2975,6 +2997,7 @@ def api_jobs():
             'host_probes': bool(j.host_probes),
             'gentle': bool(j.gentle),
             'udp': bool(j.udp),
+            'udp_top': j.udp_top,
             # for the "scan finished" toast. Only values that do NOT change between two polls: the Tasks page rebuilds its table when this JSON
             # differs from the last poll, so something like "seconds since it finished" would rebuild it every 3 seconds.
             'scan_label': scan_labels().get(j.scan_type, j.scan_type),
@@ -3136,9 +3159,10 @@ def create_schedule():
     host_probes = job_probes(scan_type, request.form.get('host_probes'))
     gentle = job_gentle(scan_type, request.form.get('gentle'))
     udp = job_udp(scan_type, request.form.get('udp'))
+    udp_top = job_udp_top(scan_type, udp, request.form.get('udp_top'))
     if gentle:
         timing = None      # Gentle sets the speed itself
-    refusal = scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp)
+    refusal = scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp, udp_top, timing)
     if refusal:
         flash(refusal, 'danger')
         return redirect(url_for('tasks_page'))
@@ -3181,7 +3205,7 @@ def create_schedule():
         is_active=True, created_by=current_user.id,
         owner_id=current_user.id,
         custom_args=custom_args if scan_type == 'custom' else None,
-        timing=timing, version_intensity=version_intensity, skip_ping=skip_ping, all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp,
+        timing=timing, version_intensity=version_intensity, skip_ping=skip_ping, all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp, udp_top=udp_top,
     )
     schedule.next_run = calc_next_run(schedule)
     db.session.add(schedule)
@@ -3267,9 +3291,10 @@ def rescan_job(job_id):
     host_probes = job_probes(scan_type, request.form.get('host_probes'))
     gentle = job_gentle(scan_type, request.form.get('gentle'))
     udp = job_udp(scan_type, request.form.get('udp'))
+    udp_top = job_udp_top(scan_type, udp, request.form.get('udp_top'))
     if gentle:
         timing = None      # Gentle sets the speed itself
-    refusal = scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp)
+    refusal = scan_option_refusal(target, skip_ping, all_ports, host_probes, gentle, udp, udp_top, timing)
     if refusal:
         flash(refusal, 'danger')
         return redirect(url_for('tasks_page'))
@@ -3288,7 +3313,7 @@ def rescan_job(job_id):
         custom_args=custom_args if scan_type == 'custom' else None,
         multicast=multicast if scan_type == 'discovery' else None,
         skip_ping=skip_ping,
-        all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp,
+        all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp, udp_top=udp_top,
     )
     db.session.add(new_job)
     db.session.commit()
@@ -3313,6 +3338,7 @@ def drilldown_scan(scan_id):
     host_probes = job_probes(scan_type, request.form.get('host_probes'))
     gentle = job_gentle(scan_type, request.form.get('gentle'))
     udp = job_udp(scan_type, request.form.get('udp'))
+    udp_top = job_udp_top(scan_type, udp, request.form.get('udp_top'))
     if gentle:
         timing = None      # Gentle sets the speed itself
 
@@ -3326,7 +3352,7 @@ def drilldown_scan(scan_id):
         flash(tr('flash.scan_type_invalid'), 'danger')
         return redirect(url_for('scan_detail', scan_id=scan_id))
 
-    refusal = scan_option_refusal(host_ip, skip_ping, all_ports, host_probes, gentle, udp)
+    refusal = scan_option_refusal(host_ip, skip_ping, all_ports, host_probes, gentle, udp, udp_top, timing)
     if refusal:
         flash(refusal, 'danger')
         return redirect(url_for('scan_detail', scan_id=scan_id))
@@ -3354,7 +3380,7 @@ def drilldown_scan(scan_id):
         custom_args=custom_args if scan_type == 'custom' else None,
         multicast=False if scan_type == 'discovery' else None,   # a drill-down never listens for mDNS/SSDP
         skip_ping=skip_ping,
-        all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp,
+        all_ports=all_ports, no_dns=no_dns, host_probes=host_probes, gentle=gentle, udp=udp, udp_top=udp_top,
     )
     db.session.add(new_job)
     # บันทึก IP ไว้ในรายชื่อ saved targets ถ้ายังไม่มี
@@ -3823,7 +3849,7 @@ def _report_context(job):
     scan = {'id': job.id, 'number': job.id,      # screen Job # and URL /scan/<id> always use the same job.id
             'scan_type': job.scan_type, 'scan_name': job.scan_name, 'target': job.target, 'status': job.status,
             'started': job.timestamp, 'finished': job.finished_at, 'timing': job.timing, 'version_intensity': job.version_intensity,
-            'custom_args': custom_args, 'multicast': job.multicast, 'skip_ping': job.skip_ping, 'all_ports': job.all_ports, 'no_dns': job.no_dns, 'host_probes': job.host_probes, 'gentle': job.gentle, 'udp': job.udp,
+            'custom_args': custom_args, 'multicast': job.multicast, 'skip_ping': job.skip_ping, 'all_ports': job.all_ports, 'no_dns': job.no_dns, 'host_probes': job.host_probes, 'gentle': job.gentle, 'udp': job.udp, 'udp_top': job.udp_top,
             'nmap_version': scan_run_info(job).get('nmap'),
             'run': describe_run(job, lang='th'), 'run_facts': scan_run_info(job), 'owner': job.owner.username if job.owner else '', 'triggered_by': job.triggered_by or 'manual'}
     try:
